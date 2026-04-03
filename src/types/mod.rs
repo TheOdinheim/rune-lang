@@ -14,3 +14,6 @@ mod effects_tests;
 
 #[cfg(test)]
 mod capability_tests;
+
+#[cfg(test)]
+mod program_tests;

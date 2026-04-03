@@ -1116,4 +1116,388 @@ impl<'ctx> TypeChecker<'ctx> {
         self.check_expr(body);
         self.unit_type()
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Top-level declaration checking (M2 Layer 4)
+    // ═════════════════════════════════════════════════════════════════
+
+    /// Check an entire source file. Two-pass approach:
+    /// 1. Register all declarations (types, functions, capabilities, effects)
+    /// 2. Check all bodies against the populated environment
+    pub fn check_source_file(&mut self, file: &SourceFile) {
+        // Pass 1: register all top-level names.
+        for item in &file.items {
+            self.register_item(item);
+        }
+        // Pass 2: check all bodies.
+        for item in &file.items {
+            self.check_item(item);
+        }
+    }
+
+    // ── Pass 1: registration ────────────────────────────────────────
+
+    fn register_item(&mut self, item: &Item) {
+        match &item.kind {
+            ItemKind::Function(decl) => self.register_function(decl),
+            ItemKind::StructDef(def) => self.register_struct(def),
+            ItemKind::EnumDef(def) => self.register_enum(def),
+            ItemKind::TypeAlias(decl) => self.register_type_alias(decl),
+            ItemKind::Capability(decl) => self.register_capability(decl),
+            ItemKind::Effect(decl) => self.register_effect(decl),
+            ItemKind::TraitDef(def) => self.register_trait(def),
+            ItemKind::Const(decl) => self.register_const(decl),
+            ItemKind::Policy(decl) => self.register_policy(decl),
+            ItemKind::ImplBlock(_) => {} // impl blocks checked in pass 2
+            ItemKind::Module(_) | ItemKind::Use(_) => {} // deferred to M7
+        }
+    }
+
+    fn register_function(&mut self, decl: &FnDecl) {
+        let sig = &decl.signature;
+        let param_types: Vec<TypeId> = sig.params.iter().map(|p| {
+            self.ctx.resolve_type_expr(&p.ty)
+        }).collect();
+        let return_type = sig.return_type.as_ref()
+            .map(|t| self.ctx.resolve_type_expr(t))
+            .unwrap_or_else(|| self.unit_type());
+        let effects: Vec<String> = sig.effects.iter()
+            .filter_map(|p| p.segments.last().map(|s| s.name.clone()))
+            .collect();
+
+        // Detect capability-typed parameters for required_capabilities.
+        let required_caps: Vec<String> = sig.params.iter().filter_map(|p| {
+            if let TypeExprKind::Named { path, .. } = &p.ty.kind {
+                let name = path.segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                if self.ctx.lookup(name).map_or(false, |s| matches!(s, Symbol::Capability { .. })) {
+                    return Some(name.to_string());
+                }
+            }
+            None
+        }).collect();
+
+        let result = self.ctx.define(
+            &sig.name.name,
+            Symbol::Function {
+                params: param_types,
+                return_type,
+                effects,
+                required_capabilities: required_caps,
+                span: sig.name.span,
+            },
+            sig.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_struct(&mut self, def: &StructDef) {
+        let struct_ty = self.intern(Type::Named {
+            name: def.name.name.clone(),
+            args: Vec::new(),
+        });
+        let result = self.ctx.define(
+            &def.name.name,
+            Symbol::Type { ty: struct_ty, span: def.name.span },
+            def.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_enum(&mut self, def: &EnumDef) {
+        let enum_ty = self.intern(Type::Named {
+            name: def.name.name.clone(),
+            args: Vec::new(),
+        });
+        let result = self.ctx.define(
+            &def.name.name,
+            Symbol::Type { ty: enum_ty, span: def.name.span },
+            def.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_type_alias(&mut self, decl: &TypeAliasDecl) {
+        let aliased_ty = self.ctx.resolve_type_expr(&decl.ty);
+        let result = self.ctx.define(
+            &decl.name.name,
+            Symbol::Type { ty: aliased_ty, span: decl.name.span },
+            decl.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_capability(&mut self, decl: &CapabilityDecl) {
+        let ops: Vec<crate::types::ty::CapabilityOp> = decl.items.iter().filter_map(|item| {
+            if let CapabilityItemKind::Function(sig) = &item.kind {
+                let param_types: Vec<TypeId> = sig.params.iter()
+                    .map(|p| self.ctx.resolve_type_expr(&p.ty))
+                    .collect();
+                let ret = sig.return_type.as_ref()
+                    .map(|t| self.ctx.resolve_type_expr(t))
+                    .unwrap_or_else(|| self.unit_type());
+                Some(crate::types::ty::CapabilityOp {
+                    name: sig.name.name.clone(),
+                    params: param_types,
+                    return_type: ret,
+                })
+            } else {
+                None
+            }
+        }).collect();
+
+        let cap_ty = self.intern(Type::Capability {
+            name: decl.name.name.clone(),
+            operations: ops,
+        });
+        let result = self.ctx.define(
+            &decl.name.name,
+            Symbol::Capability { ty: cap_ty, span: decl.name.span },
+            decl.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_effect(&mut self, decl: &EffectDecl) {
+        let ops: Vec<crate::types::ty::EffectOp> = decl.operations.iter().map(|sig| {
+            let param_types: Vec<TypeId> = sig.params.iter()
+                .map(|p| self.ctx.resolve_type_expr(&p.ty))
+                .collect();
+            let ret = sig.return_type.as_ref()
+                .map(|t| self.ctx.resolve_type_expr(t))
+                .unwrap_or_else(|| self.unit_type());
+            crate::types::ty::EffectOp {
+                name: sig.name.name.clone(),
+                params: param_types,
+                return_type: ret,
+            }
+        }).collect();
+
+        let effect_ty = self.intern(Type::Effect {
+            name: decl.name.name.clone(),
+            operations: ops,
+        });
+        let result = self.ctx.define(
+            &decl.name.name,
+            Symbol::Effect { ty: effect_ty, span: decl.name.span },
+            decl.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_trait(&mut self, def: &TraitDef) {
+        let trait_ty = self.intern(Type::Named {
+            name: def.name.name.clone(),
+            args: Vec::new(),
+        });
+        let result = self.ctx.define(
+            &def.name.name,
+            Symbol::Type { ty: trait_ty, span: def.name.span },
+            def.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_const(&mut self, decl: &ConstDecl) {
+        let ty = self.ctx.resolve_type_expr(&decl.ty);
+        let result = self.ctx.define(
+            &decl.name.name,
+            Symbol::Variable { ty, is_mut: false, span: decl.name.span },
+            decl.name.span,
+        );
+        if let Err(e) = result {
+            self.error(e.message, e.span);
+        }
+    }
+
+    fn register_policy(&mut self, _decl: &PolicyDecl) {
+        // Policies don't introduce a name into the type scope.
+        // Rules are checked in pass 2.
+    }
+
+    // ── Pass 2: body checking ───────────────────────────────────────
+
+    fn check_item(&mut self, item: &Item) {
+        match &item.kind {
+            ItemKind::Function(decl) => self.check_function_decl(decl),
+            ItemKind::Policy(decl) => self.check_policy(decl),
+            ItemKind::Const(decl) => self.check_const_decl(decl),
+            ItemKind::TraitDef(def) => self.check_trait_def(def),
+            ItemKind::ImplBlock(block) => self.check_impl_block(block),
+            // Types registered in pass 1; no body to check.
+            ItemKind::StructDef(_)
+            | ItemKind::EnumDef(_)
+            | ItemKind::TypeAlias(_)
+            | ItemKind::Capability(_)
+            | ItemKind::Effect(_)
+            | ItemKind::Module(_)
+            | ItemKind::Use(_) => {}
+        }
+    }
+
+    fn check_function_decl(&mut self, decl: &FnDecl) {
+        let sig = &decl.signature;
+        let Some(body) = &decl.body else { return };
+
+        self.ctx.enter_scope();
+
+        // Register parameters in scope.
+        for param in &sig.params {
+            let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let _ = self.ctx.define(
+                &param.name.name,
+                Symbol::Variable {
+                    ty: param_ty,
+                    is_mut: param.is_mut,
+                    span: param.name.span,
+                },
+                param.name.span,
+            );
+        }
+
+        // Enter effect context.
+        let effects: Vec<String> = sig.effects.iter()
+            .filter_map(|p| p.segments.last().map(|s| s.name.clone()))
+            .collect();
+        self.enter_function_effects(&sig.name.name, effects);
+
+        // Enter capability context from capability-typed parameters.
+        let caps: Vec<String> = sig.params.iter().filter_map(|p| {
+            if let TypeExprKind::Named { path, .. } = &p.ty.kind {
+                let name = path.segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                if self.ctx.lookup(name).map_or(false, |s| matches!(s, Symbol::Capability { .. })) {
+                    return Some(name.to_string());
+                }
+            }
+            None
+        }).collect();
+        self.enter_function_capabilities(&sig.name.name, caps);
+
+        // Check body.
+        let body_ty = self.check_expr(body);
+
+        // Verify return type matches declaration.
+        if let Some(ret_expr) = &sig.return_type {
+            let declared_ret = self.ctx.resolve_type_expr(ret_expr);
+            if !self.types_compatible(declared_ret, body_ty) {
+                self.error(
+                    format!(
+                        "function `{}` declared return type `{}`, but body evaluates to `{}`",
+                        sig.name.name,
+                        self.type_name(declared_ret),
+                        self.type_name(body_ty),
+                    ),
+                    sig.name.span,
+                );
+            }
+        }
+
+        self.exit_function_capabilities();
+        self.exit_function_effects();
+        self.ctx.exit_scope();
+    }
+
+    fn check_policy(&mut self, decl: &PolicyDecl) {
+        for rule in &decl.rules {
+            self.check_rule(rule, &decl.name.name);
+        }
+    }
+
+    fn check_rule(&mut self, rule: &RuleDef, policy_name: &str) {
+        self.ctx.enter_scope();
+
+        // Register rule parameters.
+        for param in &rule.params {
+            let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let _ = self.ctx.define(
+                &param.name.name,
+                Symbol::Variable {
+                    ty: param_ty,
+                    is_mut: param.is_mut,
+                    span: param.name.span,
+                },
+                param.name.span,
+            );
+        }
+
+        // Check when-clause is Bool.
+        if let Some(when_expr) = &rule.when_clause {
+            let when_ty = self.check_expr(when_expr);
+            let bool_ty = self.bool_type();
+            if !self.types_compatible(when_ty, bool_ty) {
+                self.error(
+                    format!(
+                        "policy `{}`, rule `{}`: when-clause must be Bool, found `{}`",
+                        policy_name,
+                        rule.name.name,
+                        self.type_name(when_ty),
+                    ),
+                    when_expr.span,
+                );
+            }
+        }
+
+        // Check body evaluates to PolicyDecision.
+        let body_ty = self.check_expr(&rule.body);
+        let policy_ty = self.policy_decision_type();
+        if !self.types_compatible(body_ty, policy_ty) {
+            self.error(
+                format!(
+                    "policy rule `{}` must return a governance decision (permit, deny, escalate, or quarantine), but the body evaluates to `{}`",
+                    rule.name.name,
+                    self.type_name(body_ty),
+                ),
+                rule.body.span,
+            );
+        }
+
+        self.ctx.exit_scope();
+    }
+
+    fn check_const_decl(&mut self, decl: &ConstDecl) {
+        let declared_ty = self.ctx.resolve_type_expr(&decl.ty);
+        let value_ty = self.check_expr(&decl.value);
+        if !self.types_compatible(declared_ty, value_ty) {
+            self.error(
+                format!(
+                    "const `{}` declared type `{}`, but initializer evaluates to `{}`",
+                    decl.name.name,
+                    self.type_name(declared_ty),
+                    self.type_name(value_ty),
+                ),
+                decl.name.span,
+            );
+        }
+    }
+
+    fn check_trait_def(&mut self, def: &TraitDef) {
+        for item in &def.items {
+            if let TraitItemKind::Function(fn_decl) = &item.kind {
+                if fn_decl.body.is_some() {
+                    self.check_function_decl(fn_decl);
+                }
+            }
+        }
+    }
+
+    fn check_impl_block(&mut self, block: &ImplBlock) {
+        for item in &block.items {
+            if let ItemKind::Function(fn_decl) = &item.kind {
+                self.check_function_decl(fn_decl);
+            }
+        }
+    }
 }

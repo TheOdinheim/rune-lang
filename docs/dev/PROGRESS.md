@@ -25,7 +25,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 | Milestone | Target | Status |
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
-| M2: Core type system | Month 6 | **In Progress** — Layer 3b done (capability checking) |
+| M2: Core type system | Month 6 | **In Progress** — Layer 4 done (full program checking) |
 | M3: Cranelift backend | Month 9 | Not started |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
@@ -94,9 +94,18 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Symbol::Function extended with required_capabilities field
   - Per-capability error reporting for precise diagnostics
 
+- **M2 Layer 4: Top-level declaration checking — full program type checking** (24 tests)
+  - Two-pass approach: register all declarations, then check all bodies
+  - Forward references: functions can call each other regardless of declaration order
+  - Policy rule checking: body must return PolicyDecision, governance-aware error messages
+  - Function body checking: return type verification, effect/capability context integration
+  - All declaration types handled: functions, policies, structs, enums, traits, impls, capabilities, effects, consts, type aliases
+  - Capability/Effect symbols accepted in type position (first-class types)
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
 - ~~M2 Layer 3: Effect tracking — first pillar enforcement~~ **Done** (23 tests)
 - ~~M2 Layer 3b: Capability checking — Zero Trust pillar enforcement~~ **Done** (18 tests)
-- M2 Layer 4: Type error diagnostics with governance-aware messages
+- ~~M2 Layer 4: Top-level declaration checking — full program type checking~~ **Done** (24 tests)
+- M2 Layer 5: Type error diagnostics with governance-aware messages

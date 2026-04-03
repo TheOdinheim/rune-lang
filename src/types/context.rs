@@ -214,6 +214,8 @@ impl TypeContext {
                     })
                 }
             }
+            // Capabilities and effects are first-class types in RUNE.
+            Some(Symbol::Capability { ty, .. }) | Some(Symbol::Effect { ty, .. }) => *ty,
             Some(_) => {
                 // Found but not a type.
                 self.errors.push(TypeError {
