@@ -24,8 +24,8 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 
 | Milestone | Target | Status |
 |-----------|--------|--------|
-| M1: Parser + AST | Month 3 | **In Progress** |
-| M2: Core type system | Month 6 | Not started |
+| M1: Parser + AST | Month 3 | **Complete** |
+| M2: Core type system | Month 6 | **In Progress** — Layer 1 done (type repr + symbol table) |
 | M3: Cranelift backend | Month 9 | Not started |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
@@ -63,8 +63,16 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Pratt parsing with correct operator precedence (11 levels, 17 binary ops)
   - Error recovery: synchronize on `;` / `}` and continue parsing
 
+- **M2 Layer 1: Type representation and symbol table** (33 tests)
+  - Type enum with primitives, composites, inference vars, error type
+  - Governance-specific types: Capability, AttestedModel, PolicyDecision, Effect
+  - TypeId handles + TypeTable arena for interning
+  - ScopeStack with lexical scoping (define, lookup, shadow, enter/exit)
+  - TypeContext: builtins, type interning, AST TypeExpr → TypeId resolution
+  - Fresh type variable generation for inference
+
 ## What's Next
 
-- M1 is feature-complete — all deliverables done
-- Consider additional edge-case tests, fuzzing, or stress testing
-- Begin M2 planning: core type system with pillar enforcement
+- M2 Layer 2: Type checker — walk the AST and assign types to expressions
+- M2 Layer 3: Pillar enforcement (capability checking, effect tracking)
+- M2 Layer 4: Type error diagnostics with governance-aware messages

@@ -217,3 +217,63 @@ cargo test: 136 passed (49 lexer + 87 parser), 0 failed
 - **Assumed Breach:** secure_zone parsed as first-class expression with explicit capability requirements
 - **Zero Trust Throughout:** capability declarations, attest expressions, and perform/handle for effects all parsed as core grammar, not afterthoughts
 - **No Single Points of Failure:** Error recovery ensures one malformed declaration doesn't prevent parsing the rest of the file
+
+---
+
+## 2026-04-03 — M2 Layer 1: Type Representation and Symbol Table
+
+### What was built
+
+Internal type representation, symbol table with lexical scoping, and type context with AST-to-type resolution. This is the foundation for the type checker — data structures only, no checking logic yet.
+
+### Files created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| src/types/mod.rs | Module declarations | 6 |
+| src/types/ty.rs | Type enum, TypeId, TypeTable, TypeVarId | ~220 |
+| src/types/scope.rs | ScopeStack, Symbol enum, lexical scoping | ~160 |
+| src/types/context.rs | TypeContext, builtin registration, type resolution | ~200 |
+| src/types/tests.rs | 33 tests for all type system data structures | ~340 |
+
+### Type representation (Type enum)
+
+- **Primitives:** Int, Float, Bool, String, Unit
+- **Composite:** Named (with resolved generic args), Function (with effects), Tuple, Ref
+- **Inference:** Var(TypeVarId) for unification
+- **Error recovery:** Error type — operations on Error produce Error, preventing cascading diagnostics
+- **Governance-specific (unique to RUNE):**
+  - Capability { name, operations } — capability token types (Zero Trust)
+  - AttestedModel { signer, policy, architecture } — trust chain as type info (Zero Trust)
+  - PolicyDecision — type of permit/deny/escalate/quarantine (Security Baked In)
+  - Effect { name, operations } — effect type declarations (Security Baked In)
+
+### Symbol table (ScopeStack)
+
+- Stack of lexical scopes with HashMap<String, Symbol> per scope
+- Symbol variants: Variable, Function, Type, Capability, Effect
+- lookup() walks child → parent for name resolution
+- define() rejects redefinition within the same scope, allows shadowing across scopes
+- enter_scope() / exit_scope() for blocks, functions, modules
+
+### Type context (TypeContext)
+
+- Owns TypeTable (type interning arena) + ScopeStack + inference variable counter
+- Registers builtins on creation: Int, Float, Bool, String, PolicyDecision, i32, i64, f32, f64, bool
+- intern_type() stores types and deduplicates primitives
+- resolve_type_expr() bridges AST TypeExpr → internal TypeId
+- fresh_type_var() creates new inference variables
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 169 passed (49 lexer + 87 parser + 33 types), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** Effect type is first-class in Type enum; functions carry effect lists in their type
+- **Assumed Breach:** ScopeStack enforces isolation boundaries — each scope is a compartment
+- **No Single Points of Failure:** Error type prevents cascading failures in type checking
+- **Zero Trust Throughout:** Capability and AttestedModel are primitive types, not library wrappers
