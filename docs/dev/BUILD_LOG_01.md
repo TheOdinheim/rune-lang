@@ -277,3 +277,63 @@ cargo test: 169 passed (49 lexer + 87 parser + 33 types), 0 failed
 - **Assumed Breach:** ScopeStack enforces isolation boundaries — each scope is a compartment
 - **No Single Points of Failure:** Error type prevents cascading failures in type checking
 - **Zero Trust Throughout:** Capability and AttestedModel are primitive types, not library wrappers
+
+---
+
+## 2026-04-03 — M2 Layer 2 Pass 1: Type Checker for Expressions and Statements
+
+### What was built
+
+Type checker that walks the AST and assigns types to every expression, statement, and block. This is the core inference engine — given a parsed function body, it produces a TypeId for each node and collects type errors without cascading.
+
+### Files created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| src/types/checker.rs | TypeChecker struct — check_expr, check_block, check_stmt, compatibility | ~460 |
+| src/types/checker_tests.rs | 55 tests covering all expression kinds and error paths | ~340 |
+
+### Expression checking implemented
+
+- **Literals:** Int, Float, Bool, String → direct type assignment
+- **Identifiers:** scope lookup → type from Symbol, error for undefined
+- **Binary ops:** arithmetic (numeric), comparison (→Bool), logical (Bool), bitwise (Int)
+- **Unary ops:** Neg (numeric), Not (Bool), BitNot (Int)
+- **Function calls:** arity check, argument type check, return type extraction
+- **If/else:** Bool condition, branch type compatibility, no-else → Unit
+- **Match:** scrutinee type, arm type consistency, guard must be Bool
+- **Blocks:** enter scope, check stmts, tail expr type or Unit
+- **For/While:** condition must be Bool (while), body is Unit
+- **Let bindings:** infer from initializer, check annotation match, register in scope
+- **Assignment/CompoundAssign:** type compatibility checks
+- **Return/Break/Continue:** return carries value type, others are Unit
+- **Governance decisions:** permit/deny/escalate/quarantine → PolicyDecision
+- **Governance expressions:** attest → Bool, audit → block type, secure_zone/unsafe_ffi → block type
+- **Tuples:** collect element types into Tuple type
+- **Struct literals, Range, Perform, Handle:** stub to fresh type vars for future passes
+
+### Statement checking
+
+- `Expr` statement: check and discard type → Unit
+- `TailExpr`: check and return expression type
+- `Item` statement: Unit (item declarations checked in future pass)
+
+### Type compatibility
+
+- Structural equality with TypeId comparison
+- Error type propagation: Error is compatible with everything (prevents cascading)
+- Type variables compatible with everything (for future unification)
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 224 passed (49 lexer + 87 parser + 33 types + 55 checker), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** Governance decisions are type-checked to produce PolicyDecision; attest expressions verified to return Bool
+- **Assumed Breach:** Scope isolation enforced during block checking — variables don't leak across boundaries
+- **No Single Points of Failure:** Error type absorbs operations without cascading; multiple errors collected per check
+- **Zero Trust Throughout:** Undefined variables produce errors immediately; function call arity strictly enforced

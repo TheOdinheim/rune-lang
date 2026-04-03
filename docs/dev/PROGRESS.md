@@ -25,7 +25,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 | Milestone | Target | Status |
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
-| M2: Core type system | Month 6 | **In Progress** — Layer 1 done (type repr + symbol table) |
+| M2: Core type system | Month 6 | **In Progress** — Layer 2 Pass 1 done (type checker) |
 | M3: Cranelift backend | Month 9 | Not started |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
@@ -71,8 +71,15 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - TypeContext: builtins, type interning, AST TypeExpr → TypeId resolution
   - Fresh type variable generation for inference
 
+- **M2 Layer 2 Pass 1: Type checker for expressions and statements** (55 tests)
+  - TypeChecker walks AST, assigns TypeId to every expression
+  - All expression kinds checked: literals, binary/unary ops, calls, if/else, match, blocks, loops
+  - Governance decisions → PolicyDecision; attest → Bool; audit/secure_zone/unsafe_ffi → block type
+  - Let bindings with type annotation checking, scope registration
+  - Error type propagation prevents cascading diagnostics
+
 ## What's Next
 
-- M2 Layer 2: Type checker — walk the AST and assign types to expressions
+- ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
 - M2 Layer 3: Pillar enforcement (capability checking, effect tracking)
 - M2 Layer 4: Type error diagnostics with governance-aware messages
