@@ -68,3 +68,73 @@ cargo build: clean, no warnings
 
 - **Security Baked In:** Every token carries a Span for precise, auditable error reporting
 - **Zero Trust Throughout:** No assumptions about input validity; every error path produces an actionable diagnostic
+
+---
+
+## 2026-04-03 — AST Node Definitions
+
+### What was built
+
+Complete AST data structure hierarchy for RUNE's governance-first syntax. No parser yet — these are the types the parser will produce.
+
+### Files created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| src/ast/mod.rs | Module declaration | 1 |
+| src/ast/nodes.rs | All AST node types | ~470 |
+
+### Node categories
+
+**Top-level items (ItemKind):** Policy, Capability, Effect, TypeAlias, StructDef, EnumDef, ImplBlock, TraitDef, Function, Module, Use, Const
+
+**Governance constructs:**
+- `PolicyDecl` — policy blocks containing rules
+- `RuleDef` — rules with params, when-clause, and governance decision body
+- `CapabilityDecl` — capability types with function signatures, require/grant/revoke
+- `EffectDecl` — effect types with operation signatures
+
+**Type system:**
+- `StructDef` with generic params and fields
+- `EnumDef` with Unit/Tuple/Struct variant forms
+- `ImplBlock` for methods and trait implementations
+- `TraitDef` with associated types and method signatures
+- `GenericParam` with bounds
+- `TypeExpr` — Named, Tuple, Function, Unit, Reference
+
+**Expressions (ExprKind):** 30 variants including:
+- Literals, identifiers, paths
+- Binary/unary operators (BinOp: 17 variants, UnaryOp: 3 variants)
+- Call, FieldAccess, MethodCall, Index
+- If/else, Match, For, While, Block, Return, Break, Continue
+- Let binding, Assign, CompoundAssign
+- Governance: Permit, Deny, Escalate, Quarantine, Attest, Audit, SecureZone, UnsafeFfi
+- Effects: Perform, Handle
+- StructLiteral, Tuple, Range
+
+**Patterns (PatternKind):** Wildcard, Binding, Literal, Constructor, Struct, Tuple, Path
+
+**Supporting types:** Block, Stmt, MatchArm, Handler, FieldInit, FieldPattern, Param, Ident, Path
+
+### Design decisions
+
+- Every node carries a Span — no exceptions
+- `Box<T>` for all recursive types (Expr contains Expr)
+- Governance decisions (permit/deny/escalate/quarantine) are expression variants, not statements — they are values
+- `FnSignature` separated from `FnDecl` so traits, capabilities, and effects can reuse signatures without bodies
+- `VariantFields` enum (Unit/Tuple/Struct) handles all Rust-style enum variant forms
+- Patterns are a first-class AST concept for match arms and future let-pattern destructuring
+
+### Test results
+
+```
+cargo build: clean, no warnings
+cargo test: 49 passed (existing lexer tests), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** Effect annotations on function signatures; audit/attest as first-class expressions
+- **Assumed Breach:** SecureZone node models isolation boundaries with explicit capability requirements
+- **No Single Points of Failure:** AST can represent linear type annotations (future M2 work)
+- **Zero Trust Throughout:** Capability declarations are top-level items, not afterthoughts

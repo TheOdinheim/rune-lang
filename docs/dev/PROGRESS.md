@@ -13,7 +13,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 | Lexer / tokenizer | **Done** (49 tests passing) |
 | Token types for RUNE syntax | **Done** (all keyword, symbol, literal categories) |
 | Recursive descent parser | Not started |
-| AST node definitions | Not started |
+| AST node definitions | **Done** (all governance, type, expression, pattern nodes) |
 | Source location tracking (spans) | **Done** (Span struct with file_id, offsets, line, column) |
 | Basic diagnostic / error reporting | **Done** (LexError with clear messages + spans) |
 | Unit tests for lexer | **Done** (49 tests: keywords, literals, operators, errors, integration) |
@@ -47,8 +47,16 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Full Span tracking (file_id, byte offsets, line, column)
   - Clear error messages for all invalid input paths
 
+- **AST node definitions complete** — full type hierarchy for RUNE syntax
+  - Governance: PolicyDecl, RuleDef, CapabilityDecl, EffectDecl
+  - Types: StructDef, EnumDef, TypeAlias, ImplBlock, TraitDef, generics
+  - Functions: FnDecl, FnSignature, Param, effect annotations
+  - Expressions: literals, binary/unary ops, calls, field access, control flow
+  - Governance expressions: attest, audit, secure_zone, unsafe_ffi, permit/deny/escalate/quarantine
+  - Patterns: wildcard, binding, literal, constructor, struct, tuple
+  - Modules: ModuleDecl, UseDecl, Path
+
 ## What's Next
 
-- Define AST node types
 - Begin recursive descent parser
 - Parser error recovery strategy
