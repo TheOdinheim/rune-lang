@@ -4,21 +4,45 @@ use crate::types::context::{TypeContext, TypeError};
 use crate::types::scope::Symbol;
 use crate::types::ty::{Type, TypeId};
 
+// ═══════════════════════════════════════════════════════════════════════
+// Effect context — tracks which effects are allowed in the current scope
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A single frame in the effect context stack.
+///
+/// Each function body pushes a frame with its declared effects.
+/// `unsafe_ffi` blocks push a frame that suppresses all effect checking.
+#[derive(Debug, Clone)]
+struct EffectFrame {
+    /// The name of the function/context (for error messages).
+    context_name: String,
+    /// Effects declared by this function. Empty = pure.
+    allowed_effects: Vec<String>,
+    /// True inside `unsafe_ffi { ... }` blocks — suppresses all checking.
+    suppress_checking: bool,
+}
+
 /// Type checker for RUNE expressions and statements.
 ///
 /// Walks AST nodes, assigns types to expressions, and reports type errors.
 /// Errors are collected rather than aborting so that multiple issues can
 /// be reported in a single pass.
 ///
-/// This is Pass 1 of M2 Layer 2: expressions and statements only.
-/// Top-level declarations (structs, enums, traits, impls) come in Pass 2.
+/// Effect tracking (M2 Layer 3): every function call is checked against
+/// the current function's declared effects. Undeclared effects are type
+/// errors — this is the "Security Baked In" pillar enforcement.
 pub struct TypeChecker<'ctx> {
     pub ctx: &'ctx mut TypeContext,
+    /// Stack of effect frames. The top frame is the current function context.
+    effect_stack: Vec<EffectFrame>,
 }
 
 impl<'ctx> TypeChecker<'ctx> {
     pub fn new(ctx: &'ctx mut TypeContext) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+            effect_stack: Vec::new(),
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -82,6 +106,154 @@ impl<'ctx> TypeChecker<'ctx> {
 
     fn policy_decision_type(&mut self) -> TypeId {
         self.intern(Type::PolicyDecision)
+    }
+
+    // ── Effect context management ─────────────────────────────────────
+
+    /// Enter a function body with the given declared effects.
+    pub fn enter_function_effects(&mut self, name: &str, effects: Vec<String>) {
+        self.effect_stack.push(EffectFrame {
+            context_name: name.to_string(),
+            allowed_effects: effects,
+            suppress_checking: false,
+        });
+    }
+
+    /// Exit the current function's effect context.
+    pub fn exit_function_effects(&mut self) {
+        self.effect_stack.pop();
+    }
+
+    /// Push a suppressed frame (for `unsafe_ffi` blocks).
+    fn enter_unsafe_ffi(&mut self) {
+        self.effect_stack.push(EffectFrame {
+            context_name: "<unsafe_ffi>".to_string(),
+            allowed_effects: Vec::new(),
+            suppress_checking: true,
+        });
+    }
+
+    /// Push a frame that adds the `audit` effect to current allowed set.
+    fn enter_audit_block(&mut self) {
+        let mut allowed = self.current_allowed_effects();
+        if !allowed.contains(&"audit".to_string()) {
+            allowed.push("audit".to_string());
+        }
+        self.effect_stack.push(EffectFrame {
+            context_name: "<audit>".to_string(),
+            allowed_effects: allowed,
+            suppress_checking: false,
+        });
+    }
+
+    fn exit_effect_frame(&mut self) {
+        self.effect_stack.pop();
+    }
+
+    /// Get the current allowed effects (from top of stack).
+    fn current_allowed_effects(&self) -> Vec<String> {
+        if let Some(frame) = self.effect_stack.last() {
+            frame.allowed_effects.clone()
+        } else {
+            // No effect context = no constraints (top-level, not in a function).
+            Vec::new()
+        }
+    }
+
+    /// Whether effect checking is currently suppressed (inside unsafe_ffi).
+    fn effects_suppressed(&self) -> bool {
+        self.effect_stack.iter().rev().any(|f| f.suppress_checking)
+    }
+
+    /// Whether we are currently inside a function's effect context.
+    fn in_effect_context(&self) -> bool {
+        !self.effect_stack.is_empty()
+    }
+
+    /// Get the name of the current function context (for error messages).
+    fn current_context_name(&self) -> String {
+        for frame in self.effect_stack.iter().rev() {
+            if !frame.context_name.starts_with('<') {
+                return frame.context_name.clone();
+            }
+        }
+        "<unknown>".to_string()
+    }
+
+    /// Check that calling a function with the given effects is allowed
+    /// in the current context.
+    fn check_callee_effects(
+        &mut self,
+        callee_name: &str,
+        callee_effects: &[String],
+        span: Span,
+    ) {
+        if !self.in_effect_context() || self.effects_suppressed() || callee_effects.is_empty() {
+            return;
+        }
+
+        let allowed = self.current_allowed_effects();
+        let ctx_name = self.current_context_name();
+
+        // Check if the current context is pure (no declared effects).
+        let is_pure = allowed.is_empty();
+
+        if is_pure {
+            self.error(
+                format!(
+                    "pure function `{}` cannot call `{}` which performs effects [{}]",
+                    ctx_name,
+                    callee_name,
+                    callee_effects.join(", "),
+                ),
+                span,
+            );
+            return;
+        }
+
+        // Report each missing effect individually.
+        for effect in callee_effects {
+            if !allowed.contains(effect) {
+                self.error(
+                    format!(
+                        "function `{}` performs effect `{}`, but the current function `{}` does not declare this effect",
+                        callee_name, effect, ctx_name,
+                    ),
+                    span,
+                );
+            }
+        }
+    }
+
+    /// Check that a `perform` expression's effect is allowed.
+    fn check_perform_effect(&mut self, effect_name: &str, span: Span) {
+        if !self.in_effect_context() || self.effects_suppressed() {
+            return;
+        }
+
+        let allowed = self.current_allowed_effects();
+        let ctx_name = self.current_context_name();
+
+        if allowed.is_empty() {
+            self.error(
+                format!(
+                    "pure function `{}` cannot perform effect `{}`",
+                    ctx_name, effect_name,
+                ),
+                span,
+            );
+            return;
+        }
+
+        if !allowed.contains(&effect_name.to_string()) {
+            self.error(
+                format!(
+                    "effect `{}` is not declared by function `{}`",
+                    effect_name, ctx_name,
+                ),
+                span,
+            );
+        }
     }
 
     // ── Expression type checking ─────────────────────────────────────
@@ -211,16 +383,34 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.check_expr(inner);
                 self.bool_type()
             }
-            ExprKind::Audit(body) => self.check_expr(body),
+            ExprKind::Audit(body) => {
+                // Audit blocks implicitly carry the `audit` effect.
+                self.enter_audit_block();
+                let ty = self.check_expr(body);
+                self.exit_effect_frame();
+                ty
+            }
             ExprKind::SecureZone { body, .. } => self.check_expr(body),
-            ExprKind::UnsafeFfi(body) => self.check_expr(body),
+            ExprKind::UnsafeFfi(body) => {
+                // unsafe_ffi suppresses effect checking inside the block.
+                self.enter_unsafe_ffi();
+                let ty = self.check_expr(body);
+                self.exit_effect_frame();
+                ty
+            }
 
             // ── Effects ──────────────────────────────────────────
-            ExprKind::Perform { effect: _, args } => {
+            ExprKind::Perform { effect, args } => {
                 for arg in args {
                     self.check_expr(arg);
                 }
-                // Full effect resolution comes later.
+                // Extract the effect name from the path (e.g., "Network" from Network::fetch).
+                let effect_name = if let Some(first) = effect.segments.first() {
+                    first.name.clone()
+                } else {
+                    "<unknown>".to_string()
+                };
+                self.check_perform_effect(&effect_name, expr.span);
                 self.unit_type()
             }
             ExprKind::Handle { expr: inner, handlers } => {
@@ -470,13 +660,27 @@ impl<'ctx> TypeChecker<'ctx> {
     // ── Function calls ───────────────────────────────────────────────
 
     fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
+        // Extract callee name for effect error messages before checking.
+        let callee_name = match &callee.kind {
+            ExprKind::Identifier(name) => Some(name.clone()),
+            ExprKind::Path(path) => path.segments.last().map(|s| s.name.clone()),
+            _ => None,
+        };
+
         let callee_ty = self.check_expr(callee);
         let arg_types: Vec<TypeId> = args.iter().map(|a| self.check_expr(a)).collect();
 
         let callee_resolved = self.get(callee_ty).clone();
 
         match callee_resolved {
-            Type::Function { params, return_type, .. } => {
+            Type::Function { params, return_type, ref effects } => {
+                // ── Effect checking (M2 Layer 3) ────────────────
+                if !effects.is_empty() {
+                    let name = callee_name.as_deref().unwrap_or("<anonymous>");
+                    self.check_callee_effects(name, effects, span);
+                }
+
+                // ── Arity and type checking ─────────────────────
                 if params.len() != arg_types.len() {
                     self.error(
                         format!(

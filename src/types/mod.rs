@@ -8,3 +8,6 @@ mod tests;
 
 #[cfg(test)]
 mod checker_tests;
+
+#[cfg(test)]
+mod effects_tests;

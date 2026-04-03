@@ -25,7 +25,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 | Milestone | Target | Status |
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
-| M2: Core type system | Month 6 | **In Progress** — Layer 2 Pass 1 done (type checker) |
+| M2: Core type system | Month 6 | **In Progress** — Layer 3 done (effect tracking) |
 | M3: Cranelift backend | Month 9 | Not started |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
@@ -78,8 +78,17 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Let bindings with type annotation checking, scope registration
   - Error type propagation prevents cascading diagnostics
 
+- **M2 Layer 3: Effect tracking — first pillar enforcement** (23 tests)
+  - Effect context stack with EffectFrame tracking allowed effects per scope
+  - Function call effect checking: callee effects must be subset of caller's declared effects
+  - Pure function guarantee: no-effects functions cannot call effectful functions
+  - `unsafe_ffi` blocks suppress effect checking; `audit` blocks implicitly add audit effect
+  - `perform` expressions checked against allowed effect set
+  - Per-effect error reporting for precise diagnostics
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
-- M2 Layer 3: Pillar enforcement (capability checking, effect tracking)
+- ~~M2 Layer 3: Effect tracking — first pillar enforcement~~ **Done** (23 tests)
+- M2 Layer 3b: Capability checking (Zero Trust Throughout pillar)
 - M2 Layer 4: Type error diagnostics with governance-aware messages

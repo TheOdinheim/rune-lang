@@ -337,3 +337,51 @@ cargo test: 224 passed (49 lexer + 87 parser + 33 types + 55 checker), 0 failed
 - **Assumed Breach:** Scope isolation enforced during block checking — variables don't leak across boundaries
 - **No Single Points of Failure:** Error type absorbs operations without cascading; multiple errors collected per check
 - **Zero Trust Throughout:** Undefined variables produce errors immediately; function call arity strictly enforced
+
+---
+
+## 2026-04-03 — M2 Layer 3: Effect Tracking — First Pillar Enforcement
+
+### What was built
+
+Effect tracking system that enforces the "Security Baked In" pillar: the compiler now REJECTS code that performs undeclared side effects. This is where RUNE stops being a standard type checker and becomes a governance-first language.
+
+### Files modified / created
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/types/checker.rs | Extended TypeChecker with effect tracking | +130 lines (EffectFrame, effect context stack, checking methods) |
+| src/types/effects_tests.rs | 23 effect tracking tests | ~300 lines (new file) |
+| src/types/mod.rs | Added effects_tests module | +3 lines |
+
+### Effect tracking implemented
+
+- **Effect context stack:** Stack of `EffectFrame` structs tracking allowed effects per scope. Function bodies push a frame with their declared effects; `unsafe_ffi` and `audit` blocks push modified frames.
+- **Function call checking:** When calling a function, the callee's declared effects are checked against the current allowed set. Missing effects produce individual type errors with clear messages.
+- **Pure function guarantee:** Functions with no declared effects are pure. Calling any effectful function from a pure context is a hard error: "pure function `validate` cannot call `fetch` which performs effects [network, io]"
+- **Per-effect error reporting:** When a caller is missing multiple effects, each missing effect is reported as a separate error — no bundling.
+- **`unsafe_ffi` suppression:** Inside `unsafe_ffi { ... }` blocks, all effect checking is suppressed. The block itself is tracked for audit but does not propagate restrictions inward.
+- **`audit` implicit effect:** `audit { ... }` blocks implicitly add the `audit` effect to the allowed set, enabling audit-related function calls inside the block even from pure contexts.
+- **`perform` checking:** `perform Effect::operation()` verifies the named effect is in the current allowed set.
+- **No-context passthrough:** Code not inside a function effect context (top-level, scripts) is not checked — effect enforcement is opt-in at the function declaration level.
+
+### Design decisions
+
+- **Stack-based rather than set-based:** Effect frames form a stack, with each frame able to override (suppress via unsafe_ffi) or extend (add via audit) the parent's effects. This naturally handles nesting.
+- **Error-per-effect reporting:** Missing effects are reported individually rather than as a single "missing effects: [a, b, c]" error. This helps developers fix one effect at a time.
+- **Pure = empty effects:** No separate `pure` keyword parsing needed. A function with no declared effects IS pure. The error messages use "pure function" language for clarity.
+- **Frame name tracking:** Each frame stores the enclosing function name so error messages reference the caller, not internal scopes.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 247 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** This IS the Security Baked In enforcement — undeclared effects are compile-time errors, not runtime surprises. Pure functions are guaranteed side-effect-free.
+- **Assumed Breach:** unsafe_ffi blocks are isolated escape hatches — effect suppression does not leak beyond the block boundary.
+- **No Single Points of Failure:** Errors are collected, not aborted on — all effect violations in a function are reported in one pass.
+- **Zero Trust Throughout:** No ambient authority for effects — every function must explicitly declare what it can do, and the compiler enforces it.
