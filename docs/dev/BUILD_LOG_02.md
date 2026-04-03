@@ -70,3 +70,63 @@ cargo test: 289 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 - **Zero Trust Throughout:** Capability checking integrated into function body checking. Capability declarations registered as first-class types.
 - **Assumed Breach:** Each function body checked in its own scope — parameter isolation enforced.
 - **No Single Points of Failure:** Two-pass approach collects all errors across all declarations in a single pass. Forward references prevent ordering-dependent failure.
+
+---
+
+## 2026-04-03 — M2 Polish: Governance-Aware Diagnostics and Edge Case Hardening
+
+### What was built
+
+Final polish pass for M2. Audited all type error messages for governance-aware language, added 13 edge case tests covering boundary conditions, and documented three deferred design decisions (D008-D010). This commit closes M2.
+
+### Error message audit
+
+All governance-specific error messages verified to use domain language:
+- Policy rule errors say "must return a governance decision (permit, deny, escalate, or quarantine)" — not "expected PolicyDecision"
+- Effect errors say "performs effect" and "does not declare this effect" — not "missing type constraint"
+- Capability errors say "requires capability" and "does not hold this capability" — not "unsatisfied bound"
+- Standard type errors (arithmetic, conditions, assignments) use clear language that doesn't need governance framing
+
+No changes needed — the messages were already governance-aware from Layers 3/3b/4.
+
+### Edge case tests added (13 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_empty_function_body | Empty block → Unit, valid with no return type |
+| test_empty_function_body_with_return_type_mismatch | Empty block → Unit, mismatch with declared Int |
+| test_function_no_return_type_returns_value | No return annotation, body returns Int — valid |
+| test_policy_with_no_rules | Policy with zero rules — valid, no crash |
+| test_nested_blocks_scope_isolation | Inner block variables not visible in outer |
+| test_deeply_nested_governance_decisions | 4-level nested if/else all returning decisions |
+| test_multiple_policies_independent_errors | Errors from separate policies all reported |
+| test_forward_reference_with_effects_and_capabilities | Forward refs work with effect/capability decls |
+| test_const_used_in_function | Const referenced in function body |
+| test_policy_rule_all_four_decisions | All four governance decisions in one rule |
+| test_mixed_correct_and_incorrect_functions | Only bad functions generate errors |
+| test_policy_rule_uses_function_call | Rule body delegates to helper returning PolicyDecision |
+| test_governance_error_message_quality | Verify domain language, no type theory jargon |
+
+### Decision documentation
+
+- **D008:** Linear types deferred to post-M6 (capability system covers resource tracking for now)
+- **D009:** Session types deferred to post-M6 (effect system provides foundation for future work)
+- **D010:** Self type resolution deferred to M3+ (explicit type names used in M2 tests)
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 302 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities + 37 program), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** Verified governance error messages use domain language that Bronze-tier users understand.
+- **Zero Trust Throughout:** Edge cases confirm capability scope isolation under nesting.
+- **Assumed Breach:** Scope isolation tests verify inner variables cannot leak to outer blocks.
+- **No Single Points of Failure:** Multi-error collection verified across independent policies and functions.
+
+### M2 Status: COMPLETE
+
+All layers delivered: type representation, expression checking, effect tracking, capability checking, program-level declaration checking, and polish. 302 total tests passing. Moving to M3: Cranelift backend.

@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-**M1: Parser + AST** — Target: Month 3
+**M2: Core type system** — **COMPLETE**
 
 Hand-written recursive descent parser producing a fully located AST with basic diagnostic reporting.
 
@@ -25,7 +25,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 | Milestone | Target | Status |
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
-| M2: Core type system | Month 6 | **In Progress** — Layer 4 done (full program checking) |
+| M2: Core type system | Month 6 | **Complete** |
 | M3: Cranelift backend | Month 9 | Not started |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
@@ -102,10 +102,18 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - All declaration types handled: functions, policies, structs, enums, traits, impls, capabilities, effects, consts, type aliases
   - Capability/Effect symbols accepted in type position (first-class types)
 
+- **M2 Polish: Governance-aware diagnostics and edge case hardening** (13 new tests)
+  - Error message audit: all governance errors use domain language (not type theory jargon)
+  - Edge case tests: empty bodies, no return type, policy with no rules, nested blocks, deep nesting
+  - Multi-error collection: independent errors from multiple policies/functions all reported
+  - Governance error quality: messages list all four decisions (permit, deny, escalate, quarantine)
+  - Decision documentation: D008 (linear types), D009 (session types), D010 (Self type) deferred
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
 - ~~M2 Layer 3: Effect tracking — first pillar enforcement~~ **Done** (23 tests)
 - ~~M2 Layer 3b: Capability checking — Zero Trust pillar enforcement~~ **Done** (18 tests)
 - ~~M2 Layer 4: Top-level declaration checking — full program type checking~~ **Done** (24 tests)
-- M2 Layer 5: Type error diagnostics with governance-aware messages
+- ~~M2 Polish: Governance-aware diagnostics and edge case hardening~~ **Done** (13 new edge case tests)
+- M3: Cranelift backend

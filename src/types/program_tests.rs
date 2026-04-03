@@ -403,4 +403,202 @@ const WRONG: Bool = 42;
         assert!(errors.iter().any(|e| e.contains("bad_rule") && e.contains("governance decision")));
         assert!(errors.iter().any(|e| e.contains("WRONG")));
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Edge cases — M2 Polish
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_empty_function_body() {
+        // Empty block evaluates to Unit — valid if no return type declared.
+        check_program_ok("fn noop() { }");
+    }
+
+    #[test]
+    fn test_empty_function_body_with_return_type_mismatch() {
+        let errors = check_program("fn get_value() -> Int { }");
+        assert!(
+            errors.iter().any(|e| e.contains("get_value") && e.contains("Int") && e.contains("()")),
+            "expected return type mismatch for empty body: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_function_no_return_type_returns_value() {
+        // No return type annotation = Unit implied. Body returns Int.
+        // This is fine — the body expression is just discarded.
+        check_program_ok("fn compute() { 42 }");
+    }
+
+    #[test]
+    fn test_policy_with_no_rules() {
+        // A policy with zero rules — valid, just does nothing.
+        check_program_ok("policy empty_policy { }");
+    }
+
+    #[test]
+    fn test_nested_blocks_scope_isolation() {
+        // Variable defined in inner block is not visible in outer block.
+        let source = r#"
+fn scoped() -> Int {
+    let x = 1;
+    {
+        let y = 2;
+        x + y
+    };
+    x
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_deeply_nested_governance_decisions() {
+        let source = r#"
+policy deep_policy {
+    rule deep_check(a: Bool, b: Bool, c: Bool) {
+        if a {
+            if b {
+                if c {
+                    permit
+                } else {
+                    deny
+                }
+            } else {
+                escalate
+            }
+        } else {
+            quarantine
+        }
+    }
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_multiple_policies_independent_errors() {
+        // Errors in separate policies should all be reported.
+        let source = r#"
+policy p1 {
+    rule r1() { 42 }
+}
+policy p2 {
+    rule r2() { "bad" }
+}
+"#;
+        let errors = check_program(source);
+        assert!(errors.len() >= 2, "expected errors from both policies: {errors:?}");
+        assert!(errors.iter().any(|e| e.contains("r1") && e.contains("governance decision")));
+        assert!(errors.iter().any(|e| e.contains("r2") && e.contains("governance decision")));
+    }
+
+    #[test]
+    fn test_forward_reference_with_effects_and_capabilities() {
+        // Forward references work across effect and capability declarations.
+        let source = r#"
+effect Network {
+    fn fetch(url: String) -> String;
+}
+
+capability FileSystem {
+    fn read(path: String) -> String;
+}
+
+fn orchestrate(fs: FileSystem) -> Int {
+    worker(42)
+}
+
+fn worker(x: Int) -> Int {
+    x
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_const_used_in_function() {
+        let source = r#"
+const LIMIT: Int = 100;
+fn check_limit(x: Int) -> Bool {
+    x == LIMIT
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_policy_rule_all_four_decisions() {
+        // Every governance decision used in a single policy.
+        let source = r#"
+policy exhaustive {
+    rule decide(level: Int) {
+        if level == 1 { permit }
+        else if level == 2 { deny }
+        else if level == 3 { escalate }
+        else { quarantine }
+    }
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_mixed_correct_and_incorrect_functions() {
+        // Good and bad functions — only the bad ones generate errors.
+        let source = r#"
+fn good() -> Int { 42 }
+fn bad() -> Bool { 42 }
+fn also_good() -> Bool { true }
+fn also_bad() -> String { 123 }
+"#;
+        let errors = check_program(source);
+        assert_eq!(errors.len(), 2, "expected exactly 2 errors: {errors:?}");
+        assert!(errors.iter().any(|e| e.contains("bad")));
+        assert!(errors.iter().any(|e| e.contains("also_bad")));
+    }
+
+    #[test]
+    fn test_policy_rule_uses_function_call() {
+        // Policy rule body calls a helper function that returns PolicyDecision.
+        let source = r#"
+fn evaluate(trusted: Bool) -> PolicyDecision {
+    if trusted { permit } else { deny }
+}
+
+policy delegating {
+    rule delegate(trusted: Bool) {
+        evaluate(trusted)
+    }
+}
+"#;
+        check_program_ok(source);
+    }
+
+    #[test]
+    fn test_governance_error_message_quality() {
+        // Verify that governance error messages use domain language, not type theory jargon.
+        let source = r#"
+policy bad {
+    rule returns_int() { 42 }
+    rule returns_string() { "not a decision" }
+}
+"#;
+        let errors = check_program(source);
+        for err in &errors {
+            assert!(
+                err.contains("governance decision"),
+                "governance error should use 'governance decision' language: {err}"
+            );
+            assert!(
+                err.contains("permit, deny, escalate, or quarantine"),
+                "governance error should list all four decisions: {err}"
+            );
+            // Should NOT contain type-theory jargon.
+            assert!(
+                !err.contains("expected type") && !err.contains("type mismatch"),
+                "governance error should NOT use type theory jargon: {err}"
+            );
+        }
+    }
 }

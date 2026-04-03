@@ -57,3 +57,31 @@
 **Decision:** The parser accepts the `SelfValue` keyword token as a valid identifier in parameter names and expression positions, mapping it to the string "self".
 
 **Rationale:** `self` is both a keyword (for the type system) and a valid name in method parameters (`fn method(self: Self)`). Rather than complicating the lexer, we handle this in the parser where context makes the distinction clear. This mirrors Rust's approach.
+
+## D008 — 2026-04-03: Linear types deferred to post-M6
+
+**Decision:** RUNE will not enforce linear types (use-exactly-once semantics) in M1-M6. The type system uses standard ownership without linearity constraints.
+
+**Rationale:** Linear types would strengthen the "Assumed Breach" pillar by preventing resource leaks (unclosed connections, unreleased locks). However, they add significant complexity to type inference and error messages. The graduated adoption model (Bronze-Platinum) means we can add linearity as a Platinum-level feature without breaking Bronze/Silver code. The capability system already provides the primary resource-tracking mechanism for M2.
+
+**Future consideration:** When added, linear types should integrate with capability tokens — a `FileSystem` capability held linearly would guarantee cleanup on every code path.
+
+**Pillars served:** Assumed Breach (future — resource leak prevention).
+
+## D009 — 2026-04-03: Session types deferred to post-M6
+
+**Decision:** RUNE will not implement session types (protocol-typed channels) in M1-M6.
+
+**Rationale:** Session types enforce communication protocol adherence at compile time, which aligns with "Zero Trust Throughout" (every message exchange follows a verified protocol). However, they require a sophisticated substructural type system and integration with the effect system for channel operations. The effect system in M2 provides a foundation — session types can be layered on top of effects in a future milestone.
+
+**Future consideration:** Session types + effects would let RUNE verify that an API gateway follows its protocol (authenticate → authorize → serve) at compile time. This is a key differentiator for governance languages.
+
+**Pillars served:** Zero Trust Throughout (future — protocol enforcement).
+
+## D010 — 2026-04-03: Self type resolution deferred to M3+
+
+**Decision:** The `Self` type (referring to the implementing type inside trait/impl blocks) is not resolved in M2. Tests use explicit type names instead (e.g., `fn increment(self: Counter)` rather than `fn increment(self: Self)`).
+
+**Rationale:** Resolving `Self` requires tracking which type an impl block targets and threading that through the type context during method checking. This is straightforward but couples trait/impl checking more tightly than needed for M2's goals. M2 focuses on expression-level type checking, effect tracking, capability checking, and program-level declaration checking. Self resolution fits naturally into M3 when impl blocks gain full method dispatch.
+
+**Pillars served:** No Single Points of Failure (keeping M2 focused prevents scope creep that could delay milestone delivery).
