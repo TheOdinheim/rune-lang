@@ -12,13 +12,13 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 |-------------|--------|
 | Lexer / tokenizer | **Done** (49 tests passing) |
 | Token types for RUNE syntax | **Done** (all keyword, symbol, literal categories) |
-| Recursive descent parser | Not started |
+| Recursive descent parser | **Done** (Pratt parsing, all 3 phases, error recovery) |
 | AST node definitions | **Done** (all governance, type, expression, pattern nodes) |
 | Source location tracking (spans) | **Done** (Span struct with file_id, offsets, line, column) |
-| Basic diagnostic / error reporting | **Done** (LexError with clear messages + spans) |
+| Basic diagnostic / error reporting | **Done** (LexError + ParseError with clear messages + spans) |
 | Unit tests for lexer | **Done** (49 tests: keywords, literals, operators, errors, integration) |
-| Unit tests for parser | Not started |
-| Integration tests (parse full .rune files) | Not started |
+| Unit tests for parser | **Done** (87 tests: all constructs, precedence, patterns, errors, integration) |
+| Integration tests (parse full .rune files) | **Done** (realistic multi-construct RUNE program test) |
 
 ### Milestones Overview
 
@@ -56,7 +56,15 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Patterns: wildcard, binding, literal, constructor, struct, tuple
   - Modules: ModuleDecl, UseDecl, Path
 
+- **Recursive descent parser complete** — all three phases implemented
+  - Phase 1: governance core (policy, rules, functions, let, expressions, if/else, return)
+  - Phase 2: type system (struct, enum, type alias, impl, trait, match, patterns, generics)
+  - Phase 3: governance-specific (capability, effect, attest, audit, secure_zone, unsafe_ffi, perform, handle, modules, use, const)
+  - Pratt parsing with correct operator precedence (11 levels, 17 binary ops)
+  - Error recovery: synchronize on `;` / `}` and continue parsing
+
 ## What's Next
 
-- Begin recursive descent parser
-- Parser error recovery strategy
+- M1 is feature-complete — all deliverables done
+- Consider additional edge-case tests, fuzzing, or stress testing
+- Begin M2 planning: core type system with pillar enforcement

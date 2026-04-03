@@ -138,3 +138,82 @@ cargo test: 49 passed (existing lexer tests), 0 failed
 - **Assumed Breach:** SecureZone node models isolation boundaries with explicit capability requirements
 - **No Single Points of Failure:** AST can represent linear type annotations (future M2 work)
 - **Zero Trust Throughout:** Capability declarations are top-level items, not afterthoughts
+
+---
+
+## 2026-04-03 — Recursive Descent Parser (All Three Phases)
+
+### What was built
+
+Complete hand-written recursive descent parser for the entire RUNE grammar. Pratt parsing (precedence climbing) for expressions with correct operator precedence. Error recovery via synchronization (skip to `;` or `}`) to report multiple errors per file.
+
+### Files created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| src/parser/mod.rs | Module declarations | 7 |
+| src/parser/parser.rs | Parser struct, top-level items, error recovery | ~470 |
+| src/parser/expr.rs | Expression parsing with Pratt precedence climbing | ~380 |
+| src/parser/types.rs | Type expression parsing | ~100 |
+| src/parser/patterns.rs | Pattern parsing for match arms | ~160 |
+| src/parser/tests.rs | 87 comprehensive tests | ~490 |
+
+### Phase 1 — Governance core
+
+- Policy declarations with rules
+- Rule definitions with params, when-clause guards, governance decision bodies
+- Governance decisions as expressions: permit, deny, escalate, quarantine
+- Function declarations with optional return types and effect annotations
+- Let bindings (with optional mut and type annotation)
+- Literals (int, float, string, bool), identifiers, paths
+- Binary operations with Pratt precedence (17 operators, 11 precedence levels)
+- Unary operations (!, -, ~)
+- Function calls, method calls, field access, indexing
+- Block expressions, if/else (including else-if chains)
+- Return, break, continue
+- Assignment (=) and compound assignment (+=, -=, *=, /=, %=)
+
+### Phase 2 — Type system
+
+- Struct definitions with generic params and bounds
+- Enum definitions with unit, tuple, and struct variants
+- Type aliases
+- Impl blocks (bare and trait-for-type)
+- Trait definitions with method signatures and default bodies
+- Type expressions: named with generics, tuple, function, unit, reference
+- Match expressions with 7 pattern kinds (wildcard, binding, literal, constructor, struct, tuple, path)
+- Match guards (when clauses)
+- For and while loops
+
+### Phase 3 — Governance-specific + modules
+
+- Capability declarations with fn signatures, require/grant/revoke
+- Effect declarations with operation signatures
+- Attest expressions: attest(expr)
+- Audit blocks: audit { body }
+- Secure zone blocks: secure_zone { capabilities } { body }
+- Unsafe FFI blocks: unsafe_ffi { body }
+- Perform expressions: perform Effect::op(args)
+- Handle expressions with handlers
+- Module declarations (inline and external)
+- Use declarations with optional aliases
+- Const declarations
+
+### Issues encountered and fixed
+
+1. `self` keyword not accepted as identifier in parameter positions — fixed by extending `expect_identifier()` to accept `SelfValue` token
+2. `self` not accepted in expression position — fixed by adding `SelfValue` case to `parse_prefix()`
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 136 passed (49 lexer + 87 parser), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** Every AST node carries a Span; error recovery reports multiple diagnostics per file; clear error messages at every parse failure point
+- **Assumed Breach:** secure_zone parsed as first-class expression with explicit capability requirements
+- **Zero Trust Throughout:** capability declarations, attest expressions, and perform/handle for effects all parsed as core grammar, not afterthoughts
+- **No Single Points of Failure:** Error recovery ensures one malformed declaration doesn't prevent parsing the rest of the file

@@ -43,3 +43,17 @@
 **Future consideration:** If RUNE adds effect polymorphism (functions generic over which effects they perform), this field will need to become a more expressive type like `Vec<EffectExpr>` where `EffectExpr` can represent both concrete effect paths and effect type variables.
 
 **Pillars served:** Security Baked In (effect tracking is the enforcement mechanism for this pillar).
+
+## D006 — 2026-04-03: Pratt parsing for expression precedence
+
+**Decision:** Use Pratt parsing (precedence climbing) for all expression parsing rather than a grammar-rule-per-precedence-level approach.
+
+**Rationale:** Pratt parsing handles arbitrary precedence levels in a single function with a precedence table, rather than requiring N mutually recursive functions (one per precedence level). This is cleaner, easier to extend when adding new operators, and matches how production compilers (rustc, V8) handle expression parsing. Our 11 precedence levels and 17 binary operators are handled by one `parse_expr_bp` function and a lookup table.
+
+**Pillars served:** Security Baked In (simpler code = fewer bugs in precedence handling).
+
+## D007 — 2026-04-03: `self` accepted as identifier in parameter and expression positions
+
+**Decision:** The parser accepts the `SelfValue` keyword token as a valid identifier in parameter names and expression positions, mapping it to the string "self".
+
+**Rationale:** `self` is both a keyword (for the type system) and a valid name in method parameters (`fn method(self: Self)`). Rather than complicating the lexer, we handle this in the parser where context makes the distinction clear. This mirrors Rust's approach.
