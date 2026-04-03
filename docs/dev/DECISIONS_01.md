@@ -33,3 +33,13 @@
 **Rationale:** This is the standard approach used by Rust, C++, Swift, and most languages with both generics and comparison operators. The lexer cannot distinguish these without contextual knowledge of whether an expression or type is being parsed. Attempting to disambiguate in the lexer would violate the single-pass constraint and couple the lexer to parser state.
 
 **Pillars served:** Security Baked In (clean separation of concerns reduces misclassification bugs).
+
+## D005 — 2026-04-03: FnSignature effects field uses Vec<Path> for DSL phase
+
+**Decision:** The `effects` field on `FnSignature` is typed as `Vec<Path>`, meaning effect annotations reference effect declarations by path (e.g., `with effects { io, network }`).
+
+**Rationale:** For the DSL phase (M1-M6), path references to named effect declarations are sufficient. The effect system at this level verifies that declared effects exist and that functions don't perform undeclared effects. When the full effect system gets type-level tracking in M2, this field may evolve to carry richer type information (e.g., effect parameters, effect polymorphism, effect row types). Vec<Path> is the correct starting representation that doesn't prematurely constrain the design.
+
+**Future consideration:** If RUNE adds effect polymorphism (functions generic over which effects they perform), this field will need to become a more expressive type like `Vec<EffectExpr>` where `EffectExpr` can represent both concrete effect paths and effect type variables.
+
+**Pillars served:** Security Baked In (effect tracking is the enforcement mechanism for this pillar).
