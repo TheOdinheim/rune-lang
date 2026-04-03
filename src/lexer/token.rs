@@ -69,6 +69,8 @@ pub enum TokenKind {
     Let,
     Mut,
     Const,
+    Impl,
+    Trait,
     SelfValue, // `self` — the value
     // Note: `Self` (the type) can be added later as SelfType.
 
@@ -207,6 +209,8 @@ impl TokenKind {
             "let"    => Some(TokenKind::Let),
             "mut"    => Some(TokenKind::Mut),
             "const"  => Some(TokenKind::Const),
+            "impl"   => Some(TokenKind::Impl),
+            "trait"  => Some(TokenKind::Trait),
             "self"   => Some(TokenKind::SelfValue),
 
             // Capabilities

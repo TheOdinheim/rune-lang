@@ -43,6 +43,8 @@ mod tests {
         assert_eq!(kinds("let"), vec![TokenKind::Let]);
         assert_eq!(kinds("mut"), vec![TokenKind::Mut]);
         assert_eq!(kinds("const"), vec![TokenKind::Const]);
+        assert_eq!(kinds("impl"), vec![TokenKind::Impl]);
+        assert_eq!(kinds("trait"), vec![TokenKind::Trait]);
         assert_eq!(kinds("self"), vec![TokenKind::SelfValue]);
     }
 
