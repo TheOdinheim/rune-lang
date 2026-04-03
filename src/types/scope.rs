@@ -20,6 +20,7 @@ pub enum Symbol {
         params: Vec<TypeId>,
         return_type: TypeId,
         effects: Vec<String>,
+        required_capabilities: Vec<String>,
         span: Span,
     },
     /// A type definition (struct, enum, type alias).

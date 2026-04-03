@@ -11,3 +11,6 @@ mod checker_tests;
 
 #[cfg(test)]
 mod effects_tests;
+
+#[cfg(test)]
+mod capability_tests;

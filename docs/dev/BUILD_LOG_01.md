@@ -385,3 +385,50 @@ cargo test: 247 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 - **Assumed Breach:** unsafe_ffi blocks are isolated escape hatches — effect suppression does not leak beyond the block boundary.
 - **No Single Points of Failure:** Errors are collected, not aborted on — all effect violations in a function are reported in one pass.
 - **Zero Trust Throughout:** No ambient authority for effects — every function must explicitly declare what it can do, and the compiler enforces it.
+
+---
+
+## 2026-04-03 — M2 Layer 3b: Capability Checking — Zero Trust Pillar Enforcement
+
+### What was built
+
+Capability checking system that enforces the "Zero Trust Throughout" pillar: the compiler now REJECTS code that accesses resources without holding the required capability token. No ambient authority — every resource access requires an explicit, unforgeable capability.
+
+### Files modified / created
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/types/checker.rs | Extended TypeChecker with capability tracking | +85 lines (CapabilityFrame, capability stack, checking methods, secure_zone handling) |
+| src/types/scope.rs | Added required_capabilities to Symbol::Function | +1 field |
+| src/types/capability_tests.rs | 18 capability checking tests | ~340 lines (new file) |
+| src/types/mod.rs | Added capability_tests module | +3 lines |
+
+### Capability checking implemented
+
+- **Capability context stack:** Stack of `CapabilityFrame` structs tracking available capabilities per scope. Function bodies push a frame with capabilities from their parameters; `secure_zone` blocks push a frame with their listed capabilities.
+- **Function call checking:** When calling a function, the callee's `required_capabilities` are checked against the current available set. Missing capabilities produce individual type errors.
+- **secure_zone integration:** `secure_zone { FileSystem, Network } { body }` pushes a capability frame that makes the listed capabilities available inside the body. Capabilities do NOT leak outside the zone boundary.
+- **Nested scoping:** Inner `secure_zone` blocks inherit outer capabilities and add their own. Function capabilities combine with `secure_zone` capabilities.
+- **Symbol::Function extension:** Added `required_capabilities: Vec<String>` field to track which capabilities a function requires from its caller.
+- **No-context passthrough:** Code not inside a capability context (top-level) is not checked — capability enforcement is opt-in at the function level.
+
+### Design decisions
+
+- **Capabilities on Symbol, not Type:** `required_capabilities` lives on `Symbol::Function` rather than `Type::Function` because capabilities are a property of the function declaration (what it needs from its environment), not the function's type (what it accepts and returns). A function pointer doesn't carry capability requirements — only calling a named function triggers the check.
+- **secure_zone inherits parent capabilities:** A `secure_zone` inside a function that already holds capabilities accumulates them — the zone adds new capabilities without removing existing ones. This matches the "least privilege elevation" pattern.
+- **Per-capability error reporting:** Like effect checking, each missing capability is reported as a separate error for actionable diagnostics.
+- **Combined with effect checking:** Both systems are independent stacks that can be entered/exited independently. A function can have both effect declarations and capability requirements checked simultaneously.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 265 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities), 0 failed
+```
+
+### Pillars served
+
+- **Zero Trust Throughout:** This IS the Zero Trust enforcement — no ambient authority, every resource access requires an explicit capability token, capabilities cannot be forged or leaked across scope boundaries.
+- **Assumed Breach:** secure_zone blocks are isolation boundaries — capabilities provided inside do not escape to the outer scope, enforcing compartmentalization.
+- **Security Baked In:** Combined with effect tracking, the compiler now enforces two of four pillars at compile time: undeclared effects AND missing capabilities are hard errors.
+- **No Single Points of Failure:** Errors collected per-capability — all missing capabilities in a function are reported in one pass.

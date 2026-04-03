@@ -22,6 +22,22 @@ struct EffectFrame {
     suppress_checking: bool,
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Capability context — tracks which capabilities are available in scope
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A single frame in the capability context stack.
+///
+/// Each function body pushes a frame with capabilities from its parameters.
+/// `secure_zone` blocks push a frame with the listed capabilities.
+#[derive(Debug, Clone)]
+struct CapabilityFrame {
+    /// The name of the function/context (for error messages).
+    context_name: String,
+    /// Capabilities available in this scope.
+    available_capabilities: Vec<String>,
+}
+
 /// Type checker for RUNE expressions and statements.
 ///
 /// Walks AST nodes, assigns types to expressions, and reports type errors.
@@ -31,10 +47,17 @@ struct EffectFrame {
 /// Effect tracking (M2 Layer 3): every function call is checked against
 /// the current function's declared effects. Undeclared effects are type
 /// errors — this is the "Security Baked In" pillar enforcement.
+///
+/// Capability checking (M2 Layer 3b): every function call that requires
+/// capabilities is checked against the current scope's available capabilities.
+/// Missing capabilities are type errors — this is the "Zero Trust Throughout"
+/// pillar enforcement.
 pub struct TypeChecker<'ctx> {
     pub ctx: &'ctx mut TypeContext,
     /// Stack of effect frames. The top frame is the current function context.
     effect_stack: Vec<EffectFrame>,
+    /// Stack of capability frames. Tracks available capabilities per scope.
+    capability_stack: Vec<CapabilityFrame>,
 }
 
 impl<'ctx> TypeChecker<'ctx> {
@@ -42,6 +65,7 @@ impl<'ctx> TypeChecker<'ctx> {
         Self {
             ctx,
             effect_stack: Vec::new(),
+            capability_stack: Vec::new(),
         }
     }
 
@@ -256,6 +280,93 @@ impl<'ctx> TypeChecker<'ctx> {
         }
     }
 
+    // ── Capability context management ──────────────────────────────────
+
+    /// Enter a function body with the given available capabilities
+    /// (derived from capability-typed parameters).
+    pub fn enter_function_capabilities(&mut self, name: &str, capabilities: Vec<String>) {
+        self.capability_stack.push(CapabilityFrame {
+            context_name: name.to_string(),
+            available_capabilities: capabilities,
+        });
+    }
+
+    /// Exit the current function's capability context.
+    pub fn exit_function_capabilities(&mut self) {
+        self.capability_stack.pop();
+    }
+
+    /// Push a capability frame for a `secure_zone` block.
+    fn enter_secure_zone(&mut self, capabilities: Vec<String>) {
+        // Secure zone inherits parent capabilities and adds its own.
+        let mut all = self.current_available_capabilities();
+        for cap in capabilities {
+            if !all.contains(&cap) {
+                all.push(cap);
+            }
+        }
+        self.capability_stack.push(CapabilityFrame {
+            context_name: "<secure_zone>".to_string(),
+            available_capabilities: all,
+        });
+    }
+
+    fn exit_capability_frame(&mut self) {
+        self.capability_stack.pop();
+    }
+
+    /// Get the current available capabilities (from top of stack).
+    fn current_available_capabilities(&self) -> Vec<String> {
+        if let Some(frame) = self.capability_stack.last() {
+            frame.available_capabilities.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Whether we are currently inside a capability-tracked context.
+    fn in_capability_context(&self) -> bool {
+        !self.capability_stack.is_empty()
+    }
+
+    /// Get the name of the current function context for capability errors.
+    fn current_capability_context_name(&self) -> String {
+        for frame in self.capability_stack.iter().rev() {
+            if !frame.context_name.starts_with('<') {
+                return frame.context_name.clone();
+            }
+        }
+        "<unknown>".to_string()
+    }
+
+    /// Check that calling a function requiring specific capabilities is
+    /// allowed in the current context.
+    fn check_callee_capabilities(
+        &mut self,
+        callee_name: &str,
+        required_capabilities: &[String],
+        span: Span,
+    ) {
+        if !self.in_capability_context() || required_capabilities.is_empty() {
+            return;
+        }
+
+        let available = self.current_available_capabilities();
+        let ctx_name = self.current_capability_context_name();
+
+        for cap in required_capabilities {
+            if !available.contains(cap) {
+                self.error(
+                    format!(
+                        "function `{}` requires capability `{}`, but `{}` does not hold this capability",
+                        callee_name, cap, ctx_name,
+                    ),
+                    span,
+                );
+            }
+        }
+    }
+
     // ── Expression type checking ─────────────────────────────────────
 
     /// Check an expression and return its type.
@@ -390,7 +501,17 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.exit_effect_frame();
                 ty
             }
-            ExprKind::SecureZone { body, .. } => self.check_expr(body),
+            ExprKind::SecureZone { capabilities, body } => {
+                // secure_zone provides listed capabilities to the body.
+                let cap_names: Vec<String> = capabilities
+                    .iter()
+                    .filter_map(|p| p.segments.last().map(|s| s.name.clone()))
+                    .collect();
+                self.enter_secure_zone(cap_names);
+                let ty = self.check_expr(body);
+                self.exit_capability_frame();
+                ty
+            }
             ExprKind::UnsafeFfi(body) => {
                 // unsafe_ffi suppresses effect checking inside the block.
                 self.enter_unsafe_ffi();
@@ -449,7 +570,6 @@ impl<'ctx> TypeChecker<'ctx> {
         match self.ctx.lookup(name) {
             Some(Symbol::Variable { ty, .. }) => *ty,
             Some(Symbol::Function { return_type, params, effects, .. }) => {
-                // An identifier referencing a function yields the function type.
                 let params = params.clone();
                 let return_type = *return_type;
                 let effects = effects.clone();
@@ -660,11 +780,23 @@ impl<'ctx> TypeChecker<'ctx> {
     // ── Function calls ───────────────────────────────────────────────
 
     fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
-        // Extract callee name for effect error messages before checking.
+        // Extract callee name for effect/capability error messages.
         let callee_name = match &callee.kind {
             ExprKind::Identifier(name) => Some(name.clone()),
             ExprKind::Path(path) => path.segments.last().map(|s| s.name.clone()),
             _ => None,
+        };
+
+        // Look up required_capabilities from the symbol table before type-checking
+        // the callee expression (which yields a Type::Function without capability info).
+        let required_caps: Vec<String> = if let Some(ref name) = callee_name {
+            if let Some(Symbol::Function { required_capabilities, .. }) = self.ctx.lookup(name) {
+                required_capabilities.clone()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
         };
 
         let callee_ty = self.check_expr(callee);
@@ -678,6 +810,12 @@ impl<'ctx> TypeChecker<'ctx> {
                 if !effects.is_empty() {
                     let name = callee_name.as_deref().unwrap_or("<anonymous>");
                     self.check_callee_effects(name, effects, span);
+                }
+
+                // ── Capability checking (M2 Layer 3b) ───────────
+                if !required_caps.is_empty() {
+                    let name = callee_name.as_deref().unwrap_or("<anonymous>");
+                    self.check_callee_capabilities(name, &required_caps, span);
                 }
 
                 // ── Arity and type checking ─────────────────────

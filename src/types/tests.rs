@@ -271,6 +271,7 @@ mod tests {
                     params: vec![TypeId(0)],
                     return_type: TypeId(1),
                     effects: vec!["io".into()],
+                    required_capabilities: Vec::new(),
                     span,
                 },
                 span,
