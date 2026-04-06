@@ -4,3 +4,4 @@ pub mod parser;
 pub mod types;
 pub mod ir;
 pub mod codegen;
+pub mod compiler;

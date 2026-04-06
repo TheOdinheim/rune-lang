@@ -247,3 +247,43 @@ cargo test: 349 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 - **Assumed Breach:** Each WASM function is fully isolated. Parameters passed by value. No shared mutable state between policy evaluations.
 - **No Single Points of Failure:** If/else governance decisions both produce valid values (permit/deny/escalate/quarantine). No path through compiled code can fail to return a decision.
 - **Zero Trust Throughout:** Policy rules compile to exported functions callable by the host. The host controls invocation — WASM sandbox prevents the policy from reaching outside its bounds.
+
+---
+
+## 2026-04-06 — M3 Layer 3: WASM Module Packaging and Compiler CLI
+
+### What was built
+
+Standard `evaluate` entry point for compiled policy modules, a unified compilation pipeline, and a CLI for compiling .rune files to .rune.wasm. The evaluate function dispatches to all policy rules in the module and returns the first non-Permit decision (default-deny). This is the function that rune-python and rune-rs will call through the embedding API defined in RUNE_04.
+
+### Files modified / created
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/compiler/mod.rs | Unified compilation pipeline: lex → parse → type check → IR → WASM | new file, ~110 lines |
+| src/compiler/tests.rs | 18 tests: pipeline, error collection, evaluate wrapper, file roundtrip | new file, ~280 lines |
+| src/main.rs | CLI entry point: `rune build <file.rune>` → `<file.rune.wasm>` | rewritten, ~65 lines |
+| src/codegen/wasm_gen.rs | Added evaluate wrapper generation with policy rule dispatch | ~80 lines added |
+| src/lib.rs | Added compiler module | +1 line |
+
+### Key design decisions
+
+- **evaluate signature:** `evaluate(subject_id: i64, action: i64, resource_id: i64, risk_score: i64) -> i32`. Matches the PolicyRequest fields from RUNE_04 (subject, action, resource, context/risk). Returns PolicyDecision as i32.
+- **Default-deny:** If no policy rule returns non-Permit, evaluate returns Permit (all rules agree). If any rule returns Deny/Escalate/Quarantine, that wins immediately. This is first-non-permit-wins semantics per Zero Trust pillar.
+- **evaluate only generated for policy modules.** Modules with only plain functions (no policy rules) do not get an evaluate export. The evaluate wrapper identifies policy rules by their `::` naming convention (e.g., `access::check`).
+- **Parameter passing:** Evaluate's i64 params are passed positionally to policy rules. If a rule expects Bool (i32), an automatic i64→i32 wrap is inserted. Rules with fewer params get only the first N evaluate params.
+- **CompileError unification:** Single error type with phase tag (Lex/Parse/Type) and source location. All errors from all phases collected before reporting.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 367 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities + 37 program + 24 ir + 23 codegen + 18 compiler), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** The evaluate function is compiler-generated, not hand-written. Every policy module gets a standardized entry point with consistent semantics. No way to bypass the dispatch logic.
+- **Assumed Breach:** Each evaluate call is stateless — the WASM instance provides isolation. The evaluate wrapper cannot be influenced by previous calls (per RUNE_06 arena model).
+- **No Single Points of Failure:** Default-deny semantics: if any rule in the module denies, the overall decision is deny. No single rule failure can accidentally permit access.
+- **Zero Trust Throughout:** Default-deny on rule mismatch. The evaluate wrapper checks ALL policy rules — there is no short-circuit to Permit. Only unanimous Permit from all rules yields overall Permit.

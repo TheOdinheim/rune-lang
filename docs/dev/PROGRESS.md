@@ -4,7 +4,7 @@
 
 **M3: Cranelift backend** — Target: Month 9
 
-IR design, AST-to-IR lowering, and WASM code generation complete. RUNE programs compile to executable WASM and run end-to-end.
+IR design, AST-to-IR lowering, WASM code generation, module packaging, and compiler CLI complete. RUNE programs compile to .rune.wasm modules with a standard `evaluate` entry point.
 
 ### M1 Deliverables
 
@@ -26,7 +26,7 @@ IR design, AST-to-IR lowering, and WASM code generation complete. RUNE programs 
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
 | M2: Core type system | Month 6 | **Complete** |
-| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 (IR) + Layer 2 (WASM codegen) done |
+| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 (IR) + Layer 2 (WASM codegen) + Layer 3 (module packaging + CLI) done |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
 | M6: Toolchain MVP | Month 18 | Not started |
@@ -134,6 +134,16 @@ IR design, AST-to-IR lowering, and WASM code generation complete. RUNE programs 
   - Value type tracking in lowerer for correct WASM local types
   - Function return type pre-collection for forward reference support in calls
 
+- **M3 Layer 3: WASM module packaging and compiler CLI** (18 tests)
+  - Standard `evaluate(subject_id, action, resource_id, risk_score) → PolicyDecision` entry point
+  - evaluate dispatches to all policy rules, first-non-Permit-wins semantics
+  - Default-deny: if no rules match or module has no policies, returns Deny
+  - Unified compile pipeline: `compile_source()` → Result<WASM bytes, errors>
+  - CompileError unifies LexError, ParseError, TypeError with phase tags
+  - CLI: `rune build <file.rune>` → `<file.rune.wasm>` with error reporting
+  - File compilation roundtrip test: write .rune → compile → load .wasm → execute → verify
+  - Parameter passing: evaluate i64 params → rule params with automatic i64→i32 truncation
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
@@ -143,4 +153,5 @@ IR design, AST-to-IR lowering, and WASM code generation complete. RUNE programs 
 - ~~M2 Polish: Governance-aware diagnostics and edge case hardening~~ **Done** (13 new edge case tests)
 - M3 Layer 1: IR design and AST-to-IR lowering — **Done** (24 tests)
 - M3 Layer 2: WASM code generation — **Done** (23 execution tests)
-- M3 Layer 3: Optimization passes and advanced control flow
+- M3 Layer 3: Module packaging + compiler CLI — **Done** (18 compiler tests)
+- M3 Layer 4: Optimization passes and advanced control flow

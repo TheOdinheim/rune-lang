@@ -33,6 +33,12 @@ use crate::ir::nodes::{
 };
 
 /// Compile a RUNE IR module to WASM bytecode.
+///
+/// All IR functions are compiled and exported. Additionally, if the module
+/// contains policy rules (functions returning PolicyDecision), a standard
+/// `evaluate(subject_id: i64, action: i64, resource_id: i64, risk_score: i64) -> i32`
+/// wrapper is generated that dispatches to all policy rules and returns
+/// the first non-Permit decision (default-deny per Zero Trust pillar).
 pub fn compile_to_wasm(module: &IrModule) -> Vec<u8> {
     let mut wasm_module = Module::new();
 
@@ -47,6 +53,15 @@ pub fn compile_to_wasm(module: &IrModule) -> Vec<u8> {
     for (i, func) in module.functions.iter().enumerate() {
         func_index.insert(&func.name, i as u32);
     }
+
+    // Identify policy rules (functions returning PolicyDecision with `::`
+    // in their name, indicating they came from a policy block).
+    let policy_rules: Vec<(u32, &IrFunction)> = module.functions.iter()
+        .enumerate()
+        .filter(|(_, f)| f.return_type == IrType::PolicyDecision && f.name.contains("::"))
+        .map(|(i, f)| (i as u32, f))
+        .collect();
+    let needs_evaluate = !policy_rules.is_empty();
 
     // Phase 2: Declare types and function signatures.
     for (i, func) in module.functions.iter().enumerate() {
@@ -64,10 +79,28 @@ pub fn compile_to_wasm(module: &IrModule) -> Vec<u8> {
         export_section.export(&export_name, ExportKind::Func, i as u32);
     }
 
+    // Declare the evaluate wrapper if there are policy rules.
+    let evaluate_func_idx = module.functions.len() as u32;
+    if needs_evaluate {
+        // evaluate(subject_id: i64, action: i64, resource_id: i64, risk_score: i64) -> i32
+        type_section.ty().function(
+            vec![ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            vec![ValType::I32],
+        );
+        function_section.function(evaluate_func_idx);
+        export_section.export("evaluate", ExportKind::Func, evaluate_func_idx);
+    }
+
     // Phase 3: Generate code for each function.
     for func in &module.functions {
         let wasm_func = compile_function(func, &func_index);
         code_section.function(&wasm_func);
+    }
+
+    // Generate the evaluate wrapper.
+    if needs_evaluate {
+        let eval_func = compile_evaluate_wrapper(&policy_rules);
+        code_section.function(&eval_func);
     }
 
     // Assemble the module.
@@ -77,6 +110,56 @@ pub fn compile_to_wasm(module: &IrModule) -> Vec<u8> {
     wasm_module.section(&code_section);
 
     wasm_module.finish()
+}
+
+/// Generate the `evaluate` wrapper function.
+///
+/// Strategy: call each policy rule (passing evaluate's params as available),
+/// and return the first non-Permit decision. If all rules permit, return Permit.
+/// If no rules match the parameter count, return Deny (default-deny).
+///
+/// Governance constants: Permit=0, Deny=1, Escalate=2, Quarantine=3.
+fn compile_evaluate_wrapper(policy_rules: &[(u32, &IrFunction)]) -> Function {
+    // The evaluate function has 4 params: subject_id, action, resource_id, risk_score
+    // (all i64), locals 0-3.
+    // We need one extra local for storing each rule's decision result (i32).
+    let mut func = Function::new(vec![(1, ValType::I32)]);
+    let decision_local: u32 = 4; // first local after the 4 params
+
+    for &(idx, rule) in policy_rules {
+        // Push arguments for the policy rule call. Match rule params to
+        // evaluate params by position (up to 4). If a rule needs fewer,
+        // push only what it needs. Extra evaluate params are ignored.
+        let rule_param_count = rule.params.len();
+        for i in 0..rule_param_count.min(4) {
+            // Evaluate params are all i64, but rule params may expect i32 (Bool).
+            let param_wasm_ty = ir_type_to_wasm(&rule.params[i].ty);
+            func.instruction(&WasmInst::LocalGet(i as u32));
+            if param_wasm_ty == ValType::I32 {
+                // Truncate i64 → i32 for Bool/PolicyDecision params.
+                func.instruction(&WasmInst::I32WrapI64);
+            }
+        }
+
+        // Call the policy rule.
+        func.instruction(&WasmInst::Call(idx));
+        func.instruction(&WasmInst::LocalSet(decision_local));
+
+        // If decision != Permit (0), return it immediately.
+        func.instruction(&WasmInst::LocalGet(decision_local));
+        func.instruction(&WasmInst::I32Const(0)); // Permit
+        func.instruction(&WasmInst::I32Ne);
+        func.instruction(&WasmInst::If(wasm_encoder::BlockType::Empty));
+        func.instruction(&WasmInst::LocalGet(decision_local));
+        func.instruction(&WasmInst::Return);
+        func.instruction(&WasmInst::End);
+    }
+
+    // All rules returned Permit (or no rules matched) — return Permit.
+    func.instruction(&WasmInst::I32Const(0)); // Permit
+    func.instruction(&WasmInst::End);
+
+    func
 }
 
 /// Map IrType to WASM ValType.
