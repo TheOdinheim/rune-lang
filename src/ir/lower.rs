@@ -39,6 +39,18 @@ pub struct Lowerer {
     current_fn_name: String,
     /// Whether the current block has been terminated.
     block_terminated: bool,
+    /// Stack of loop contexts for break/continue. Each entry is (header_block, exit_block, result_ptr).
+    loop_stack: Vec<LoopContext>,
+}
+
+/// Context for a loop being lowered, enabling break/continue.
+struct LoopContext {
+    /// Block ID of the loop header (continue target).
+    header: BlockId,
+    /// Block ID of the loop exit (break target).
+    exit: BlockId,
+    /// Variable pointer for the loop result value (if any).
+    result_ptr: Option<Value>,
 }
 
 impl Lowerer {
@@ -54,6 +66,7 @@ impl Lowerer {
             function_return_types: HashMap::new(),
             current_fn_name: String::new(),
             block_terminated: false,
+            loop_stack: Vec::new(),
         }
     }
 
@@ -160,6 +173,7 @@ impl Lowerer {
         self.variables.clear();
         self.value_types.clear();
         self.block_terminated = false;
+        self.loop_stack.clear();
     }
 
     // ── Type mapping ─────────────────────────────────────────────────────
@@ -574,22 +588,77 @@ impl Lowerer {
                 val
             }
 
-            // ── Constructs deferred for later layers ────────────────
-            ExprKind::Match { .. }
-            | ExprKind::For { .. }
-            | ExprKind::While { .. }
-            | ExprKind::Break(_)
-            | ExprKind::Continue
-            | ExprKind::FieldAccess { .. }
+            // ── Match expression ────────────────────────────────────
+            ExprKind::Match { subject, arms } => {
+                self.lower_match(subject, arms)
+            }
+
+            // ── While loop ─────────────────────────────────────────
+            ExprKind::While { condition, body } => {
+                self.lower_while(condition, body)
+            }
+
+            // ── For loop (integer ranges only) ─────────────────────
+            ExprKind::For { binding, iterator, body } => {
+                self.lower_for(binding, iterator, body)
+            }
+
+            // ── Break ──────────────────────────────────────────────
+            ExprKind::Break(value) => {
+                if let Some(ctx) = self.loop_stack.last() {
+                    let exit = ctx.exit;
+                    let result_ptr = ctx.result_ptr;
+                    if let Some(val_expr) = value {
+                        let val = self.lower_expr(val_expr);
+                        if let Some(ptr) = result_ptr {
+                            self.emit(InstKind::Store { ptr, value: val }, IrType::Unit);
+                        }
+                    }
+                    if !self.block_terminated {
+                        self.terminate(Terminator::Branch(exit));
+                    }
+                }
+                self.emit(InstKind::UnitConst, IrType::Unit)
+            }
+
+            // ── Continue ───────────────────────────────────────────
+            ExprKind::Continue => {
+                if let Some(ctx) = self.loop_stack.last() {
+                    let header = ctx.header;
+                    if !self.block_terminated {
+                        self.terminate(Terminator::Branch(header));
+                    }
+                }
+                self.emit(InstKind::UnitConst, IrType::Unit)
+            }
+
+            // ── Compound assignment ────────────────────────────────
+            ExprKind::CompoundAssign { op, target, value } => {
+                let rhs = self.lower_expr(value);
+                if let ExprKind::Identifier(name) = &target.kind {
+                    if let Some((ptr, ty)) = self.variables.get(name).cloned() {
+                        let current = self.emit(InstKind::Load { ptr, ty: ty.clone() }, ty);
+                        let result = self.lower_binop(*op, current, rhs);
+                        self.emit(InstKind::Store { ptr, value: result }, IrType::Unit);
+                    }
+                }
+                self.emit(InstKind::UnitConst, IrType::Unit)
+            }
+
+            // ── Range (used inside for, not standalone) ────────────
+            ExprKind::Range { .. } => {
+                // Range is handled as part of for-loop lowering.
+                self.emit(InstKind::UnitConst, IrType::Unit)
+            }
+
+            // ── Constructs deferred for later layers ───────────────
+            ExprKind::FieldAccess { .. }
             | ExprKind::MethodCall { .. }
             | ExprKind::Index { .. }
-            | ExprKind::CompoundAssign { .. }
             | ExprKind::Perform { .. }
             | ExprKind::Handle { .. }
             | ExprKind::StructLiteral { .. }
-            | ExprKind::Tuple(_)
-            | ExprKind::Range { .. } => {
-                // Emit a unit placeholder for constructs not yet lowered.
+            | ExprKind::Tuple(_) => {
                 self.emit(InstKind::UnitConst, IrType::Unit)
             }
         }
@@ -653,6 +722,7 @@ impl Lowerer {
         // Then block.
         self.start_block(then_block);
         let then_val = self.lower_expr(then_branch);
+        let then_terminated = self.block_terminated;
         if !self.block_terminated {
             self.terminate(Terminator::Branch(merge_block));
         }
@@ -664,18 +734,213 @@ impl Lowerer {
         } else {
             self.emit(InstKind::UnitConst, IrType::Unit)
         };
+        let else_terminated = self.block_terminated;
         if !self.block_terminated {
             self.terminate(Terminator::Branch(merge_block));
         }
 
-        // Merge block — select the result.
+        // Merge block.
         self.start_block(merge_block);
-        let select_ty = self.value_types.get(&then_val).cloned()
-            .unwrap_or(IrType::Unit);
-        self.emit(
-            InstKind::Select { cond, true_val: then_val, false_val: else_val },
-            select_ty,
-        )
+
+        if then_terminated || else_terminated {
+            // One or both branches have early returns — no Select needed.
+            // The merge block is only reachable from the non-returning branch.
+            self.emit(InstKind::UnitConst, IrType::Unit)
+        } else {
+            // Both branches flow to merge — select the result.
+            let select_ty = self.value_types.get(&then_val).cloned()
+                .unwrap_or(IrType::Unit);
+            self.emit(
+                InstKind::Select { cond, true_val: then_val, false_val: else_val },
+                select_ty,
+            )
+        }
+    }
+
+    // ── Match lowering ────────────────────────────────────────────────────
+
+    fn lower_match(&mut self, subject: &Expr, arms: &[MatchArm]) -> Value {
+        let subject_val = self.lower_expr(subject);
+        let merge_block = self.fresh_block();
+
+        // Infer result type from the first arm's body.
+        let result_ty = self.infer_match_result_type(arms);
+        let result_ptr = self.emit(
+            InstKind::Alloca { name: "__match_result".to_string(), ty: result_ty.clone() },
+            IrType::Ptr,
+        );
+
+        for (i, arm) in arms.iter().enumerate() {
+            let is_last = i == arms.len() - 1;
+            let body_block = self.fresh_block();
+            let next_block = if is_last { merge_block } else { self.fresh_block() };
+
+            match &arm.pattern.kind {
+                PatternKind::Wildcard | PatternKind::Binding { .. } => {
+                    // Wildcard or binding always matches. If binding, store subject.
+                    if let PatternKind::Binding { name, .. } = &arm.pattern.kind {
+                        let bind_ptr = self.emit(
+                            InstKind::Alloca { name: name.name.clone(), ty: IrType::Int },
+                            IrType::Ptr,
+                        );
+                        self.emit(InstKind::Store { ptr: bind_ptr, value: subject_val }, IrType::Unit);
+                        self.variables.insert(name.name.clone(), (bind_ptr, IrType::Int));
+                    }
+                    if !self.block_terminated {
+                        self.terminate(Terminator::Branch(body_block));
+                    }
+                }
+                PatternKind::Literal(lit_expr) => {
+                    let lit_val = self.lower_expr(lit_expr);
+                    let cmp = self.emit(InstKind::Eq(subject_val, lit_val), IrType::Bool);
+
+                    // Check guard if present.
+                    let cond = if let Some(guard) = &arm.guard {
+                        let guard_val = self.lower_expr(guard);
+                        self.emit(InstKind::And(cmp, guard_val), IrType::Bool)
+                    } else {
+                        cmp
+                    };
+
+                    self.terminate(Terminator::CondBranch {
+                        cond,
+                        true_block: body_block,
+                        false_block: next_block,
+                    });
+                }
+                _ => {
+                    // For unsupported patterns (constructor, struct, tuple, path),
+                    // fall through to next arm.
+                    self.terminate(Terminator::Branch(next_block));
+                }
+            }
+
+            // Body block.
+            self.start_block(body_block);
+            let body_val = self.lower_expr(&arm.body);
+            if !self.block_terminated {
+                self.emit(InstKind::Store { ptr: result_ptr, value: body_val }, IrType::Unit);
+                self.terminate(Terminator::Branch(merge_block));
+            }
+
+            // Start next arm's test block (if not last).
+            if !is_last {
+                self.start_block(next_block);
+            }
+        }
+
+        // If there are no arms, jump to merge.
+        if arms.is_empty() && !self.block_terminated {
+            self.terminate(Terminator::Branch(merge_block));
+        }
+
+        // Merge block: load the result.
+        self.start_block(merge_block);
+        self.emit(InstKind::Load { ptr: result_ptr, ty: result_ty.clone() }, result_ty)
+    }
+
+    // ── While loop lowering ─────────────────────────────────────────────
+
+    fn lower_while(&mut self, condition: &Expr, body: &Expr) -> Value {
+        let header_block = self.fresh_block();
+        let body_block = self.fresh_block();
+        let exit_block = self.fresh_block();
+
+        // Jump to header.
+        if !self.block_terminated {
+            self.terminate(Terminator::Branch(header_block));
+        }
+
+        // Header: evaluate condition.
+        self.start_block(header_block);
+        let cond = self.lower_expr(condition);
+        self.terminate(Terminator::CondBranch {
+            cond,
+            true_block: body_block,
+            false_block: exit_block,
+        });
+
+        // Body.
+        self.start_block(body_block);
+        self.loop_stack.push(LoopContext {
+            header: header_block,
+            exit: exit_block,
+            result_ptr: None,
+        });
+        self.lower_expr(body);
+        self.loop_stack.pop();
+
+        if !self.block_terminated {
+            self.terminate(Terminator::Branch(header_block));
+        }
+
+        // Exit block.
+        self.start_block(exit_block);
+        self.emit(InstKind::UnitConst, IrType::Unit)
+    }
+
+    // ── For loop lowering (integer ranges) ──────────────────────────────
+
+    fn lower_for(&mut self, binding: &Ident, iterator: &Expr, body: &Expr) -> Value {
+        // Extract range bounds: for i in start..end { body }
+        let (start_expr, end_expr) = match &iterator.kind {
+            ExprKind::Range { start: Some(s), end: Some(e), .. } => (s.as_ref(), e.as_ref()),
+            _ => {
+                // Non-range iterators not yet supported.
+                return self.emit(InstKind::UnitConst, IrType::Unit);
+            }
+        };
+
+        let start_val = self.lower_expr(start_expr);
+        let end_val = self.lower_expr(end_expr);
+
+        // Allocate loop variable.
+        let var_ptr = self.emit(
+            InstKind::Alloca { name: binding.name.clone(), ty: IrType::Int },
+            IrType::Ptr,
+        );
+        self.emit(InstKind::Store { ptr: var_ptr, value: start_val }, IrType::Unit);
+        self.variables.insert(binding.name.clone(), (var_ptr, IrType::Int));
+
+        let header_block = self.fresh_block();
+        let body_block = self.fresh_block();
+        let exit_block = self.fresh_block();
+
+        // Jump to header.
+        self.terminate(Terminator::Branch(header_block));
+
+        // Header: check i < end.
+        self.start_block(header_block);
+        let current = self.emit(InstKind::Load { ptr: var_ptr, ty: IrType::Int }, IrType::Int);
+        let cond = self.emit(InstKind::Lt(current, end_val), IrType::Bool);
+        self.terminate(Terminator::CondBranch {
+            cond,
+            true_block: body_block,
+            false_block: exit_block,
+        });
+
+        // Body.
+        self.start_block(body_block);
+        self.loop_stack.push(LoopContext {
+            header: header_block,
+            exit: exit_block,
+            result_ptr: None,
+        });
+        self.lower_expr(body);
+        self.loop_stack.pop();
+
+        // Increment loop variable: i = i + 1.
+        if !self.block_terminated {
+            let current = self.emit(InstKind::Load { ptr: var_ptr, ty: IrType::Int }, IrType::Int);
+            let one = self.emit(InstKind::IntConst(1), IrType::Int);
+            let next = self.emit(InstKind::Add(current, one), IrType::Int);
+            self.emit(InstKind::Store { ptr: var_ptr, value: next }, IrType::Unit);
+            self.terminate(Terminator::Branch(header_block));
+        }
+
+        // Exit block.
+        self.start_block(exit_block);
+        self.emit(InstKind::UnitConst, IrType::Unit)
     }
 
     // ── Block lowering ───────────────────────────────────────────────────
@@ -702,6 +967,17 @@ impl Lowerer {
     }
 
     // ── Type inference helper ────────────────────────────────────────────
+
+    /// Infer the result type of a match expression from its arms' bodies.
+    fn infer_match_result_type(&self, arms: &[MatchArm]) -> IrType {
+        for arm in arms {
+            let ty = self.infer_value_type(&arm.body);
+            if ty != IrType::Unit {
+                return ty;
+            }
+        }
+        IrType::Int
+    }
 
     fn infer_value_type(&self, expr: &Expr) -> IrType {
         match &expr.kind {

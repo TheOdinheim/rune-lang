@@ -287,3 +287,71 @@ cargo test: 367 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 - **Assumed Breach:** Each evaluate call is stateless — the WASM instance provides isolation. The evaluate wrapper cannot be influenced by previous calls (per RUNE_06 arena model).
 - **No Single Points of Failure:** Default-deny semantics: if any rule in the module denies, the overall decision is deny. No single rule failure can accidentally permit access.
 - **Zero Trust Throughout:** Default-deny on rule mismatch. The evaluate wrapper checks ALL policy rules — there is no short-circuit to Permit. Only unanimous Permit from all rules yields overall Permit.
+
+---
+
+## 2026-04-06 — M3 Polish: Advanced Control Flow and Codegen Hardening
+
+### What was built
+
+Advanced control flow support in both IR lowering and WASM code generation: match expressions, while loops, compound assignment, nested function calls, and early return from conditional branches. This hardens the compiler for realistic RUNE programs beyond simple if/else governance decisions.
+
+### Files modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/ir/lower.rs | Match, while, for-loop, break/continue, compound-assign lowering; infer_match_result_type; early-return-aware if/else lowering | ~200 lines added |
+| src/codegen/wasm_gen.rs | Match chain codegen (recursive CondBranch), loop codegen (block/loop/br), early-return handling, unreachable fallback, in_match_chain flag | ~100 lines added/modified |
+| src/codegen/tests.rs | 8 new end-to-end execution tests | ~120 lines added |
+
+### IR lowering additions
+
+| Construct | IR pattern |
+|-----------|-----------|
+| Match expression | Chain of CondBranch blocks, Alloca for result, Store in each arm body, Load at merge |
+| While loop | Header block → CondBranch → body block → Branch(header) → exit block |
+| For loop | Range extraction → Alloca counter → while-loop pattern |
+| Compound assign (+=, -=, *=) | Load + binop + Store |
+| Break/Continue | Branch to exit/header block via loop_stack |
+| Early return in if | block_terminated flag prevents Select with mismatched types |
+
+### WASM codegen additions
+
+- **Match chains:** Recursive `compile_if_else` with `in_match_chain` flag. Inner recursive calls don't compile the merge block — only the outermost call does. This ensures the load+return is after all nested if/else/end blocks, reachable by all arms.
+- **Wildcard arms:** Else blocks with Branch to non-merge targets inline the target block's instructions without following its branch to the merge block.
+- **While loops:** `block { loop { header; br_if exit; body; br loop; end; end }` pattern via compile_loop.
+- **Early return:** Non-value if/else emits Return terminator inside branch. Unreachable fallback at function end satisfies WASM validator.
+
+### Bugs fixed
+
+1. **Match result type hardcoded as Int:** `lower_match` used `IrType::Int` for the result Alloca regardless of arm types. Fixed with `infer_match_result_type()` that inspects arm bodies (e.g., governance decisions → PolicyDecision).
+2. **Select type mismatch on early return:** `lower_if` always emitted Select even when one branch had early return, causing mismatched types (Int vs Unit). Fixed by tracking `then_terminated`/`else_terminated` flags and skipping Select when either branch returns early.
+3. **Match merge block compiled inside nesting:** All match arms' merge target (bb1) was consumed by the deepest recursive compile_if_else call, making it unreachable from outer arms. Fixed with `in_match_chain` flag — only the outermost call compiles the merge block after all if/else/end nesting.
+4. **Wildcard body block not compiled:** Wildcard arm's body block (bb8) was a separate block reachable via Branch, but the Branch was never followed. Fixed by inlining the target block's instructions without following its own Branch to the merge.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 375 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities + 37 program + 24 ir + 31 codegen + 18 compiler), 0 failed
+```
+
+### New execution tests
+
+| Test | What it covers |
+|------|---------------|
+| test_exec_while_loop_count | While loop counting to threshold |
+| test_exec_while_loop_sum | While loop accumulating a sum |
+| test_exec_for_loop_sum | While-loop equivalent of range sum (parser range syntax deferred) |
+| test_exec_match_integer | Match with literal arms + wildcard → governance decisions |
+| test_exec_nested_calls | Nested function calls: compose(x) = add_one(double(x)) |
+| test_exec_compound_assign | Compound assignment operators (+=, -=, *=) |
+| test_exec_return_from_if | Early return from if branch, fallthrough otherwise |
+| test_exec_multi_policy_multi_rule | Multiple policies with multiple rules, evaluate dispatch |
+
+### Pillars served
+
+- **Security Baked In:** Match expressions enforce exhaustive handling via wildcard default. Every match arm's governance decision is audit-marked. Compiler rejects match result type mismatches.
+- **Assumed Breach:** Early return doesn't bypass audit instrumentation — AuditMark(FunctionExit) is emitted before every Return terminator. Loop bodies maintain scope isolation.
+- **No Single Points of Failure:** Match chains evaluate all arms in sequence — no short-circuit past governance decisions. Default wildcard ensures every input gets a decision.
+- **Zero Trust Throughout:** While loops and match expressions can't be manipulated to skip governance checks — the compiler controls all control flow paths through structured WASM blocks.

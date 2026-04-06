@@ -258,13 +258,11 @@ impl<'a> FuncCompiler<'a> {
         }
     }
 
-    /// Multi-block function. Detects common patterns from our IR lowerer:
-    /// - Entry block → CondBranch → then/else blocks → merge block
+    /// Multi-block function. Handles if/else, loops, and match chains.
     fn compile_multi_block(&mut self) {
         // Pre-allocate locals for all instruction results in all blocks.
         for block in &self.func.blocks {
             for inst in &block.instructions {
-                // For Alloca, use the stored variable type, not Ptr.
                 let ty = match &inst.kind {
                     InstKind::Alloca { ty, .. } => ty,
                     _ => &inst.ty,
@@ -273,120 +271,291 @@ impl<'a> FuncCompiler<'a> {
             }
         }
 
-        // Walk blocks. Our IR lowerer produces predictable patterns:
-        // Block 0: instructions + CondBranch(cond, then_id, else_id)
-        // Block then_id: instructions + Branch(merge_id)
-        // Block else_id: instructions + Branch(merge_id)
-        // Block merge_id: Select + Return
-        //
-        // We emit: [block0 insts] if [then insts] else [else insts] end [merge insts] return
-        self.compile_blocks_structured();
+        // Clone blocks and build lookup structures.
+        let blocks = self.func.blocks.clone();
+        let block_map: HashMap<nodes::BlockId, usize> = blocks.iter()
+            .enumerate()
+            .map(|(i, b)| (b.id, i))
+            .collect();
+
+        // Detect loop headers: blocks targeted by backward branches.
+        let mut loop_headers = std::collections::HashSet::new();
+        for (idx, block) in blocks.iter().enumerate() {
+            if let Terminator::Branch(target) = &block.terminator {
+                if let Some(&target_idx) = block_map.get(target) {
+                    if target_idx <= idx {
+                        loop_headers.insert(*target);
+                    }
+                }
+            }
+        }
+
+        let mut consumed = vec![false; blocks.len()];
+        self.compile_from(&blocks, &block_map, &loop_headers, &mut consumed, 0, None);
+
+        // Safety fallback: if all paths through the function already have explicit
+        // returns (e.g., match chains), WASM validation still requires the implicit
+        // function end to be valid. Emit `unreachable` to satisfy the validator.
+        // This is dead code — all reachable paths already return.
+        self.instructions.push(WasmInst::Unreachable);
     }
 
-    fn compile_blocks_structured(&mut self) {
-        let blocks = &self.func.blocks;
-        let mut i = 0;
+    /// Recursively compile blocks starting from `idx`.
+    /// `loop_header` is set when compiling inside a loop body.
+    fn compile_from(
+        &mut self,
+        blocks: &[BasicBlock],
+        block_map: &HashMap<nodes::BlockId, usize>,
+        loop_headers: &std::collections::HashSet<nodes::BlockId>,
+        consumed: &mut [bool],
+        idx: usize,
+        loop_header: Option<nodes::BlockId>,
+    ) {
+        if idx >= blocks.len() || consumed[idx] {
+            return;
+        }
 
-        while i < blocks.len() {
-            let block = &blocks[i];
+        let block = &blocks[idx];
+        consumed[idx] = true;
 
-            // Emit all instructions for this block.
-            for inst in &block.instructions {
+        // If this is a loop header, emit WASM loop structure.
+        if loop_headers.contains(&block.id) {
+            self.compile_loop(blocks, block_map, loop_headers, consumed, idx);
+            return;
+        }
+
+        // Emit block instructions.
+        for inst in &block.instructions {
+            self.compile_instruction(inst);
+        }
+
+        match block.terminator.clone() {
+            Terminator::Return(val) => {
+                self.emit_load_value(val);
+                self.instructions.push(WasmInst::Return);
+            }
+            Terminator::Branch(target) => {
+                if let Some(&target_idx) = block_map.get(&target) {
+                    if Some(target) == loop_header {
+                        // Back-edge inside loop body → br to loop (depth 0).
+                        self.instructions.push(WasmInst::Br(0));
+                    } else if !consumed[target_idx] {
+                        self.compile_from(blocks, block_map, loop_headers, consumed, target_idx, loop_header);
+                    }
+                }
+            }
+            Terminator::CondBranch { cond, true_block, false_block } => {
+                self.compile_if_else(blocks, block_map, loop_headers, consumed, cond, true_block, false_block, loop_header, false);
+            }
+            Terminator::Unreachable => {
+                self.instructions.push(WasmInst::Unreachable);
+            }
+        }
+    }
+
+    /// Compile a loop: block { loop { header; br_if exit; body; br loop; } }
+    fn compile_loop(
+        &mut self,
+        blocks: &[BasicBlock],
+        block_map: &HashMap<nodes::BlockId, usize>,
+        loop_headers: &std::collections::HashSet<nodes::BlockId>,
+        consumed: &mut [bool],
+        header_idx: usize,
+    ) {
+        let header = &blocks[header_idx];
+        let header_id = header.id;
+
+        if let Terminator::CondBranch { cond, true_block, false_block } = header.terminator.clone() {
+            let exit_idx = block_map.get(&false_block).copied();
+
+            // block $exit
+            self.instructions.push(WasmInst::Block(wasm_encoder::BlockType::Empty));
+            // loop $header
+            self.instructions.push(WasmInst::Loop(wasm_encoder::BlockType::Empty));
+
+            // Emit header instructions (condition computation).
+            for inst in &header.instructions {
                 self.compile_instruction(inst);
             }
 
-            match &block.terminator {
-                Terminator::Return(val) => {
+            // If !condition, break to exit (br depth 1 = $exit block).
+            self.emit_load_value(cond);
+            self.instructions.push(WasmInst::I32Eqz);
+            self.instructions.push(WasmInst::BrIf(1));
+
+            // Compile body blocks within the loop context.
+            if let Some(&body_idx) = block_map.get(&true_block) {
+                consumed[body_idx] = false; // allow body to be compiled
+                self.compile_from(blocks, block_map, loop_headers, consumed, body_idx, Some(header_id));
+            }
+
+            // end loop
+            self.instructions.push(WasmInst::End);
+            // end block
+            self.instructions.push(WasmInst::End);
+
+            // Continue with exit block.
+            if let Some(ei) = exit_idx {
+                consumed[ei] = false; // allow exit to be compiled
+                self.compile_from(blocks, block_map, loop_headers, consumed, ei, None);
+            }
+        }
+    }
+
+    /// Compile if/else pattern. Detects merge blocks with Select for
+    /// value-producing if/else, and handles match chains (else block
+    /// containing another CondBranch).
+    fn compile_if_else(
+        &mut self,
+        blocks: &[BasicBlock],
+        block_map: &HashMap<nodes::BlockId, usize>,
+        loop_headers: &std::collections::HashSet<nodes::BlockId>,
+        consumed: &mut [bool],
+        cond: Value,
+        true_block_id: nodes::BlockId,
+        false_block_id: nodes::BlockId,
+        loop_header: Option<nodes::BlockId>,
+        in_match_chain: bool,
+    ) {
+        let then_idx = block_map.get(&true_block_id).copied();
+        let else_idx = block_map.get(&false_block_id).copied();
+
+        if let (Some(ti), Some(ei)) = (then_idx, else_idx) {
+            let then_block = &blocks[ti];
+            let else_block = &blocks[ei];
+
+            // Determine merge target from then_block's terminator.
+            let merge_target = match &then_block.terminator {
+                Terminator::Branch(id) => Some(*id),
+                _ => None,
+            };
+            let merge_idx = merge_target.and_then(|id| block_map.get(&id).copied());
+
+            // Check if this is a value-producing if/else (merge has Select).
+            let has_select = merge_idx.map(|mi| {
+                blocks[mi].instructions.iter().any(|i| matches!(i.kind, InstKind::Select { .. }))
+            }).unwrap_or(false);
+
+            if has_select {
+                // Value-producing if/else with Select merge.
+                let result_type = if let Some(mi) = merge_idx {
+                    let select = blocks[mi].instructions.iter()
+                        .find(|i| matches!(i.kind, InstKind::Select { .. }));
+                    select.map(|s| ir_type_to_wasm(&s.ty))
+                        .unwrap_or_else(|| ir_type_to_wasm(&self.func.return_type))
+                } else {
+                    ir_type_to_wasm(&self.func.return_type)
+                };
+
+                self.emit_load_value(cond);
+                self.instructions.push(WasmInst::If(
+                    wasm_encoder::BlockType::Result(result_type),
+                ));
+
+                // Then block.
+                consumed[ti] = true;
+                for inst in &then_block.instructions {
+                    self.compile_instruction(inst);
+                }
+                self.emit_branch_result(then_block);
+
+                self.instructions.push(WasmInst::Else);
+
+                // Else block — may be a simple block or another CondBranch (match chain).
+                consumed[ei] = true;
+                for inst in &else_block.instructions {
+                    self.compile_instruction(inst);
+                }
+                if let Terminator::CondBranch { cond: c2, true_block: tb2, false_block: fb2 } = else_block.terminator.clone() {
+                    // Match chain: else block has another CondBranch.
+                    self.compile_if_else(blocks, block_map, loop_headers, consumed, c2, tb2, fb2, loop_header, true);
+                } else {
+                    self.emit_branch_result(else_block);
+                }
+
+                self.instructions.push(WasmInst::End);
+
+                // Handle merge block (only at outermost level).
+                if !in_match_chain {
+                    if let Some(mi) = merge_idx {
+                        consumed[mi] = true;
+                        self.handle_merge_block(&blocks[mi], blocks, block_map, loop_headers, consumed, loop_header);
+                    }
+                }
+            } else {
+                // Non-value if/else (e.g., match arms storing to a variable, or early return).
+                self.emit_load_value(cond);
+                self.instructions.push(WasmInst::If(wasm_encoder::BlockType::Empty));
+
+                consumed[ti] = true;
+                for inst in &then_block.instructions {
+                    self.compile_instruction(inst);
+                }
+                // Handle then block terminator (e.g., early return).
+                if let Terminator::Return(val) = &then_block.terminator {
                     self.emit_load_value(*val);
                     self.instructions.push(WasmInst::Return);
-                    i += 1;
                 }
-                Terminator::CondBranch { cond, true_block, false_block } => {
-                    // Find the then, else, and merge blocks.
-                    let then_idx = blocks.iter().position(|b| b.id == *true_block);
-                    let else_idx = blocks.iter().position(|b| b.id == *false_block);
 
-                    if let (Some(then_i), Some(else_i)) = (then_idx, else_idx) {
-                        let then_block = &blocks[then_i];
-                        let else_block = &blocks[else_i];
+                self.instructions.push(WasmInst::Else);
 
-                        // Determine the result type for the if/else.
-                        let result_type = ir_type_to_wasm(&self.func.return_type);
-
-                        // Emit: if (blocktype) then_insts else else_insts end
-                        self.emit_load_value(*cond);
-                        self.instructions.push(WasmInst::If(
-                            wasm_encoder::BlockType::Result(result_type),
-                        ));
-
-                        // Then block.
-                        for inst in &then_block.instructions {
-                            self.compile_instruction(inst);
-                        }
-                        // Push the then block's result onto the stack.
-                        self.emit_then_result(then_block);
-
-                        self.instructions.push(WasmInst::Else);
-
-                        // Else block.
-                        for inst in &else_block.instructions {
-                            self.compile_instruction(inst);
-                        }
-                        // Push the else block's result onto the stack.
-                        self.emit_then_result(else_block);
-
-                        self.instructions.push(WasmInst::End);
-
-                        // Find merge block and handle it.
-                        let merge_target = match &then_block.terminator {
-                            Terminator::Branch(id) => Some(*id),
-                            Terminator::Return(_) => None,
-                            _ => None,
-                        };
-
-                        if let Some(merge_id) = merge_target {
-                            if let Some(merge_i) = blocks.iter().position(|b| b.id == merge_id) {
-                                let merge_block = &blocks[merge_i];
-                                // The if/else result is on the stack.
-                                // Store it if merge block has a Select, then handle rest.
-                                self.handle_merge_block(merge_block);
-                                // Skip all blocks we've handled.
-                                i = blocks.len();
-                                continue;
+                consumed[ei] = true;
+                for inst in &else_block.instructions {
+                    self.compile_instruction(inst);
+                }
+                // Handle else block terminator.
+                match else_block.terminator.clone() {
+                    Terminator::CondBranch { cond: c2, true_block: tb2, false_block: fb2 } => {
+                        // Match chain: else block has another CondBranch.
+                        self.compile_if_else(blocks, block_map, loop_headers, consumed, c2, tb2, fb2, loop_header, true);
+                    }
+                    Terminator::Return(val) => {
+                        self.emit_load_value(val);
+                        self.instructions.push(WasmInst::Return);
+                    }
+                    Terminator::Branch(target) => {
+                        // Else block branches to another block (e.g., wildcard body in match).
+                        // Inline the target block's instructions but DON'T follow its branch
+                        // to the merge block — the merge block should be compiled after
+                        // the entire if/else chain, not inside a nested branch.
+                        if merge_target != Some(target) {
+                            if let Some(&target_idx) = block_map.get(&target) {
+                                if !consumed[target_idx] {
+                                    let target_block = &blocks[target_idx];
+                                    consumed[target_idx] = true;
+                                    for inst in &target_block.instructions {
+                                        self.compile_instruction(inst);
+                                    }
+                                    // Handle the target block's terminator if it's a Return.
+                                    if let Terminator::Return(val) = &target_block.terminator {
+                                        self.emit_load_value(*val);
+                                        self.instructions.push(WasmInst::Return);
+                                    }
+                                    // Branch terminators are NOT followed — the merge block
+                                    // will be compiled after the outermost if/else/end.
+                                }
                             }
                         }
+                    }
+                    _ => {}
+                }
 
-                        // The if/else left a value on the stack — return it.
-                        self.instructions.push(WasmInst::Return);
-                        i = blocks.len();
-                    } else {
-                        // Fallback: shouldn't happen with well-formed IR.
-                        self.emit_default_return();
-                        i += 1;
+                self.instructions.push(WasmInst::End);
+
+                // Continue to merge block (only at outermost level, not in match chain).
+                if !in_match_chain {
+                    if let Some(mi) = merge_idx {
+                        if !consumed[mi] {
+                            self.compile_from(blocks, block_map, loop_headers, consumed, mi, loop_header);
+                        }
                     }
-                }
-                Terminator::Branch(target) => {
-                    // Unconditional branch — find and compile target block inline.
-                    if let Some(target_i) = blocks.iter().position(|b| b.id == *target) {
-                        // Continue to compile the target block.
-                        i = target_i;
-                    } else {
-                        self.emit_default_return();
-                        i += 1;
-                    }
-                }
-                Terminator::Unreachable => {
-                    self.instructions.push(WasmInst::Unreachable);
-                    i += 1;
                 }
             }
         }
     }
 
-    /// Get the last meaningful value from a block (before Branch terminator).
-    /// This is the value that the block "produces" for if/else.
-    fn emit_then_result(&mut self, block: &BasicBlock) {
-        // Find the last instruction that produces a non-Unit, non-AuditMark value.
+    /// Get the last meaningful value from a block for if/else result.
+    fn emit_branch_result(&mut self, block: &BasicBlock) {
         let result_inst = block.instructions.iter().rev().find(|i| {
             !matches!(i.kind, InstKind::AuditMark(_))
                 && !matches!(i.kind, InstKind::UnitConst)
@@ -397,17 +566,20 @@ impl<'a> FuncCompiler<'a> {
         if let Some(inst) = result_inst {
             self.emit_load_value(inst.result);
         } else {
-            // Fallback: push a default value.
             self.emit_default_value(&self.func.return_type.clone());
         }
     }
 
     /// Handle merge block after if/else.
-    fn handle_merge_block(&mut self, merge_block: &BasicBlock) {
-        // The if/else result is on the stack.
-        // If merge has a Select, skip it (the if/else already did the selection).
-        // Then handle remaining instructions and return.
-
+    fn handle_merge_block(
+        &mut self,
+        merge_block: &BasicBlock,
+        blocks: &[BasicBlock],
+        block_map: &HashMap<nodes::BlockId, usize>,
+        loop_headers: &std::collections::HashSet<nodes::BlockId>,
+        consumed: &mut [bool],
+        loop_header: Option<nodes::BlockId>,
+    ) {
         // Store the if/else result into the Select's result local.
         let select_inst = merge_block.instructions.iter().find(|i| {
             matches!(i.kind, InstKind::Select { .. })
@@ -417,7 +589,6 @@ impl<'a> FuncCompiler<'a> {
             let local = self.ensure_local(si.result, &si.ty);
             self.instructions.push(WasmInst::LocalSet(local));
         } else {
-            // No select — just discard the stack value.
             self.instructions.push(WasmInst::Drop);
         }
 
@@ -434,9 +605,21 @@ impl<'a> FuncCompiler<'a> {
         }
 
         // Handle merge block terminator.
-        if let Terminator::Return(val) = &merge_block.terminator {
-            self.emit_load_value(*val);
-            self.instructions.push(WasmInst::Return);
+        match merge_block.terminator.clone() {
+            Terminator::Return(val) => {
+                self.emit_load_value(val);
+                self.instructions.push(WasmInst::Return);
+            }
+            Terminator::Branch(target) => {
+                if let Some(&target_idx) = block_map.get(&target) {
+                    if Some(target) == loop_header {
+                        self.instructions.push(WasmInst::Br(0));
+                    } else if !consumed[target_idx] {
+                        self.compile_from(blocks, block_map, loop_headers, consumed, target_idx, loop_header);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -715,11 +898,6 @@ impl<'a> FuncCompiler<'a> {
                 self.instructions.push(WasmInst::I32Const(0));
             }
         }
-    }
-
-    fn emit_default_return(&mut self) {
-        self.emit_default_value(&self.func.return_type.clone());
-        self.instructions.push(WasmInst::Return);
     }
 
     fn finish(mut self) -> Function {

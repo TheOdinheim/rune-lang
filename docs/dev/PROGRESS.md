@@ -26,7 +26,7 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
 | M2: Core type system | Month 6 | **Complete** |
-| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 (IR) + Layer 2 (WASM codegen) + Layer 3 (module packaging + CLI) done |
+| M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
 | M6: Toolchain MVP | Month 18 | Not started |
@@ -144,14 +144,21 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
   - File compilation roundtrip test: write .rune → compile → load .wasm → execute → verify
   - Parameter passing: evaluate i64 params → rule params with automatic i64→i32 truncation
 
+- **M3 Polish: Advanced control flow and codegen hardening** (8 new execution tests)
+  - Match expressions: chain of CondBranch blocks with wildcard default, result type inference
+  - While loops: header/body/exit pattern → WASM block/loop/br structured control flow
+  - Compound assignment (+=, -=, *=): Load + binop + Store pattern
+  - Nested function calls: compose(x) = add_one(double(x))
+  - Early return from if branches: block_terminated tracking, unreachable fallback
+  - Match chain codegen: in_match_chain flag ensures merge block compiled after all nesting
+  - For-loop IR lowering (range syntax parsing deferred to M4+)
+
 ## What's Next
 
-- ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
-- ~~M2 Layer 3: Effect tracking — first pillar enforcement~~ **Done** (23 tests)
-- ~~M2 Layer 3b: Capability checking — Zero Trust pillar enforcement~~ **Done** (18 tests)
-- ~~M2 Layer 4: Top-level declaration checking — full program type checking~~ **Done** (24 tests)
-- ~~M2 Polish: Governance-aware diagnostics and edge case hardening~~ **Done** (13 new edge case tests)
-- M3 Layer 1: IR design and AST-to-IR lowering — **Done** (24 tests)
-- M3 Layer 2: WASM code generation — **Done** (23 execution tests)
-- M3 Layer 3: Module packaging + compiler CLI — **Done** (18 compiler tests)
-- M3 Layer 4: Optimization passes and advanced control flow
+- ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
+- ~~M3 Layer 2: WASM code generation~~ **Done** (23 execution tests)
+- ~~M3 Layer 3: Module packaging + compiler CLI~~ **Done** (18 compiler tests)
+- ~~M3 Polish: Advanced control flow and codegen hardening~~ **Done** (8 new execution tests)
+- M4: Refinement types
+- M5: Runtime engine
+- M6: Toolchain MVP

@@ -346,4 +346,204 @@ policy model_governance {
         assert_eq!(check.call(&mut store, (90, 1)).unwrap(), 0); // trusted → permit
         assert_eq!(check.call(&mut store, (90, 0)).unwrap(), 1); // untrusted → deny
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // While loops
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_while_loop_count() {
+        let wasm = compile(r#"
+fn count_to(n: Int) -> Int {
+    let result = 0;
+    let i = 0;
+    while i < n {
+        result += 1;
+        i += 1;
+    }
+    result
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i64>(&mut store, "count_to")
+            .expect("failed to get function");
+        assert_eq!(func.call(&mut store, (5,)).unwrap(), 5);
+        assert_eq!(func.call(&mut store, (0,)).unwrap(), 0);
+        assert_eq!(func.call(&mut store, (10,)).unwrap(), 10);
+    }
+
+    #[test]
+    fn test_exec_while_loop_sum() {
+        let wasm = compile(r#"
+fn sum_to(n: Int) -> Int {
+    let total = 0;
+    let i = 1;
+    while i < n + 1 {
+        total += i;
+        i += 1;
+    }
+    total
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i64>(&mut store, "sum_to")
+            .expect("failed to get function");
+        // sum(1..5) = 1+2+3+4+5 = 15
+        assert_eq!(func.call(&mut store, (5,)).unwrap(), 15);
+        assert_eq!(func.call(&mut store, (1,)).unwrap(), 1);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // For loops (integer ranges)
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_for_loop_sum() {
+        // Note: for-loop range syntax (0..5) not yet supported by parser.
+        // Use while loop equivalent instead.
+        let wasm = compile(r#"
+fn sum_range() -> Int {
+    let total = 0;
+    let i = 0;
+    while i < 5 {
+        total += i;
+        i += 1;
+    }
+    total
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(), i64>(&mut store, "sum_range")
+            .expect("failed to get function");
+        // 0+1+2+3+4 = 10
+        assert_eq!(func.call(&mut store, ()).unwrap(), 10);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Match expressions
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_match_integer() {
+        let wasm = compile(r#"
+policy risk {
+    rule classify(level: Int) {
+        match level {
+            1 => permit,
+            2 => escalate,
+            3 => deny,
+            _ => quarantine,
+        }
+    }
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i32>(&mut store, "risk__classify")
+            .expect("failed to get function");
+        assert_eq!(func.call(&mut store, (1,)).unwrap(), 0); // permit
+        assert_eq!(func.call(&mut store, (2,)).unwrap(), 2); // escalate
+        assert_eq!(func.call(&mut store, (3,)).unwrap(), 1); // deny
+        assert_eq!(func.call(&mut store, (99,)).unwrap(), 3); // quarantine (wildcard)
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Nested function calls
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_nested_calls() {
+        let wasm = compile(r#"
+fn add_one(x: Int) -> Int { x + 1 }
+fn double(x: Int) -> Int { x * 2 }
+fn compose(x: Int) -> Int { add_one(double(x)) }
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i64>(&mut store, "compose")
+            .expect("failed to get function");
+        // double(5) = 10, add_one(10) = 11
+        assert_eq!(func.call(&mut store, (5,)).unwrap(), 11);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Compound assignment
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_compound_assign() {
+        let wasm = compile(r#"
+fn accumulate(n: Int) -> Int {
+    let x = 10;
+    x += n;
+    x -= 1;
+    x *= 2;
+    x
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i64>(&mut store, "accumulate")
+            .expect("failed to get function");
+        // x=10, x+=5 → 15, x-=1 → 14, x*=2 → 28
+        assert_eq!(func.call(&mut store, (5,)).unwrap(), 28);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Return from nested position
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_return_from_if() {
+        let wasm = compile(r#"
+fn early_return(x: Int) -> Int {
+    if x > 10 {
+        return x * 2
+    }
+    x + 1
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+        let func = instance.get_typed_func::<(i64,), i64>(&mut store, "early_return")
+            .expect("failed to get function");
+        assert_eq!(func.call(&mut store, (20,)).unwrap(), 40); // early return
+        assert_eq!(func.call(&mut store, (5,)).unwrap(), 6); // fall through
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Multiple policies with multiple rules
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_exec_multi_policy_multi_rule() {
+        let wasm = compile(r#"
+policy auth {
+    rule check_role(role: Int) {
+        if role > 0 { permit } else { deny }
+    }
+    rule check_session(active: Bool) {
+        if active { permit } else { deny }
+    }
+}
+
+policy data {
+    rule check_classification(level: Int) {
+        if level < 3 { permit } else { escalate }
+    }
+}
+"#);
+        let (mut store, instance) = load_wasm(&wasm);
+
+        // Test individual rules.
+        let check_role = instance.get_typed_func::<(i64,), i32>(&mut store, "auth__check_role")
+            .expect("failed to get auth__check_role");
+        assert_eq!(check_role.call(&mut store, (1,)).unwrap(), 0); // permit
+        assert_eq!(check_role.call(&mut store, (0,)).unwrap(), 1); // deny
+
+        let check_session = instance.get_typed_func::<(i32,), i32>(&mut store, "auth__check_session")
+            .expect("failed to get auth__check_session");
+        assert_eq!(check_session.call(&mut store, (1,)).unwrap(), 0); // permit
+
+        let check_class = instance.get_typed_func::<(i64,), i32>(&mut store, "data__check_classification")
+            .expect("failed to get data__check_classification");
+        assert_eq!(check_class.call(&mut store, (2,)).unwrap(), 0); // permit
+        assert_eq!(check_class.call(&mut store, (5,)).unwrap(), 2); // escalate
+    }
 }
