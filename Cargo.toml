@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 wasm-encoder = "0.246"
+z3 = { version = "0.20", features = ["bundled"] }
 
 [dev-dependencies]
 wasmtime = "43"

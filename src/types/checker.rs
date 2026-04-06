@@ -554,9 +554,14 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.intern(Type::Tuple(elem_types))
             }
 
-            // ── Require expression — returns Bool (check deferred to M4 Layer 2)
-            ExprKind::Require { target, .. } => {
+            // ── Require expression — returns Bool, verified by SMT
+            ExprKind::Require { target, predicates } => {
                 self.check_expr(target);
+                self.verify_refinement_predicates(
+                    &predicates.predicates,
+                    "require",
+                    predicates.span,
+                );
                 self.bool_type()
             }
 
@@ -1151,7 +1156,6 @@ impl<'ctx> TypeChecker<'ctx> {
             ItemKind::TypeAlias(decl) => self.register_type_alias(decl),
             ItemKind::TypeConstraint(decl) => {
                 // Register as a type alias (resolves to base type).
-                // Predicate verification deferred to M4 Layer 2 (SMT).
                 let ty = self.ctx.resolve_type_expr(&decl.base_type);
                 let result = self.ctx.define(
                     &decl.name.name,
@@ -1161,6 +1165,13 @@ impl<'ctx> TypeChecker<'ctx> {
                 if let Err(e) = result {
                     self.error(e.message, e.span);
                 }
+
+                // SMT verification: check that predicates are satisfiable.
+                self.verify_refinement_predicates(
+                    &decl.where_clause.predicates,
+                    &decl.name.name,
+                    decl.where_clause.span,
+                );
             }
             ItemKind::Capability(decl) => self.register_capability(decl),
             ItemKind::Effect(decl) => self.register_effect(decl),
@@ -1208,6 +1219,17 @@ impl<'ctx> TypeChecker<'ctx> {
         );
         if let Err(e) = result {
             self.error(e.message, e.span);
+        }
+
+        // SMT verification for refined parameter types.
+        for param in &sig.params {
+            if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
+                self.verify_refinement_predicates(
+                    &where_clause.predicates,
+                    &format!("parameter '{}'", param.name.name),
+                    where_clause.span,
+                );
+            }
         }
     }
 
@@ -1517,6 +1539,40 @@ impl<'ctx> TypeChecker<'ctx> {
         for item in &block.items {
             if let ItemKind::Function(fn_decl) = &item.kind {
                 self.check_function_decl(fn_decl);
+            }
+        }
+    }
+
+    // ── SMT verification ─────────────────────────────────────────────
+
+    /// Verify that refinement predicates are satisfiable using the SMT solver.
+    /// If contradictory, emit a governance-aware type error.
+    fn verify_refinement_predicates(
+        &mut self,
+        predicates: &[RefinementPredicate],
+        type_name: &str,
+        span: Span,
+    ) {
+        use crate::smt::solver::{verify_predicates, SmtResult};
+
+        match verify_predicates(predicates) {
+            SmtResult::Satisfiable => {} // OK — constraints are consistent
+            SmtResult::Unsatisfiable(explanation) => {
+                self.error(
+                    format!(
+                        "refinement type '{type_name}' has {explanation}"
+                    ),
+                    span,
+                );
+            }
+            SmtResult::Unknown(reason) => {
+                // Warn but don't block compilation.
+                self.error(
+                    format!(
+                        "refinement type '{type_name}': SMT solver could not verify predicates ({reason})"
+                    ),
+                    span,
+                );
             }
         }
     }

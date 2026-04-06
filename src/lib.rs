@@ -5,3 +5,4 @@ pub mod types;
 pub mod ir;
 pub mod codegen;
 pub mod compiler;
+pub mod smt;
