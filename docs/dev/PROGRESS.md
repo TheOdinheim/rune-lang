@@ -4,7 +4,7 @@
 
 **M3: Cranelift backend** — Target: Month 9
 
-IR design and AST-to-IR lowering complete. Next: Cranelift code generation.
+IR design, AST-to-IR lowering, and WASM code generation complete. RUNE programs compile to executable WASM and run end-to-end.
 
 ### M1 Deliverables
 
@@ -26,7 +26,7 @@ IR design and AST-to-IR lowering complete. Next: Cranelift code generation.
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
 | M2: Core type system | Month 6 | **Complete** |
-| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 done (IR design + AST-to-IR lowering) |
+| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 (IR) + Layer 2 (WASM codegen) done |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
 | M6: Toolchain MVP | Month 18 | Not started |
@@ -121,6 +121,19 @@ IR design and AST-to-IR lowering complete. Next: Cranelift code generation.
   - Pretty-printer: human-readable textual IR format for debugging
   - IrType system: Int, Float, Bool, String, Unit, PolicyDecision, Ptr, FuncRef
 
+- **M3 Layer 2: WASM code generation** (23 end-to-end execution tests)
+  - IR → WASM bytecode via wasm-encoder, executed by wasmtime (Cranelift JIT)
+  - Full pipeline: RUNE source → lex → parse → lower to IR → compile to WASM → execute
+  - IrType → WASM mapping: Int→I64, Float→F64, Bool→I32, PolicyDecision→I32
+  - Governance decisions as i32 values: Permit=0, Deny=1, Escalate=2, Quarantine=3
+  - All functions exported with sanitized names (:: → __)
+  - If/else → WASM structured control flow (if/else/end blocks)
+  - Variables: Alloca/Store/Load pattern → WASM locals
+  - Function calls between RUNE functions via WASM call instruction
+  - AuditMark → nop (placeholder for M5 runtime calls)
+  - Value type tracking in lowerer for correct WASM local types
+  - Function return type pre-collection for forward reference support in calls
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
@@ -129,4 +142,5 @@ IR design and AST-to-IR lowering complete. Next: Cranelift code generation.
 - ~~M2 Layer 4: Top-level declaration checking — full program type checking~~ **Done** (24 tests)
 - ~~M2 Polish: Governance-aware diagnostics and edge case hardening~~ **Done** (13 new edge case tests)
 - M3 Layer 1: IR design and AST-to-IR lowering — **Done** (24 tests)
-- M3 Layer 2: Cranelift code generation
+- M3 Layer 2: WASM code generation — **Done** (23 execution tests)
+- M3 Layer 3: Optimization passes and advanced control flow

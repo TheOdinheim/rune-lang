@@ -31,6 +31,10 @@ pub struct Lowerer {
     current_block: BlockId,
     /// Variable name → pointer Value (for let bindings).
     variables: HashMap<String, (Value, IrType)>,
+    /// Value → IrType mapping for tracking types of emitted values.
+    value_types: HashMap<Value, IrType>,
+    /// Function name → return type (pre-collected for forward references).
+    function_return_types: HashMap<String, IrType>,
     /// The name of the current function/rule being lowered (for audit marks).
     current_fn_name: String,
     /// Whether the current block has been terminated.
@@ -46,6 +50,8 @@ impl Lowerer {
             current_insts: Vec::new(),
             current_block: BlockId(0),
             variables: HashMap::new(),
+            value_types: HashMap::new(),
+            function_return_types: HashMap::new(),
             current_fn_name: String::new(),
             block_terminated: false,
         }
@@ -53,6 +59,25 @@ impl Lowerer {
 
     /// Lower a complete source file into an IR module.
     pub fn lower_source_file(&mut self, file: &SourceFile) -> IrModule {
+        // Pre-collect function return types for forward references in calls.
+        for item in &file.items {
+            match &item.kind {
+                ItemKind::Function(decl) => {
+                    let ret_ty = self.return_type_from_sig(&decl.signature);
+                    self.function_return_types
+                        .insert(decl.signature.name.name.clone(), ret_ty);
+                }
+                ItemKind::Policy(decl) => {
+                    for rule in &decl.rules {
+                        let fn_name = format!("{}::{}", decl.name.name, rule.name.name);
+                        self.function_return_types
+                            .insert(fn_name, IrType::PolicyDecision);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         let mut functions = Vec::new();
 
         for item in &file.items {
@@ -98,6 +123,7 @@ impl Lowerer {
 
     fn emit(&mut self, kind: InstKind, ty: IrType) -> Value {
         let result = self.fresh_value();
+        self.value_types.insert(result, ty.clone());
         self.current_insts.push(Instruction {
             result,
             ty,
@@ -132,6 +158,7 @@ impl Lowerer {
         self.blocks.clear();
         self.current_insts.clear();
         self.variables.clear();
+        self.value_types.clear();
         self.block_terminated = false;
     }
 
@@ -417,9 +444,12 @@ impl Lowerer {
                         .unwrap_or_else(|| "<unknown>".to_string()),
                     _ => "<indirect>".to_string(),
                 };
+                let ret_ty = self.function_return_types.get(&func_name)
+                    .cloned()
+                    .unwrap_or(IrType::Unit);
                 self.emit(
-                    InstKind::Call { func: func_name, args: arg_vals, ret_ty: IrType::Unit },
-                    IrType::Unit, // return type not resolved here, placeholder
+                    InstKind::Call { func: func_name, args: arg_vals, ret_ty: ret_ty.clone() },
+                    ret_ty,
                 )
             }
 
@@ -434,7 +464,8 @@ impl Lowerer {
             // ── Let binding ─────────────────────────────────────────
             ExprKind::Let { name, value, .. } => {
                 let val = self.lower_expr(value);
-                let ty = self.infer_value_type(value);
+                let ty = self.value_types.get(&val).cloned()
+                    .unwrap_or_else(|| self.infer_value_type(value));
                 let ptr = self.emit(
                     InstKind::Alloca { name: name.name.clone(), ty: ty.clone() },
                     IrType::Ptr,
@@ -639,9 +670,11 @@ impl Lowerer {
 
         // Merge block — select the result.
         self.start_block(merge_block);
+        let select_ty = self.value_types.get(&then_val).cloned()
+            .unwrap_or(IrType::Unit);
         self.emit(
             InstKind::Select { cond, true_val: then_val, false_val: else_val },
-            IrType::PolicyDecision, // placeholder; real type depends on branches
+            select_ty,
         )
     }
 

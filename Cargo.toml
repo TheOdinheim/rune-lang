@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+wasm-encoder = "0.246"
+
+[dev-dependencies]
+wasmtime = "43"

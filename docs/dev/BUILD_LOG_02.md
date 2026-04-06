@@ -196,3 +196,54 @@ cargo test: 326 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 - **Assumed Breach:** Each function lowered to isolated IR with its own parameter scope. No implicit state sharing between IR functions.
 - **No Single Points of Failure:** IR design supports multiple basic blocks — a failed branch doesn't crash the evaluator, it flows to an alternate path. Governance decisions always produce a value.
 - **Zero Trust Throughout:** Policy rules with when-clauses lower to explicit CondBranch — if the guard fails, the default is deny. No implicit permit on guard failure.
+
+---
+
+## 2026-04-06 — M3 Layer 2: WASM Code Generation
+
+### What was built
+
+WASM code generator that compiles RUNE IR to executable WebAssembly bytecode. Full end-to-end pipeline: RUNE source → lex → parse → lower to IR → compile to WASM → execute via wasmtime (which uses Cranelift JIT internally). 23 execution tests verify correctness.
+
+### Files modified / created
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Added wasm-encoder and wasmtime dependencies | +3 lines |
+| src/lib.rs | Added codegen module | +1 line |
+| src/codegen/mod.rs | Module declarations | new file, 4 lines |
+| src/codegen/wasm_gen.rs | WASM code generator | new file, ~650 lines |
+| src/codegen/tests.rs | End-to-end execution tests with wasmtime | new file, ~350 lines |
+| src/ir/lower.rs | Value type tracking, function return type pre-collection, Select type fix | ~30 lines modified |
+
+### Key design decisions
+
+- **wasm-encoder for generation, wasmtime for execution.** Cranelift is NOT a WASM emitter — it compiles WASM → native. We generate WASM bytecode directly, then wasmtime JIT-compiles it via Cranelift.
+- **WASM structured control flow.** WASM has no arbitrary jumps. Our IR's CondBranch → then/else → merge pattern maps to WASM's if/else/end blocks.
+- **Variable handling via WASM locals.** IR Alloca/Store/Load pattern maps to WASM local variables. Alloca locals use the stored type (not Ptr) for correct WASM typing.
+- **All functions exported.** Every function and policy rule is a WASM export. Policy rules use `__` separator (e.g., `access__check`).
+- **Governance decisions as i32 constants.** Permit=0, Deny=1, Escalate=2, Quarantine=3.
+
+### Bugs fixed during implementation
+
+1. **`gen` reserved in Rust 2024:** Variable name collision with reserved keyword.
+2. **Instruction name collision:** `wasm_encoder::Instruction` vs `ir::nodes::Instruction` — resolved with aliased import.
+3. **F64Const takes Ieee64:** wasm-encoder requires `Ieee64::from()` conversion, not raw f64.
+4. **Alloca type mismatch:** Alloca instructions typed as Ptr (I64) caused WASM validation failures when the stored type was I32 (Bool, PolicyDecision). Fixed by using the stored variable type for WASM local allocation.
+5. **Select placeholder type:** Select instruction hardcoded PolicyDecision type. Fixed with value type tracking in the lowerer.
+6. **Call instruction typed as Unit:** Function calls always had Unit return type. Fixed by pre-collecting function signatures before lowering.
+7. **infer_value_type too simplistic:** `let c = a + b` inferred Unit for binary expressions. Fixed by tracking emitted value types in the lowerer.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 349 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities + 37 program + 24 ir + 23 codegen), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** AuditMark instructions compile to nop placeholders — the instrumentation points are baked into WASM, ready for M5 runtime calls. No way to produce WASM without audit hooks.
+- **Assumed Breach:** Each WASM function is fully isolated. Parameters passed by value. No shared mutable state between policy evaluations.
+- **No Single Points of Failure:** If/else governance decisions both produce valid values (permit/deny/escalate/quarantine). No path through compiled code can fail to return a decision.
+- **Zero Trust Throughout:** Policy rules compile to exported functions callable by the host. The host controls invocation — WASM sandbox prevents the policy from reaching outside its bounds.
