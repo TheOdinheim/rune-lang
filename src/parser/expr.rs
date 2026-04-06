@@ -406,6 +406,9 @@ impl Parser {
             TokenKind::Perform => self.parse_perform_expr(),
             TokenKind::Handle => self.parse_handle_expr(),
 
+            // ── Refinement type expressions ─────────────────────
+            TokenKind::Require => self.parse_require_expr(),
+
             _ => Err(self.error_at_current("expected expression")),
         }
     }
@@ -633,6 +636,21 @@ impl Parser {
             params,
             body,
             span: self.merge_spans(start_span, end),
+        })
+    }
+
+    // ── Refinement type expressions ─────────────────────────────────
+
+    /// Parse `require <expr> satisfies { predicates }`.
+    fn parse_require_expr(&mut self) -> Result<Expr, ParseError> {
+        let start = self.advance().span; // consume `require`
+        let target = Box::new(self.parse_expr_bp(Precedence::None)?);
+        self.expect(&TokenKind::Satisfies)?;
+        let predicates = self.parse_predicate_block()?;
+        let end = self.previous_span();
+        Ok(Expr {
+            kind: ExprKind::Require { target, predicates },
+            span: self.merge_spans(start, end),
         })
     }
 

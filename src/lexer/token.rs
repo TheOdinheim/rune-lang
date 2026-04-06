@@ -109,6 +109,11 @@ pub enum TokenKind {
     SecureZone,  // `secure_zone`
     UnsafeFfi,   // `unsafe_ffi`
 
+    // ── Refinement type keywords ────────────────────────────────────
+    Where,
+    Satisfies,
+    Not,
+
     // ── Boolean literals ─────────────────────────────────────────────
     True,
     False,
@@ -247,6 +252,11 @@ impl TokenKind {
             "audit"       => Some(TokenKind::Audit),
             "secure_zone" => Some(TokenKind::SecureZone),
             "unsafe_ffi"  => Some(TokenKind::UnsafeFfi),
+
+            // Refinement types
+            "where"     => Some(TokenKind::Where),
+            "satisfies" => Some(TokenKind::Satisfies),
+            "not"       => Some(TokenKind::Not),
 
             // Boolean literals
             "true"  => Some(TokenKind::True),

@@ -197,6 +197,7 @@ impl Lowerer {
             TypeExprKind::Tuple(_) => IrType::Ptr,
             TypeExprKind::Function { .. } => IrType::FuncRef,
             TypeExprKind::Reference { .. } => IrType::Ptr,
+            TypeExprKind::Refined { base, .. } => self.map_type_expr(base),
         }
     }
 
@@ -658,7 +659,8 @@ impl Lowerer {
             | ExprKind::Perform { .. }
             | ExprKind::Handle { .. }
             | ExprKind::StructLiteral { .. }
-            | ExprKind::Tuple(_) => {
+            | ExprKind::Tuple(_)
+            | ExprKind::Require { .. } => {
                 self.emit(InstKind::UnitConst, IrType::Unit)
             }
         }

@@ -977,4 +977,230 @@ fn evaluate(model: Model) -> Decision {
         let PatternKind::Path(ref p) = arms[0].pattern.kind else { panic!("expected path pattern") };
         assert_eq!(p.segments.len(), 2);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Refinement types — M4 Layer 1
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_refinement_type_alias_basic() {
+        let item = parse_single_item(
+            "type RiskModel = Model where { bias_audit == true, data_retention <= 30 };",
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint, got {item:?}");
+        };
+        assert_eq!(decl.name.name, "RiskModel");
+        // Base type is "Model"
+        let TypeExprKind::Named { path, .. } = &decl.base_type.kind else {
+            panic!("expected Named base type");
+        };
+        assert_eq!(path.segments[0].name, "Model");
+        // Two predicates
+        assert_eq!(decl.where_clause.predicates.len(), 2);
+        let p0 = &decl.where_clause.predicates[0];
+        assert_eq!(p0.field.name, "bias_audit");
+        assert_eq!(p0.op, RefinementOp::Eq);
+        assert_eq!(p0.value, RefinementValue::Bool(true));
+        let p1 = &decl.where_clause.predicates[1];
+        assert_eq!(p1.field.name, "data_retention");
+        assert_eq!(p1.op, RefinementOp::Le);
+        assert_eq!(p1.value, RefinementValue::Int(30));
+    }
+
+    #[test]
+    fn test_refinement_type_in_list() {
+        let item = parse_single_item(
+            r#"type SafeModel = Model where { risk_category in ["limited", "minimal"] };"#,
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        assert_eq!(decl.where_clause.predicates.len(), 1);
+        let p = &decl.where_clause.predicates[0];
+        assert_eq!(p.field.name, "risk_category");
+        assert_eq!(p.op, RefinementOp::In);
+        let RefinementValue::List(items) = &p.value else {
+            panic!("expected list");
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], RefinementValue::String("limited".into()));
+        assert_eq!(items[1], RefinementValue::String("minimal".into()));
+    }
+
+    #[test]
+    fn test_refinement_type_not_in() {
+        let item = parse_single_item(
+            r#"type Compliant = Config where { region not in ["banned_region"] };"#,
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        let p = &decl.where_clause.predicates[0];
+        assert_eq!(p.op, RefinementOp::NotIn);
+    }
+
+    #[test]
+    fn test_refinement_type_all_comparison_ops() {
+        let item = parse_single_item(
+            "type Strict = M where { a == 1, b != 2, c < 3, d > 4, e <= 5, f >= 6 };",
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        let ops: Vec<RefinementOp> = decl.where_clause.predicates.iter()
+            .map(|p| p.op)
+            .collect();
+        assert_eq!(ops, vec![
+            RefinementOp::Eq, RefinementOp::Ne,
+            RefinementOp::Lt, RefinementOp::Gt,
+            RefinementOp::Le, RefinementOp::Ge,
+        ]);
+    }
+
+    #[test]
+    fn test_refinement_type_negative_value() {
+        let item = parse_single_item(
+            "type Cold = Temp where { celsius < -10 };",
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        let p = &decl.where_clause.predicates[0];
+        assert_eq!(p.value, RefinementValue::Int(-10));
+    }
+
+    #[test]
+    fn test_refinement_type_float_value() {
+        let item = parse_single_item(
+            "type LowRisk = Score where { probability <= 0.05 };",
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        let p = &decl.where_clause.predicates[0];
+        assert_eq!(p.op, RefinementOp::Le);
+        assert!(matches!(&p.value, RefinementValue::Float(f) if (*f - 0.05).abs() < 1e-10));
+    }
+
+    #[test]
+    fn test_refinement_type_string_value() {
+        let item = parse_single_item(
+            r#"type Audited = Model where { status == "approved" };"#,
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        let p = &decl.where_clause.predicates[0];
+        assert_eq!(p.value, RefinementValue::String("approved".into()));
+    }
+
+    #[test]
+    fn test_refinement_param_type() {
+        // Function parameter with refinement type.
+        let item = parse_single_item(
+            "fn deploy(model: Model where { certified == true }) -> Int { 42 }",
+        );
+        let ItemKind::Function(decl) = item else {
+            panic!("expected Function");
+        };
+        let param_ty = &decl.signature.params[0].ty;
+        let TypeExprKind::Refined { base, where_clause } = &param_ty.kind else {
+            panic!("expected Refined type on param, got {:?}", param_ty.kind);
+        };
+        let TypeExprKind::Named { path, .. } = &base.kind else {
+            panic!("expected Named base type");
+        };
+        assert_eq!(path.segments[0].name, "Model");
+        assert_eq!(where_clause.predicates.len(), 1);
+        assert_eq!(where_clause.predicates[0].field.name, "certified");
+    }
+
+    #[test]
+    fn test_require_satisfies_expr() {
+        let expr = parse_body_expr(
+            r#"require model satisfies { bias_audit == true, data_retention <= 30 }"#,
+        );
+        let ExprKind::Require { target, predicates } = &expr.kind else {
+            panic!("expected Require, got {:?}", expr.kind);
+        };
+        let ExprKind::Identifier(name) = &target.kind else {
+            panic!("expected identifier target");
+        };
+        assert_eq!(name, "model");
+        assert_eq!(predicates.predicates.len(), 2);
+        assert_eq!(predicates.predicates[0].field.name, "bias_audit");
+        assert_eq!(predicates.predicates[1].field.name, "data_retention");
+    }
+
+    #[test]
+    fn test_require_satisfies_single_predicate() {
+        let expr = parse_body_expr(
+            "require config satisfies { enabled == true }",
+        );
+        let ExprKind::Require { predicates, .. } = &expr.kind else {
+            panic!("expected Require");
+        };
+        assert_eq!(predicates.predicates.len(), 1);
+    }
+
+    #[test]
+    fn test_refinement_empty_where_clause() {
+        // Empty where clause is valid syntax (no predicates).
+        let item = parse_single_item("type Empty = T where {};");
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        assert!(decl.where_clause.predicates.is_empty());
+    }
+
+    #[test]
+    fn test_plain_type_alias_still_works() {
+        // Verify plain type aliases without `where` still parse as TypeAlias.
+        let item = parse_single_item("type Alias = Int;");
+        assert!(matches!(item, ItemKind::TypeAlias(_)));
+    }
+
+    #[test]
+    fn test_refinement_trailing_comma() {
+        // Trailing comma after last predicate.
+        let item = parse_single_item(
+            "type R = M where { x == 1, y == 2, };",
+        );
+        let ItemKind::TypeConstraint(decl) = item else {
+            panic!("expected TypeConstraint");
+        };
+        assert_eq!(decl.where_clause.predicates.len(), 2);
+    }
+
+    #[test]
+    fn test_require_in_policy_rule() {
+        // require inside a policy rule body.
+        let file = parse_ok(r#"
+policy compliance {
+    rule check_model(model: Model) {
+        require model satisfies {
+            bias_audit == true,
+            certified == true,
+        };
+        permit
+    }
+}
+"#);
+        let ItemKind::Policy(decl) = &file.items[0].kind else {
+            panic!("expected policy");
+        };
+        assert_eq!(decl.rules.len(), 1);
+    }
+
+    #[test]
+    fn test_where_keyword_lexes() {
+        // Verify `where` and `satisfies` are recognized as keywords.
+        let (tokens, errors) = Lexer::new("where satisfies not", 0).tokenize();
+        assert!(errors.is_empty());
+        use crate::lexer::token::TokenKind;
+        assert!(matches!(tokens[0].kind, TokenKind::Where));
+        assert!(matches!(tokens[1].kind, TokenKind::Satisfies));
+        assert!(matches!(tokens[2].kind, TokenKind::Not));
+    }
 }

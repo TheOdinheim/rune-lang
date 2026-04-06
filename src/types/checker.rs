@@ -554,6 +554,12 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.intern(Type::Tuple(elem_types))
             }
 
+            // ── Require expression — returns Bool (check deferred to M4 Layer 2)
+            ExprKind::Require { target, .. } => {
+                self.check_expr(target);
+                self.bool_type()
+            }
+
             // ── Struct literal, range — deferred to Pass 2 ──────
             ExprKind::StructLiteral { .. } => self.error_type(),
             ExprKind::Range { start, end, .. } => {
@@ -1143,6 +1149,19 @@ impl<'ctx> TypeChecker<'ctx> {
             ItemKind::StructDef(def) => self.register_struct(def),
             ItemKind::EnumDef(def) => self.register_enum(def),
             ItemKind::TypeAlias(decl) => self.register_type_alias(decl),
+            ItemKind::TypeConstraint(decl) => {
+                // Register as a type alias (resolves to base type).
+                // Predicate verification deferred to M4 Layer 2 (SMT).
+                let ty = self.ctx.resolve_type_expr(&decl.base_type);
+                let result = self.ctx.define(
+                    &decl.name.name,
+                    Symbol::Type { ty, span: decl.name.span },
+                    decl.name.span,
+                );
+                if let Err(e) = result {
+                    self.error(e.message, e.span);
+                }
+            }
             ItemKind::Capability(decl) => self.register_capability(decl),
             ItemKind::Effect(decl) => self.register_effect(decl),
             ItemKind::TraitDef(def) => self.register_trait(def),
@@ -1341,6 +1360,7 @@ impl<'ctx> TypeChecker<'ctx> {
             ItemKind::StructDef(_)
             | ItemKind::EnumDef(_)
             | ItemKind::TypeAlias(_)
+            | ItemKind::TypeConstraint(_)
             | ItemKind::Capability(_)
             | ItemKind::Effect(_)
             | ItemKind::Module(_)

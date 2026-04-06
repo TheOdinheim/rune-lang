@@ -184,6 +184,10 @@ impl TypeContext {
                     inner: resolved_inner,
                 })
             }
+            TypeExprKind::Refined { base, .. } => {
+                // Resolve to the base type. Predicate checking deferred to M4 Layer 2.
+                self.resolve_type_expr(base)
+            }
         }
     }
 

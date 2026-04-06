@@ -45,6 +45,10 @@ pub enum ItemKind {
 
     // ── Constants ────────────────────────────────────────────────────
     Const(ConstDecl),
+
+    // ── Refinement types ────────────────────────────────────────────
+    /// `type RiskModel = Model where { predicates }`
+    TypeConstraint(TypeConstraintDecl),
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -126,6 +130,19 @@ pub struct EffectDecl {
 pub struct TypeAliasDecl {
     pub name: Ident,
     pub ty: TypeExpr,
+    pub span: Span,
+}
+
+/// `type RiskModel = Model where { bias_audit == true, ... };`
+///
+/// A refinement type alias — a named type with compile-time predicates.
+///
+/// Pillar: Security Baked In — governance constraints are named and reusable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeConstraintDecl {
+    pub name: Ident,
+    pub base_type: TypeExpr,
+    pub where_clause: WhereClause,
     pub span: Span,
 }
 
@@ -287,6 +304,53 @@ pub struct ConstDecl {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Refinement types — compile-time governance predicate verification
+// ═══════════════════════════════════════════════════════════════════════
+
+/// A single refinement predicate: `field op value`.
+///
+/// Example: `bias_audit == true`, `data_retention <= 30`.
+///
+/// Pillar: Security Baked In — constraints verified at compile time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefinementPredicate {
+    pub field: Ident,
+    pub op: RefinementOp,
+    pub value: RefinementValue,
+    pub span: Span,
+}
+
+/// Comparison operator in a refinement predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefinementOp {
+    Eq,    // ==
+    Ne,    // !=
+    Lt,    // <
+    Gt,    // >
+    Le,    // <=
+    Ge,    // >=
+    In,    // in [list]
+    NotIn, // not in [list]
+}
+
+/// A constant value in a refinement predicate.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RefinementValue {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    String(String),
+    List(Vec<RefinementValue>),
+}
+
+/// A where clause: `where { predicate, predicate, ... }`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhereClause {
+    pub predicates: Vec<RefinementPredicate>,
+    pub span: Span,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Type expressions
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -317,6 +381,14 @@ pub enum TypeExprKind {
     Reference {
         is_mut: bool,
         inner: Box<TypeExpr>,
+    },
+    /// A refinement type: `BaseType where { predicates }`.
+    ///
+    /// Pillar: Security Baked In — types carry governance constraints
+    /// that the SMT solver verifies at compile time.
+    Refined {
+        base: Box<TypeExpr>,
+        where_clause: WhereClause,
     },
 }
 
@@ -455,6 +527,15 @@ pub enum ExprKind {
     Handle {
         expr: Box<Expr>,
         handlers: Vec<Handler>,
+    },
+
+    /// `require <expr> satisfies { predicates }`
+    ///
+    /// Runtime assertion that a value meets refinement predicates.
+    /// Pillar: Zero Trust Throughout — every value verified before use.
+    Require {
+        target: Box<Expr>,
+        predicates: WhereClause,
     },
 
     // ── Struct / enum construction ───────────────────────────────────

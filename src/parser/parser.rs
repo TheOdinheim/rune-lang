@@ -221,7 +221,7 @@ impl Parser {
             }
             TokenKind::Type => {
                 self.advance();
-                ItemKind::TypeAlias(self.parse_type_alias(start_span)?)
+                self.parse_type_decl(start_span)?
             }
             TokenKind::Impl => {
                 self.advance();
@@ -540,6 +540,29 @@ impl Parser {
             ty,
             span: self.merge_spans(start_span, end),
         })
+    }
+
+    /// Parse `type Name = Type;` or `type Name = Type where { ... };`.
+    /// Returns TypeAlias for plain aliases, TypeConstraint for refined types.
+    fn parse_type_decl(&mut self, start_span: Span) -> Result<ItemKind, ParseError> {
+        let name = self.expect_identifier()?;
+        self.expect(&TokenKind::Equal)?;
+        let ty = self.parse_type_expr()?;
+        self.expect_semicolon()?;
+        let end = self.previous_span();
+        let span = self.merge_spans(start_span, end);
+
+        // If the type has a where clause, produce a TypeConstraint.
+        if let TypeExprKind::Refined { base, where_clause } = ty.kind {
+            Ok(ItemKind::TypeConstraint(TypeConstraintDecl {
+                name,
+                base_type: *base,
+                where_clause,
+                span,
+            }))
+        } else {
+            Ok(ItemKind::TypeAlias(TypeAliasDecl { name, ty, span }))
+        }
     }
 
     // ── Impl blocks ──────────────────────────────────────────────────
