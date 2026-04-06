@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M2: Core type system** — **COMPLETE**
+**M3: Cranelift backend** — Target: Month 9
 
-Hand-written recursive descent parser producing a fully located AST with basic diagnostic reporting.
+IR design and AST-to-IR lowering complete. Next: Cranelift code generation.
 
 ### M1 Deliverables
 
@@ -26,7 +26,7 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 |-----------|--------|--------|
 | M1: Parser + AST | Month 3 | **Complete** |
 | M2: Core type system | Month 6 | **Complete** |
-| M3: Cranelift backend | Month 9 | Not started |
+| M3: Cranelift backend | Month 9 | **In Progress** — Layer 1 done (IR design + AST-to-IR lowering) |
 | M4: Refinement types | Month 12 | Not started |
 | M5: Runtime engine | Month 15 | Not started |
 | M6: Toolchain MVP | Month 18 | Not started |
@@ -109,6 +109,18 @@ Hand-written recursive descent parser producing a fully located AST with basic d
   - Governance error quality: messages list all four decisions (permit, deny, escalate, quarantine)
   - Decision documentation: D008 (linear types), D009 (session types), D010 (Self type) deferred
 
+- **M3 Layer 1: IR design and AST-to-IR lowering** (24 tests)
+  - IR data structures: IrModule, IrFunction, BasicBlock, Instruction, Value, IrType, Terminator
+  - SSA-like design: each instruction produces a named Value (%0, %1, %2)
+  - Flat instructions: no nested expressions, all operations on Values
+  - Explicit control flow: if/else → CondBranch with then/else/merge blocks
+  - Governance-aware: GovernanceDecision and AuditMark as first-class instructions
+  - AST-to-IR lowering: functions, let bindings, variables, binary/unary ops, if/else, calls
+  - Policy rules lower to functions returning PolicyDecision with audit marks
+  - Audit instrumentation: AuditMark at function entry/exit and every governance decision
+  - Pretty-printer: human-readable textual IR format for debugging
+  - IrType system: Int, Float, Bool, String, Unit, PolicyDecision, Ptr, FuncRef
+
 ## What's Next
 
 - ~~M2 Layer 2 Pass 1: Type checker — walk the AST and assign types to expressions~~ **Done** (55 tests)
@@ -116,4 +128,5 @@ Hand-written recursive descent parser producing a fully located AST with basic d
 - ~~M2 Layer 3b: Capability checking — Zero Trust pillar enforcement~~ **Done** (18 tests)
 - ~~M2 Layer 4: Top-level declaration checking — full program type checking~~ **Done** (24 tests)
 - ~~M2 Polish: Governance-aware diagnostics and edge case hardening~~ **Done** (13 new edge case tests)
-- M3: Cranelift backend
+- M3 Layer 1: IR design and AST-to-IR lowering — **Done** (24 tests)
+- M3 Layer 2: Cranelift code generation

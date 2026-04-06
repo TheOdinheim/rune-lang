@@ -130,3 +130,69 @@ cargo test: 302 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effect
 ### M2 Status: COMPLETE
 
 All layers delivered: type representation, expression checking, effect tracking, capability checking, program-level declaration checking, and polish. 302 total tests passing. Moving to M3: Cranelift backend.
+
+---
+
+## 2026-04-06 — M3 Layer 1: IR Design and AST-to-IR Lowering
+
+### What was built
+
+Intermediate Representation (IR) that sits between the type checker and the Cranelift code generator. The IR simplifies the AST's 30+ expression variants and nested control flow into flat sequences of typed instructions within basic blocks. This is the compilation bridge described in RUNE_02 (Compiler Pipeline: "Compiler lowers AST to typed IR after type checking").
+
+### Files created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| src/ir/mod.rs | Module declarations | 6 |
+| src/ir/nodes.rs | IR data structures (IrModule, IrFunction, BasicBlock, Instruction, Value, IrType, Terminator) | ~240 |
+| src/ir/display.rs | Pretty-printer — human-readable textual IR format | ~130 |
+| src/ir/lower.rs | AST-to-IR lowering engine | ~470 |
+| src/ir/tests.rs | 24 tests for lowering and display | ~340 |
+| src/lib.rs | Added `pub mod ir` | +1 line |
+
+### IR design
+
+**SSA-like structure:** Each instruction produces a named Value (%0, %1, %2). Values are immutable — once produced, they are referenced but never modified. This maps directly to Cranelift's SSA representation.
+
+**Basic blocks:** Straight-line code ending in a terminator (Return, Branch, CondBranch, Unreachable). No nested control flow within a block. if/else becomes CondBranch to then-block and else-block, with both branching to a merge-block.
+
+**IR types:** Simplified from the full M2 Type enum: Int (i64), Float (f64), Bool, String, Unit, PolicyDecision (i8, 0-3), Ptr (arena pointer), FuncRef. These map directly to Cranelift types.
+
+**Governance-aware instructions:**
+- `GovernanceDecision(Permit|Deny|Escalate|Quarantine)` — first-class governance decisions
+- `AuditMark(FunctionEntry|FunctionExit|Decision)` — compiler-inserted audit instrumentation
+
+### AST-to-IR lowering
+
+| AST construct | IR lowering |
+|--------------|-------------|
+| Function declaration | IrFunction with params, entry block, audit marks |
+| Policy rule | IrFunction returning PolicyDecision, with decision audit marks |
+| When-clause | CondBranch: true → body block, false → deny block |
+| Let binding | Alloca + Store |
+| Variable reference | Load from Alloca pointer |
+| Binary/unary operators | Flat instructions (Add, Sub, Mul, Eq, etc.) |
+| If/else | CondBranch → then-block + else-block → merge-block with Select |
+| Function call | Call instruction |
+| Governance decisions | GovernanceDecision + AuditMark(Decision) |
+| Return | AuditMark(FunctionExit) + Return terminator |
+| Block | Sequential lowering of statements |
+
+**Audit instrumentation (automatic):**
+- AuditMark(FunctionEntry) inserted at every function/rule entry
+- AuditMark(FunctionExit) inserted before every return
+- AuditMark(Decision) inserted at every governance decision point
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 326 passed (49 lexer + 87 parser + 33 types + 55 checker + 23 effects + 18 capabilities + 37 program + 24 ir), 0 failed
+```
+
+### Pillars served
+
+- **Security Baked In:** AuditMark instructions auto-inserted at every governance decision point and function boundary. Audit trail instrumentation is compiler-enforced, not optional.
+- **Assumed Breach:** Each function lowered to isolated IR with its own parameter scope. No implicit state sharing between IR functions.
+- **No Single Points of Failure:** IR design supports multiple basic blocks — a failed branch doesn't crash the evaluator, it flows to an alternate path. Governance decisions always produce a value.
+- **Zero Trust Throughout:** Policy rules with when-clauses lower to explicit CondBranch — if the guard fails, the default is deny. No implicit permit on guard failure.
