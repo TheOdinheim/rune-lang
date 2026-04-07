@@ -234,3 +234,108 @@ cargo test: 572 passed (564 lib + 8 CLI), 0 failed
 - **Zero Trust Throughout:** The LSP reuses the compiler's lexer, parser, and type checker. No separate or weaker validation path.
 - **Assumed Breach:** catch_unwind wraps all compilation — malformed input cannot crash the server. Internal errors are reported as diagnostics.
 - **No Single Points of Failure:** The LSP is a separate binary (rune-lsp) working with any LSP-compatible editor. VS Code extension is provided but not required.
+
+---
+
+## 2026-04-07 — M6 Layer 4: Package Manifest, Project Scaffolding, Documentation Generator
+
+### What was built
+
+Project ecosystem tooling for RUNE: `rune.toml` manifest format defining project metadata and build configuration, `rune new` scaffolding command for instant project creation, `rune doc` documentation generator that extracts comments from source and produces Markdown, and project-aware `build`/`check` commands that find `rune.toml` and default to `src/main.rune`.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Added serde and toml dependencies | +2 lines |
+| src/lib.rs | Added manifest and docgen modules | +2 lines |
+| src/manifest/mod.rs | RuneManifest, PackageSection, BuildSection, validation, TOML serialization | New file, ~200 lines |
+| src/manifest/tests.rs | 11 manifest tests | New file, ~170 lines |
+| src/docgen/mod.rs | Doc extraction from AST, Markdown rendering | New file, ~260 lines |
+| src/docgen/tests.rs | 13 docgen tests | New file, ~170 lines |
+| src/main.rs | Added new/doc subcommands, project-aware build/check, find_manifest | +120 lines |
+| tests/cli_tests.rs | 3 new CLI integration tests (new, new-exists, doc) | +70 lines |
+
+### Architecture
+
+**Package manifest (rune.toml)**:
+- [package]: name, version, edition (default "2026"), description, authors, license
+- [build]: target (wasm/native), optimization (debug/release), graduation_level (bronze/silver/gold/platinum)
+- Validation: name (lowercase alphanumeric + hyphens), semver version, valid graduation level, valid edition
+- Round-trip: from_file/from_str → RuneManifest → to_toml_string
+
+**Project scaffolding (`rune new`)**:
+- Creates project-name/ with rune.toml, src/main.rune, README.md
+- Starter main.rune: Bronze-level access control policy
+- Error handling: directory-exists check, creation failure reporting
+
+**Project-aware commands**:
+- find_manifest(): walks up directory tree looking for rune.toml
+- `rune build` / `rune check` without file argument: finds rune.toml, builds src/main.rune
+- Prints project name from manifest in output
+
+**Documentation generator (`rune doc`)**:
+- Parses .rune source, walks AST, extracts doc comments from lines above declarations
+- DocItem: name, kind (Policy/Rule/Function/Type/Struct/Enum), doc_comment, signature, children, line_number
+- Children: rules inside policies, fields inside structs, variants inside enums
+- Markdown output: title, table of contents with anchors, code blocks for signatures, doc comments as descriptions
+- --stdout flag for piping, otherwise writes <file>.md
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 600 passed (589 lib + 11 CLI), 0 failed
+```
+
+### New tests (24 unit + 3 CLI = 27 tests)
+
+**Manifest tests (11)**:
+
+| Test | What it covers |
+|------|---------------|
+| test_parse_full_manifest | All fields parsed correctly |
+| test_parse_minimal_manifest | Only name + version, defaults applied |
+| test_default_new_has_correct_values | edition 2026, bronze, wasm, debug |
+| test_invalid_name_uppercase | Uppercase → InvalidName |
+| test_invalid_name_spaces | Spaces → InvalidName |
+| test_invalid_name_starts_with_digit | Digit start → InvalidName |
+| test_invalid_graduation_level | "diamond" → InvalidGraduationLevel |
+| test_invalid_version | Non-semver → InvalidVersion |
+| test_round_trip | default_new → to_toml_string → from_str roundtrip |
+| test_from_file_nonexistent_returns_io_error | Missing file → IoError |
+| test_validate_catches_empty_name | Empty name → InvalidName |
+| test_invalid_edition | "abc" → InvalidEdition |
+
+**Docgen tests (13)**:
+
+| Test | What it covers |
+|------|---------------|
+| test_extract_docs_policy_with_comment | Policy + doc comment extraction |
+| test_extract_docs_function_with_comment | Function + doc comment extraction |
+| test_extract_docs_no_comment | Declaration without comment → None |
+| test_extract_children_rules_inside_policy | Rules as policy children |
+| test_extract_struct_fields_as_children | Struct fields as children |
+| test_render_markdown_table_of_contents | ToC with links |
+| test_render_markdown_code_blocks | Signatures in code blocks |
+| test_render_markdown_doc_comments | Doc comments in output |
+| test_empty_source_produces_empty_docs | Empty → empty |
+| test_invalid_source_produces_empty_docs | Bad source → empty |
+| test_multiline_doc_comment | Multi-line // comments joined |
+| test_extract_enum_variants | Enum variants as children |
+| test_render_empty_items | Empty items → "No documented items" |
+
+**CLI integration tests (3)**:
+
+| Test | What it covers |
+|------|---------------|
+| test_cli_new_creates_project | Creates rune.toml, src/main.rune, README.md |
+| test_cli_new_fails_if_exists | Directory exists → exit 1 |
+| test_cli_doc_generates_markdown | Generates .md with doc comments |
+
+### Pillars served
+
+- **Security Baked In:** The graduation_level in rune.toml defines the language subset available to each project. Bronze projects cannot use advanced features, enforcing a safe on-ramp.
+- **Zero Trust Throughout:** `rune doc` reuses the compiler's lexer and parser — documentation cannot be generated from invalid source. No silent failures.
+- **Assumed Breach:** Project-aware commands validate the manifest before using it. Invalid names, versions, and graduation levels are rejected with clear errors.
+- **No Single Points of Failure:** The manifest format, docgen, and scaffolding are all library functions and CLI commands. Both interfaces are available for different integration needs.

@@ -29,7 +29,7 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
-| M6: Toolchain MVP | Month 18 | **In Progress** — Layers 1-3 (tree-sitter, VS Code, CLI, formatter, LSP) done |
+| M6: Toolchain MVP | Month 18 | **In Progress** — Layers 1-4 (tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen) done |
 
 ## What's Done
 
@@ -230,6 +230,12 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
   - catch_unwind wraps all compilation — malformed input cannot crash the server
   - 30+ keyword hover docs, 40+ keyword completions, identifier completions from parsed AST
 
+- **M6 Layer 4: Package manifest, project scaffolding, documentation generator** (24 unit + 3 CLI tests)
+  - rune.toml manifest: [package] + [build] sections with graduation_level and edition
+  - `rune new <name>`: creates project with rune.toml, src/main.rune, README.md
+  - `rune doc <file>`: extracts doc comments from AST, generates Markdown with ToC
+  - Project-aware build/check: finds rune.toml, defaults to src/main.rune
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -246,4 +252,5 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 - ~~M6 Layer 1: Tree-sitter grammar, VS Code extension, CLI polish~~ **Done** (6 CLI + 8 corpus tests)
 - ~~M6 Layer 2: AST-based formatter~~ **Done** (18 unit + 2 CLI tests)
 - ~~M6 Layer 3: LSP server~~ **Done** (27 unit tests)
-- M6 Layer 4+: Linter, package manager
+- ~~M6 Layer 4: Package manifest, project scaffolding, docgen~~ **Done** (24 unit + 3 CLI tests)
+- M6 Layer 5+: Linter, package manager

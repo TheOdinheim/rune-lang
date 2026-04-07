@@ -9,3 +9,5 @@ pub mod smt;
 pub mod runtime;
 pub mod formatter;
 pub mod lsp;
+pub mod manifest;
+pub mod docgen;

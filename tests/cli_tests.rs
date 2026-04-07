@@ -1,16 +1,24 @@
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 fn rune_bin() -> Command {
     Command::new(env!("CARGO_BIN_EXE_rune-lang"))
 }
 
-fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
+fn write_temp(name: &str, content: &str) -> PathBuf {
     let dir = std::env::temp_dir().join("rune_cli_tests");
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     fs::write(&path, content).unwrap();
     path
+}
+
+fn temp_project_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join("rune_cli_tests").join(name);
+    // Clean up from previous test run.
+    let _ = fs::remove_dir_all(&dir);
+    dir
 }
 
 #[test]
@@ -85,4 +93,76 @@ fn test_cli_fmt_check_unformatted_exits_1() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("would reformat"), "stderr: {stderr}");
+}
+
+// ── rune new ────────────────────────────────────────────────────────
+
+#[test]
+fn test_cli_new_creates_project() {
+    let dir = temp_project_dir("new_creates");
+    let parent = dir.parent().unwrap();
+    let name = dir.file_name().unwrap().to_str().unwrap();
+
+    let output = rune_bin()
+        .args(["new", name])
+        .current_dir(parent)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+
+    assert!(dir.join("rune.toml").exists(), "rune.toml should exist");
+    assert!(dir.join("src/main.rune").exists(), "src/main.rune should exist");
+    assert!(dir.join("README.md").exists(), "README.md should exist");
+
+    // rune.toml should contain the project name.
+    let toml = fs::read_to_string(dir.join("rune.toml")).unwrap();
+    assert!(toml.contains(name), "rune.toml should contain project name");
+
+    // Clean up.
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_cli_new_fails_if_exists() {
+    let dir = temp_project_dir("new_exists");
+    let parent = dir.parent().unwrap();
+    let name = dir.file_name().unwrap().to_str().unwrap();
+
+    // Create the directory first.
+    fs::create_dir_all(&dir).unwrap();
+
+    let output = rune_bin()
+        .args(["new", name])
+        .current_dir(parent)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already exists"), "stderr: {stderr}");
+
+    // Clean up.
+    let _ = fs::remove_dir_all(&dir);
+}
+
+// ── rune doc ────────────────────────────────────────────────────────
+
+#[test]
+fn test_cli_doc_generates_markdown() {
+    let source = "// An access policy.\npolicy access {\n    rule allow() { permit }\n}\n";
+    let path = write_temp("doc_test.rune", source);
+
+    let output = rune_bin()
+        .args(["doc", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+
+    let md_path = path.with_extension("md");
+    assert!(md_path.exists(), "expected {}", md_path.display());
+    let md = fs::read_to_string(&md_path).unwrap();
+    assert!(md.contains("access"), "markdown should contain 'access'");
+    assert!(md.contains("An access policy."), "markdown should contain doc comment");
+
+    // Clean up.
+    let _ = fs::remove_file(&md_path);
 }
