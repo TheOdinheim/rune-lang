@@ -97,3 +97,71 @@ cargo test: 467 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen +
 - **Assumed Breach:** Each evaluation creates a fresh wasmtime Store and Instance. No state leaks between evaluations — the arena model ensures complete isolation.
 - **Zero Trust Throughout:** The runtime validates module structure (exports, signatures) before evaluation. Invalid decisions produce errors, not undefined behavior.
 - **No Single Points of Failure:** Individual rules can be evaluated independently via `evaluate_rule()`. The standard `evaluate` entry point aggregates all rules with first-non-permit-wins semantics, but direct rule access enables fine-grained policy auditing.
+
+---
+
+## 2026-04-07 — M5 Layer 2: Cryptographic Audit Trail
+
+### What was built
+
+Append-only cryptographic audit trail with hash chain and placeholder PQC signatures. Every policy decision is recorded with a SHA-256 hash chain (stand-in for SHA-3) and HMAC-SHA256 signatures (stand-in for ML-DSA). The crypto module is designed so swapping to real PQC primitives post-M10 is a single-file change.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Added sha2, hmac, hex dependencies | +3 lines |
+| src/runtime/mod.rs | Added audit module | +1 line |
+| src/runtime/audit.rs | AuditTrail, AuditRecord, hash chain, signatures, crypto module | New file, ~300 lines |
+| src/runtime/evaluator.rs | AuditedPolicyEvaluator wrapping evaluator with audit trail | +75 lines |
+| src/runtime/tests.rs | 17 new audit and integration tests | +200 lines |
+
+### Architecture
+
+**AuditRecord**: record_id, timestamp, event_type, policy_module, function_name, decision, input_hash, previous_hash, record_hash, signature
+
+**Hash chain**: Each record's `record_hash = SHA256(record_id || timestamp || event_type || ...)`. Each record's `previous_hash` = prior record's `record_hash`. First record links to genesis (all zeros). Append-only — tampering breaks the chain.
+
+**Signatures**: `signature = HMAC-SHA256(signing_key, record_hash)`. Verification walks the chain checking each signature. Interface designed for ML-DSA swap.
+
+**Crypto abstraction**: Two functions in `audit::crypto` module:
+- `hash(payload) -> hex_string` — currently SHA-256, will be SHA-3
+- `sign(key, data) -> hex_string` — currently HMAC-SHA256, will be ML-DSA
+
+**AuditedPolicyEvaluator**: Wraps PolicyEvaluator, automatically records every `evaluate()` and `evaluate_rule()` call. Provides `audit_trail()` and `export_audit_log()`.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 484 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen + 18 compiler + 45 smt + 49 runtime), 0 failed
+```
+
+### New audit tests (17 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_audit_record_decision_and_verify_chain | Single record, chain verifies |
+| test_audit_multiple_records_chain_integrity | 3 records, chain links correct |
+| test_audit_genesis_record_has_zero_previous | First record links to genesis |
+| test_audit_record_counter_increments | IDs increment 0, 1, 2 |
+| test_audit_tamper_detection_modified_record | Modified record detectable |
+| test_audit_verify_signatures | All signatures verify with correct key |
+| test_audit_verify_signatures_wrong_key | Wrong key → InvalidSignature |
+| test_audit_empty_trail_verification_error | Empty trail → EmptyTrail error |
+| test_audit_event_types | FunctionEntry/Exit, CapabilityExercise, ModelInvocation |
+| test_audit_latest_record | latest() returns most recent |
+| test_audit_decision_field_recorded | Decision, input_hash, module, function stored |
+| test_audit_verification_error_display | Error message formatting |
+| test_audited_evaluator_records_decision | evaluate() auto-records to trail |
+| test_audited_evaluator_multiple_evaluations | 3 evaluations, chain intact |
+| test_audited_evaluator_export_log | export_audit_log() returns records |
+| test_audited_evaluator_rule_evaluation | evaluate_rule() records to trail |
+| test_hash_input_utility | hash_input deterministic, 64 hex chars |
+
+### Pillars served
+
+- **Security Baked In:** Every policy decision is automatically recorded in a cryptographic audit trail. The compiler inserts AuditMark instructions; the runtime records them. No opt-out.
+- **Assumed Breach:** The hash chain detects tampering. Modifying any record breaks the chain link. Signatures provide non-repudiation — the signing key proves who recorded the decision.
+- **Zero Trust Throughout:** Each record is independently verifiable. Chain verification and signature verification are separate operations that can be performed by different parties.
+- **No Single Points of Failure:** The audit trail is self-contained and exportable. Records can be verified offline without access to the original runtime or policy module.

@@ -289,3 +289,81 @@ impl PolicyEvaluator {
         })
     }
 }
+
+// ── AuditedPolicyEvaluator ────────────────────────────────────────────
+
+/// A policy evaluator with an integrated cryptographic audit trail.
+///
+/// Every evaluation is automatically recorded in the audit trail.
+/// The trail can be exported and verified independently.
+pub struct AuditedPolicyEvaluator {
+    evaluator: PolicyEvaluator,
+    audit_trail: crate::runtime::audit::AuditTrail,
+    module_name: String,
+}
+
+impl AuditedPolicyEvaluator {
+    /// Create an audited evaluator from a PolicyModule.
+    pub fn new(
+        policy_module: &PolicyModule,
+        signing_key: Vec<u8>,
+        module_name: &str,
+    ) -> Result<Self, RuntimeError> {
+        let evaluator = policy_module.evaluator()?;
+        Ok(Self {
+            evaluator,
+            audit_trail: crate::runtime::audit::AuditTrail::new(signing_key),
+            module_name: module_name.to_string(),
+        })
+    }
+
+    /// Evaluate and automatically record the decision in the audit trail.
+    pub fn evaluate(&mut self, request: &PolicyRequest) -> Result<PolicyResult, RuntimeError> {
+        let input_hash = crate::runtime::audit::hash_input(
+            &format!(
+                "{}:{}:{}:{}",
+                request.subject_id, request.action, request.resource_id, request.risk_score
+            )
+            .into_bytes(),
+        );
+
+        let result = self.evaluator.evaluate(request)?;
+
+        self.audit_trail.record_decision(
+            &self.module_name,
+            "evaluate",
+            result.decision,
+            &input_hash,
+        );
+
+        Ok(result)
+    }
+
+    /// Evaluate a rule and record the decision.
+    pub fn evaluate_rule(
+        &mut self,
+        rule_name: &str,
+        args: &[Value],
+    ) -> Result<PolicyResult, RuntimeError> {
+        let result = self.evaluator.evaluate_rule(rule_name, args)?;
+
+        self.audit_trail.record_decision(
+            &self.module_name,
+            rule_name,
+            result.decision,
+            "",
+        );
+
+        Ok(result)
+    }
+
+    /// Access the audit trail.
+    pub fn audit_trail(&self) -> &crate::runtime::audit::AuditTrail {
+        &self.audit_trail
+    }
+
+    /// Export all audit records.
+    pub fn export_audit_log(&self) -> Vec<crate::runtime::audit::AuditRecord> {
+        self.audit_trail.export()
+    }
+}

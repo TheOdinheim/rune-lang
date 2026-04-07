@@ -189,6 +189,14 @@ Runtime policy evaluator built. Host applications can load compiled .rune.wasm m
   - Evaluation timing recorded for performance monitoring
   - RuntimeError enum with context for all failure modes
 
+- **M5 Layer 2: Cryptographic audit trail** (17 tests)
+  - AuditTrail: append-only hash chain with SHA-256 (placeholder for SHA-3)
+  - AuditRecord: record_id, timestamp, event_type, decision, input_hash, chain links, signature
+  - HMAC-SHA256 signatures (placeholder for ML-DSA / FIPS 204)
+  - Crypto abstraction: hash() and sign() in single module for PQC swap
+  - AuditedPolicyEvaluator: auto-records every evaluation to audit trail
+  - Chain verification (detect tampering) and signature verification (non-repudiation)
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -199,6 +207,6 @@ Runtime policy evaluator built. Host applications can load compiled .rune.wasm m
 - ~~M4 Layer 2: Z3 SMT solver integration~~ **Done** (28 tests)
 - ~~M4 Layer 3: Refinement subtyping and call-site verification~~ **Done** (17 tests)
 - ~~M5 Layer 1: Runtime policy evaluator~~ **Done** (32 tests)
-- M5 Layer 2: Audit trail and attestation
+- ~~M5 Layer 2: Cryptographic audit trail~~ **Done** (17 tests)
 - M5 Layer 3: Runtime governance hooks
 - M6: Toolchain MVP
