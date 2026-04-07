@@ -32,17 +32,23 @@ pub enum CompilePhase {
     Type,
 }
 
-impl std::fmt::Display for CompileError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let phase = match self.phase {
+impl CompileError {
+    /// Short tag for the compilation phase (used in error output).
+    pub fn phase_tag(&self) -> &'static str {
+        match self.phase {
             CompilePhase::Lex => "lex",
             CompilePhase::Parse => "parse",
             CompilePhase::Type => "type",
-        };
+        }
+    }
+}
+
+impl std::fmt::Display for CompileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{} error at line {}, column {}: {}",
-            phase, self.span.line, self.span.column, self.message
+            self.phase_tag(), self.span.line, self.span.column, self.message
         )
     }
 }
@@ -108,6 +114,56 @@ pub fn compile_source(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<Compile
     let wasm_bytes = compile_to_wasm(&ir_module);
 
     Ok(wasm_bytes)
+}
+
+/// Check RUNE source code without generating WASM (lex + parse + type check).
+///
+/// Returns Ok(()) on success, or all collected errors on failure.
+pub fn check_source(source: &str, file_id: u32) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    // Phase 1: Lex.
+    let (tokens, lex_errors) = Lexer::new(source, file_id).tokenize();
+    for e in &lex_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Lex,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !lex_errors.is_empty() {
+        return Err(errors);
+    }
+
+    // Phase 2: Parse.
+    let (_file, parse_errors) = Parser::new(tokens).parse();
+    for e in &parse_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Parse,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !parse_errors.is_empty() {
+        return Err(errors);
+    }
+
+    // Phase 3: Type check.
+    let mut ctx = TypeContext::new();
+    let mut checker = TypeChecker::new(&mut ctx);
+    checker.check_source_file(&_file);
+    if !ctx.errors.is_empty() {
+        for e in &ctx.errors {
+            errors.push(CompileError {
+                phase: CompilePhase::Type,
+                message: e.message.clone(),
+                span: e.span.clone(),
+            });
+        }
+        return Err(errors);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

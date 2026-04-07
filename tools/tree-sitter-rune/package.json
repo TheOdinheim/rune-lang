@@ -1,0 +1,26 @@
+{
+  "name": "tree-sitter-rune",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for the RUNE governance-first programming language",
+  "license": "MIT",
+  "main": "bindings/node",
+  "keywords": [
+    "tree-sitter",
+    "parser",
+    "rune",
+    "governance",
+    "policy"
+  ],
+  "tree-sitter": [
+    {
+      "scope": "source.rune",
+      "file-types": [
+        "rune"
+      ],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "devDependencies": {
+    "tree-sitter-cli": "^0.22"
+  }
+}

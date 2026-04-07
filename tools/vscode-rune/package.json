@@ -1,0 +1,35 @@
+{
+  "name": "rune-lang",
+  "displayName": "RUNE Language Support",
+  "description": "Syntax highlighting for the RUNE governance-first programming language",
+  "version": "0.1.0",
+  "publisher": "rune-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "rune",
+        "aliases": [
+          "RUNE",
+          "rune"
+        ],
+        "extensions": [
+          ".rune"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "rune",
+        "scopeName": "source.rune",
+        "path": "./syntaxes/rune.tmLanguage.json"
+      }
+    ]
+  }
+}

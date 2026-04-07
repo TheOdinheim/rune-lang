@@ -29,7 +29,7 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
-| M6: Toolchain MVP | Month 18 | Not started |
+| M6: Toolchain MVP | Month 18 | **In Progress** — Layer 1 (tree-sitter, VS Code, CLI) done |
 
 ## What's Done
 
@@ -211,6 +211,12 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
   - Full lifecycle API: evaluate, evaluate_rule, verify_model, audit_trail, export
   - 10 end-to-end tests including realistic EU AI Act governance scenario
 
+- **M6 Layer 1: Tree-sitter grammar, VS Code extension, CLI polish** (6 CLI integration tests + 8 tree-sitter corpus tests)
+  - Tree-sitter grammar: all RUNE constructs, syntax highlighting queries
+  - VS Code extension: TextMate grammar, language configuration
+  - CLI: clap-based build/check/run subcommands, rustc-style error reporting with source lines
+  - check_source() for type-check-only mode (no codegen)
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -224,4 +230,5 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 - ~~M5 Layer 2: Cryptographic audit trail~~ **Done** (17 tests)
 - ~~M5 Layer 3: Model attestation checker~~ **Done** (23 tests)
 - ~~M5 Layer 4: End-to-end integration pipeline~~ **Done** (10 tests)
-- M6: Toolchain MVP
+- ~~M6 Layer 1: Tree-sitter grammar, VS Code extension, CLI polish~~ **Done** (6 CLI + 8 corpus tests)
+- M6 Layer 2+: LSP server, formatter, linter

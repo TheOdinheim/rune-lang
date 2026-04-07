@@ -1,0 +1,193 @@
+================================================================================
+Simple policy with single rule
+================================================================================
+
+policy access_control {
+    rule allow_all() {
+        permit
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (policy_declaration
+    name: (identifier)
+    (rule_declaration
+      name: (identifier)
+      (parameter_list)
+      (block
+        (governance_decision)))))
+
+================================================================================
+Policy with parameterized rule
+================================================================================
+
+policy risk_assessment {
+    rule check_risk(score: Int, threshold: Int) {
+        if score > threshold { escalate } else { permit }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (policy_declaration
+    name: (identifier)
+    (rule_declaration
+      name: (identifier)
+      (parameter_list
+        (parameter name: (identifier) type: (type_identifier))
+        (parameter name: (identifier) type: (type_identifier)))
+      (block
+        (if_expression
+          condition: (binary_expression
+            left: (identifier)
+            op: ">"
+            right: (identifier))
+          then: (block (governance_decision))
+          else: (block (governance_decision)))))))
+
+================================================================================
+Policy with multiple rules and all four decisions
+================================================================================
+
+policy governance {
+    rule risk_check() { quarantine }
+    rule auth_check() { deny }
+    rule review_check() { escalate }
+    rule allow_check() { permit }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (policy_declaration
+    name: (identifier)
+    (rule_declaration name: (identifier) (parameter_list) (block (governance_decision)))
+    (rule_declaration name: (identifier) (parameter_list) (block (governance_decision)))
+    (rule_declaration name: (identifier) (parameter_list) (block (governance_decision)))
+    (rule_declaration name: (identifier) (parameter_list) (block (governance_decision)))))
+
+================================================================================
+Function declaration with return type
+================================================================================
+
+fn is_high_risk(score: Int) -> Bool {
+    score > 80
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list
+      (parameter name: (identifier) type: (type_identifier)))
+    (return_type (type_identifier))
+    (block
+      (binary_expression
+        left: (identifier)
+        op: ">"
+        right: (integer_literal)))))
+
+================================================================================
+Type constraint with where clause
+================================================================================
+
+type RiskModel = Int where { value >= 0, value <= 100 };
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_constraint
+    name: (identifier)
+    (type_identifier)
+    (where_clause
+      (refinement_predicate field: (identifier) op: ">=" value: (integer_literal))
+      (refinement_predicate field: (identifier) op: "<=" value: (integer_literal)))))
+
+================================================================================
+If/else expression with nested conditions
+================================================================================
+
+fn classify(score: Int) -> Int {
+    if score > 90 {
+        3
+    } else {
+        if score > 50 {
+            2
+        } else {
+            1
+        }
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list
+      (parameter name: (identifier) type: (type_identifier)))
+    (return_type (type_identifier))
+    (block
+      (if_expression
+        condition: (binary_expression left: (identifier) op: ">" right: (integer_literal))
+        then: (block (integer_literal))
+        else: (if_expression
+          condition: (binary_expression left: (identifier) op: ">" right: (integer_literal))
+          then: (block (integer_literal))
+          else: (block (integer_literal)))))))
+
+================================================================================
+Comments and literals
+================================================================================
+
+// This is a line comment
+fn example() -> Int {
+    let x: Int = 42;
+    let name: String = "hello";
+    let flag: Bool = true;
+    let pi: Float = 3.14;
+    x
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (line_comment)
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    (return_type (type_identifier))
+    (block
+      (let_statement name: (identifier) type: (type_identifier) (integer_literal))
+      (let_statement name: (identifier) type: (type_identifier) (string_literal))
+      (let_statement name: (identifier) type: (type_identifier) (boolean_literal))
+      (let_statement name: (identifier) type: (type_identifier) (float_literal))
+      (identifier))))
+
+================================================================================
+Governance modifiers: audit and secure_zone
+================================================================================
+
+fn protected_action() -> Int {
+    audit {
+        let result: Int = 42;
+        result
+    }
+}
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (function_declaration
+    name: (identifier)
+    (parameter_list)
+    (return_type (type_identifier))
+    (block
+      (audit_expression
+        (block
+          (let_statement name: (identifier) type: (type_identifier) (integer_literal))
+          (identifier))))))
