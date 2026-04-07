@@ -339,3 +339,78 @@ cargo test: 600 passed (589 lib + 11 CLI), 0 failed
 - **Zero Trust Throughout:** `rune doc` reuses the compiler's lexer and parser — documentation cannot be generated from invalid source. No silent failures.
 - **Assumed Breach:** Project-aware commands validate the manifest before using it. Invalid names, versions, and graduation levels are rejected with clear errors.
 - **No Single Points of Failure:** The manifest format, docgen, and scaffolding are all library functions and CLI commands. Both interfaces are available for different integration needs.
+
+---
+
+## 2026-04-07 — M6 Layer 5: Online Playground — M6 COMPLETE
+
+### What was built
+
+Browser-based RUNE playground and feature-gated compilation. The compiler is now modular: Z3 (SMT), wasmtime (runtime), and tower-lsp are optional features. A new `playground` feature enables compiling the RUNE compiler to wasm32-unknown-unknown via wasm-bindgen, producing a Bronze-level compiler that runs entirely in the browser. The web UI provides a split-pane editor with syntax highlighting, Check/Build/Format buttons, and live WASM execution via the browser's native WebAssembly runtime.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Feature flags (smt, runtime, lsp, playground), optional deps, required-features on binaries | Major rewrite |
+| src/lib.rs | Feature-gated module declarations | Updated |
+| src/types/checker.rs | Feature-gated SMT verification calls | +6 cfg attributes |
+| src/playground.rs | WASM API: check, compile, format (wasm-bindgen + internal testable functions) | New file, ~130 lines |
+| tools/playground/index.html | Single-page playground app with CodeMirror 6 editor | New file |
+| tools/playground/playground.js | JS glue: loads WASM module, wires buttons, displays results | New file, ~220 lines |
+| tools/playground/style.css | Dark/light theme, responsive split-pane layout | New file, ~160 lines |
+| tools/playground/build.sh | Build script: wasm-pack with playground feature | New file |
+
+### Architecture
+
+**Feature flags:**
+- `default = ["smt", "runtime", "lsp"]` — full toolchain (existing behavior)
+- `smt` — Z3 SMT solver for refinement type verification (optional = z3)
+- `runtime` — wasmtime for WASM execution (optional = wasmtime)
+- `lsp` — tower-lsp + tokio for language server (optional = tower-lsp, tokio)
+- `playground` — wasm-bindgen for browser compilation (optional = wasm-bindgen)
+- `--no-default-features` — bare minimum: lexer + parser + types + IR + codegen + formatter + manifest + docgen
+
+**Playground WASM API** (src/playground.rs):
+- `check(source)` → JSON: `{ success, errors }` — type-check only
+- `compile(source)` → `Vec<u8>` (Uint8Array in JS) — compile to WASM bytes
+- `format(source)` → JSON: `{ success, formatted }` or `{ success, errors }`
+- Internal functions (check_internal, compile_internal, format_internal) testable without wasm-bindgen
+
+**Playground Web UI** (tools/playground/):
+- CodeMirror 6 editor with RUNE keyword highlighting from CDN
+- Three actions: Check (type-check), Build & Run (compile + browser WASM instantiation), Format
+- Browser's native `WebAssembly.instantiate` executes the compiled policy
+- Dark/light theme following system preference, responsive mobile layout
+- Graceful fallback: textarea if CodeMirror fails to load
+
+**Build pipeline:**
+- `tools/playground/build.sh` → `wasm-pack build --target web --no-default-features --features playground`
+- Produces `tools/playground/pkg/` with WASM module loadable by the web page
+
+### Test results
+
+```
+cargo build (default features): clean, 0 warnings
+cargo test (default features): 606 passed (595 lib + 11 CLI), 0 failed
+cargo check --no-default-features: compiles, 0 warnings (bare minimum)
+cargo check --no-default-features --features playground: compiles, 0 warnings
+```
+
+### New tests (6 playground unit tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_check_valid_source_returns_success | check_internal on valid → success JSON |
+| test_check_invalid_source_returns_errors | check_internal on invalid → errors JSON |
+| test_compile_valid_source_returns_wasm_bytes | compile_internal → WASM magic bytes 0x00 0x61 0x73 0x6D |
+| test_compile_invalid_source_returns_empty | compile_internal on invalid → empty Vec |
+| test_format_valid_source_returns_formatted | format_internal on valid → success JSON |
+| test_format_reformats_source | format_internal reformats messy source |
+
+### Pillars served
+
+- **Security Baked In:** The playground runs a Bronze-level compiler — no unsafe FFI, no advanced features. The same compiler pipeline validates source in the browser as on the command line.
+- **Zero Trust Throughout:** Browser WASM execution is sandboxed. The compiled policy cannot access the filesystem, network, or any system resource. The browser's WASM runtime is the sandbox.
+- **Assumed Breach:** Feature gating ensures the playground binary contains no Z3, wasmtime, or LSP code — minimal attack surface. The playground gracefully handles malformed input and compiler errors.
+- **No Single Points of Failure:** RUNE is now accessible without any installation. Any browser becomes a RUNE environment. The playground, CLI, and LSP are independent entry points to the same compiler.

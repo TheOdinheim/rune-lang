@@ -1,0 +1,203 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   RUNE Playground — Styles
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+    --bg: #1e1e2e;
+    --bg-surface: #252536;
+    --bg-editor: #1a1a2e;
+    --text: #cdd6f4;
+    --text-dim: #6c7086;
+    --accent: #89b4fa;
+    --green: #a6e3a1;
+    --red: #f38ba8;
+    --yellow: #f9e2af;
+    --border: #313244;
+    --btn-bg: #313244;
+    --btn-hover: #45475a;
+    --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg: #eff1f5;
+        --bg-surface: #e6e9ef;
+        --bg-editor: #ffffff;
+        --text: #4c4f69;
+        --text-dim: #9ca0b0;
+        --accent: #1e66f5;
+        --green: #40a02b;
+        --red: #d20f39;
+        --yellow: #df8e1d;
+        --border: #ccd0da;
+        --btn-bg: #ccd0da;
+        --btn-hover: #bcc0cc;
+    }
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* ── Layout ──────────────────────────────────────────────────────── */
+
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+header h1 span {
+    color: var(--text-dim);
+    font-weight: 400;
+}
+
+.toolbar {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.toolbar button {
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--btn-bg);
+    color: var(--text);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.toolbar button:hover {
+    background: var(--btn-hover);
+}
+
+.toolbar button.primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+}
+
+.toolbar button.primary:hover {
+    opacity: 0.9;
+}
+
+/* ── Main split pane ─────────────────────────────────────────────── */
+
+.main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.pane-header {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+}
+
+.editor-pane {
+    border-right: 1px solid var(--border);
+}
+
+.editor-pane .cm-editor {
+    flex: 1;
+    height: 100%;
+}
+
+.editor-pane .cm-editor .cm-scroller {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.output-pane {
+    background: var(--bg-editor);
+}
+
+#output {
+    flex: 1;
+    padding: 0.75rem;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.output-success { color: var(--green); }
+.output-error { color: var(--red); }
+.output-warning { color: var(--yellow); }
+.output-info { color: var(--text-dim); }
+
+/* ── Footer ──────────────────────────────────────────────────────── */
+
+footer {
+    padding: 0.4rem 1rem;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    text-align: center;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .main {
+        flex-direction: column;
+    }
+    .editor-pane {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        max-height: 50vh;
+    }
+}
+
+/* ── Loading state ───────────────────────────────────────────────── */
+
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-style: italic;
+}

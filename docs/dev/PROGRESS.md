@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M5: Runtime engine** — Target: Month 15 — **COMPLETE**
+**M6: Toolchain MVP** — Target: Month 18 — **COMPLETE**
 
-Runtime engine complete. Policy evaluator, cryptographic audit trail, model attestation checker, and end-to-end integration pipeline all operational. Host applications can compile .rune source, verify model trust chains, evaluate policy decisions, and produce tamper-evident audit records through a single RuntimePipeline API.
+Toolchain MVP complete. Tree-sitter grammar, VS Code extension, CLI with clap subcommands, AST-based formatter, LSP server, package manifest, project scaffolding, documentation generator, and browser playground. Feature-gated compilation enables Bronze-level RUNE in the browser via WebAssembly. 606 tests passing.
 
 ### M1 Deliverables
 
@@ -29,7 +29,7 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
-| M6: Toolchain MVP | Month 18 | **In Progress** — Layers 1-4 (tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen) done |
+| M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 
 ## What's Done
 
@@ -236,6 +236,12 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
   - `rune doc <file>`: extracts doc comments from AST, generates Markdown with ToC
   - Project-aware build/check: finds rune.toml, defaults to src/main.rune
 
+- **M6 Layer 5: Online playground and feature-gated compilation** (6 unit tests)
+  - Feature flags: smt, runtime, lsp, playground (all optional, default = smt + runtime + lsp)
+  - Browser playground: CodeMirror editor, Check/Build/Format, WASM execution in browser
+  - Playground WASM API: check, compile, format via wasm-bindgen
+  - Minimal build: `--no-default-features` compiles lexer + parser + types + IR + codegen + formatter + manifest + docgen
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -253,4 +259,5 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, model atte
 - ~~M6 Layer 2: AST-based formatter~~ **Done** (18 unit + 2 CLI tests)
 - ~~M6 Layer 3: LSP server~~ **Done** (27 unit tests)
 - ~~M6 Layer 4: Package manifest, project scaffolding, docgen~~ **Done** (24 unit + 3 CLI tests)
-- M6 Layer 5+: Linter, package manager
+- ~~M6 Layer 5: Online playground and feature-gated compilation~~ **Done** (6 unit tests)
+- M7+: Module system, FFI, LLVM backend, standard library, formal verification

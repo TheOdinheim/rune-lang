@@ -557,11 +557,13 @@ impl<'ctx> TypeChecker<'ctx> {
             // ── Require expression — returns Bool, verified by SMT
             ExprKind::Require { target, predicates } => {
                 self.check_expr(target);
+                #[cfg(feature = "smt")]
                 self.verify_refinement_predicates(
                     &predicates.predicates,
                     "require",
                     predicates.span,
                 );
+                let _ = &predicates;
                 self.bool_type()
             }
 
@@ -801,6 +803,7 @@ impl<'ctx> TypeChecker<'ctx> {
         // Look up required_capabilities and param_refinements from the symbol table
         // before type-checking the callee expression (which yields a Type::Function
         // without capability/refinement info).
+        #[allow(unused_variables)]
         let (required_caps, callee_param_refinements): (Vec<String>, Vec<Vec<RefinementPredicate>>) =
             if let Some(ref name) = callee_name {
                 if let Some(Symbol::Function { required_capabilities, param_refinements, .. }) = self.ctx.lookup(name) {
@@ -860,6 +863,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 }
 
                 // ── Refinement subtyping (M4 Layer 3) ──────────
+                #[cfg(feature = "smt")]
                 if !callee_param_refinements.is_empty() {
                     let fn_name = callee_name.as_deref().unwrap_or("<anonymous>");
                     self.check_refinement_subtyping(
@@ -1183,6 +1187,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 }
 
                 // SMT verification: check that predicates are satisfiable.
+                #[cfg(feature = "smt")]
                 self.verify_refinement_predicates(
                     &decl.where_clause.predicates,
                     &decl.name.name,
@@ -1248,6 +1253,7 @@ impl<'ctx> TypeChecker<'ctx> {
         }
 
         // SMT verification for refined parameter types.
+        #[cfg(feature = "smt")]
         for param in &sig.params {
             if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
                 self.verify_refinement_predicates(
@@ -1589,6 +1595,7 @@ impl<'ctx> TypeChecker<'ctx> {
     ///
     /// For each parameter with refinement predicates, verify that the
     /// argument's refinements imply the parameter's requirements.
+    #[cfg(feature = "smt")]
     fn check_refinement_subtyping(
         &mut self,
         fn_name: &str,
@@ -1656,6 +1663,7 @@ impl<'ctx> TypeChecker<'ctx> {
     ///
     /// If the argument is a variable, look up its refinements in the symbol table.
     /// If the argument is a more complex expression, no refinements are known.
+    #[cfg(feature = "smt")]
     fn extract_argument_refinements(&self, arg: &Expr) -> Vec<RefinementPredicate> {
         match &arg.kind {
             ExprKind::Identifier(name) => {
@@ -1676,6 +1684,7 @@ impl<'ctx> TypeChecker<'ctx> {
         }
     }
 
+    #[cfg(feature = "smt")]
     fn verify_refinement_predicates(
         &mut self,
         predicates: &[RefinementPredicate],

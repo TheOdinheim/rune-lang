@@ -5,9 +5,13 @@ pub mod types;
 pub mod ir;
 pub mod codegen;
 pub mod compiler;
+#[cfg(feature = "smt")]
 pub mod smt;
+#[cfg(feature = "runtime")]
 pub mod runtime;
 pub mod formatter;
+#[cfg(feature = "lsp")]
 pub mod lsp;
 pub mod manifest;
 pub mod docgen;
+pub mod playground;

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RUNE Playground</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- CodeMirror 6 from CDN -->
+    <script type="module">
+        import {EditorView, basicSetup} from "https://esm.sh/@codemirror/basic-setup@0.20.0";
+        import {StreamLanguage} from "https://esm.sh/@codemirror/language@6.0.0/dist/index.js";
+        // Expose to playground.js
+        window.EditorView = EditorView;
+        window.basicSetup = basicSetup;
+        window.StreamLanguage = StreamLanguage;
+    </script>
+</head>
+<body>
+    <div class="app">
+        <header>
+            <h1>RUNE Playground <span>Governance-First Programming Language</span></h1>
+            <div class="toolbar">
+                <button onclick="actionCheck()">Check</button>
+                <button onclick="actionBuild()" class="primary">Build &amp; Run</button>
+                <button onclick="actionFormat()">Format</button>
+            </div>
+        </header>
+        <div class="main">
+            <div class="pane editor-pane">
+                <div class="pane-header">Source</div>
+                <div id="editor"></div>
+            </div>
+            <div class="pane output-pane">
+                <div class="pane-header">Output</div>
+                <div id="output">
+                    <span class="output-info">Loading RUNE compiler...</span>
+                </div>
+            </div>
+        </div>
+        <footer>
+            RUNE &mdash; Odin's LLC &mdash; Governance-first programming language for AI security
+        </footer>
+    </div>
+    <script src="playground.js"></script>
+</body>
+</html>
