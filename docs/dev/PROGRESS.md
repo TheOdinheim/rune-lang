@@ -4,7 +4,7 @@
 
 **M5: Runtime engine** — Target: Month 15 — **COMPLETE**
 
-Runtime engine complete. Policy evaluator, cryptographic audit trail, and model attestation checker all operational. Host applications can load compiled .rune.wasm modules, verify model trust chains, evaluate policy decisions, and produce tamper-evident audit records.
+Runtime engine complete. Policy evaluator, cryptographic audit trail, model attestation checker, and end-to-end integration pipeline all operational. Host applications can compile .rune source, verify model trust chains, evaluate policy decisions, and produce tamper-evident audit records through a single RuntimePipeline API.
 
 ### M1 Deliverables
 
@@ -28,7 +28,7 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, and model 
 | M2: Core type system | Month 6 | **Complete** |
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
-| M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation checker |
+| M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | Not started |
 
 ## What's Done
@@ -205,6 +205,12 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, and model 
   - Evaluator integration: with_attestation() + verify_model() with audit trail recording
   - Uses shared crypto module — single PQC swap point for audit + attestation
 
+- **M5 Layer 4: End-to-end integration pipeline** (10 tests)
+  - RuntimePipeline: from_source → compile → load → attest → evaluate → audit
+  - PipelineConfig: signing_key, module_name, optional AttestationChecker
+  - Full lifecycle API: evaluate, evaluate_rule, verify_model, audit_trail, export
+  - 10 end-to-end tests including realistic EU AI Act governance scenario
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -217,4 +223,5 @@ Runtime engine complete. Policy evaluator, cryptographic audit trail, and model 
 - ~~M5 Layer 1: Runtime policy evaluator~~ **Done** (32 tests)
 - ~~M5 Layer 2: Cryptographic audit trail~~ **Done** (17 tests)
 - ~~M5 Layer 3: Model attestation checker~~ **Done** (23 tests)
+- ~~M5 Layer 4: End-to-end integration pipeline~~ **Done** (10 tests)
 - M6: Toolchain MVP

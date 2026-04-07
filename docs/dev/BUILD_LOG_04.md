@@ -244,3 +244,59 @@ cargo test: 507 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen +
 - **Security Baked In:** Attestation is not optional — the type system enforces that only AttestedModel values can be invoked. Three verification layers (signature, provenance, policy) cannot be bypassed.
 - **Assumed Breach:** Every attestation verification (pass or fail) is recorded in the cryptographic audit trail. Rejected models leave forensic evidence.
 - **No Single Points of Failure:** Multiple signers can be trusted. Attestation policies can require specific signers, SLSA levels, and framework constraints. The checker is composable with the evaluator.
+
+---
+
+## 2026-04-07 — M5 Layer 4: End-to-End Integration Pipeline — M5 COMPLETE
+
+### What was built
+
+End-to-end runtime pipeline proving the full M5 stack works as a single flow: .rune source → compile to WASM → load module → verify model attestation → evaluate policy decisions → produce cryptographic audit trail. RuntimePipeline is the public API surface that host applications use.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/runtime/pipeline.rs | RuntimePipeline, PipelineConfig, full lifecycle API | Rewritten, ~140 lines |
+| src/runtime/tests.rs | 10 new end-to-end integration tests | +250 lines |
+| docs/dev/PROGRESS.md | M5 marked COMPLETE | Updated |
+
+### Architecture
+
+**RuntimePipeline**: wraps the full lifecycle in a single struct:
+- `from_source(source, config)` — compiles through full pipeline, loads module, creates audited evaluator
+- `evaluate(request)` — evaluates via standard entry point, auto-records in audit trail
+- `evaluate_rule(name, args)` — evaluates individual rule, auto-records
+- `verify_model(attestation)` — runs attestation checks, records pass/fail in audit trail
+- `audit_trail()` / `export_audit_log()` — access audit records for verification
+
+**PipelineConfig**: signing_key, module_name, optional AttestationChecker
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 517 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen + 18 compiler + 45 smt + 82 runtime), 0 failed
+```
+
+### New integration tests (10 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_e2e_compile_evaluate_audit | Full pipeline: compile → evaluate → verify audit chain + signatures |
+| test_e2e_attestation_then_evaluate | Compile → attest model → evaluate → audit has both events |
+| test_e2e_attestation_rejection_recorded | Bad attestation → rejection recorded in audit trail |
+| test_e2e_multiple_evaluations_audit_chain | 5 evaluations, chain intact, all decisions recorded |
+| test_e2e_risk_based_policy_decisions_in_audit | 4-tier risk policy (quarantine/escalate/deny/permit) |
+| test_e2e_compile_error | Invalid source → clear CompilationFailed error |
+| test_e2e_rule_evaluation_audited | evaluate_rule by name, function names in audit |
+| test_e2e_no_attestation_checker_verify_model_error | No checker → error, evaluation still works |
+| test_e2e_export_and_independent_verification | Export log, verify chain links independently |
+| test_e2e_full_governance_eu_ai_act | Realistic multi-rule EU AI Act policy with attestation |
+
+### Pillars served
+
+- **Security Baked In:** The pipeline enforces audit recording for every evaluation — there is no way to evaluate without an audit trail. Attestation is integrated at the API level.
+- **Assumed Breach:** The full audit chain (attestation + decisions) is tamper-evident. Exported records can be verified independently by external auditors.
+- **Zero Trust Throughout:** The pipeline supports attestation-before-evaluation flow. Every model can be required to prove identity and provenance before any policy decision is made.
+- **No Single Points of Failure:** The pipeline API is composable — attestation is optional, rules can be evaluated individually, and the audit trail is exportable for offline verification.

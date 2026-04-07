@@ -1166,4 +1166,347 @@ policy risk {
         let result = evaluator.verify_model(&att);
         assert!(result.is_err());
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // End-to-end pipeline integration (M5 Layer 4)
+    // ═════════════════════════════════════════════════════════════════
+
+    use crate::runtime::pipeline::{PipelineConfig, RuntimePipeline};
+
+    fn pipeline_config() -> PipelineConfig {
+        PipelineConfig {
+            signing_key: test_key(),
+            module_name: "test-module".to_string(),
+            attestation_checker: None,
+        }
+    }
+
+    fn pipeline_config_with_attestation(attest_key: &[u8]) -> PipelineConfig {
+        let mut checker = AttestationChecker::new(AttestationPolicy::permissive());
+        checker.add_trusted_key("signer", attest_key.to_vec());
+        PipelineConfig {
+            signing_key: test_key(),
+            module_name: "test-module".to_string(),
+            attestation_checker: Some(checker),
+        }
+    }
+
+    // 1. Full pipeline: compile → evaluate → verify audit trail
+    #[test]
+    fn test_e2e_compile_evaluate_audit() {
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } }",
+            pipeline_config(),
+        ).unwrap();
+
+        let result = pipeline.evaluate(&PolicyRequest::new(1, 2, 3, 0)).unwrap();
+        assert_eq!(result.decision, PolicyDecision::Permit);
+
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 1);
+        assert!(trail.verify_chain().is_ok());
+        assert!(trail.verify_signatures(&test_key()).is_ok());
+        assert_eq!(trail.get(0).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert_eq!(trail.get(0).unwrap().decision, Some(PolicyDecision::Permit));
+    }
+
+    // 2. Full pipeline with attestation: compile → verify model → evaluate → audit
+    #[test]
+    fn test_e2e_attestation_then_evaluate() {
+        let attest_key = b"attest-e2e-key".to_vec();
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } }",
+            pipeline_config_with_attestation(&attest_key),
+        ).unwrap();
+
+        // Verify model attestation.
+        let att = test_attestation(&attest_key, "signer");
+        let verdict = pipeline.verify_model(&att);
+        assert!(verdict.is_ok());
+
+        // Evaluate policy.
+        let result = pipeline.evaluate(&PolicyRequest::new(1, 0, 0, 0)).unwrap();
+        assert_eq!(result.decision, PolicyDecision::Permit);
+
+        // Audit trail has both events, chain intact.
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 2);
+        assert_eq!(trail.get(0).unwrap().event_type, AuditEventType::ModelAttestationVerified);
+        assert_eq!(trail.get(1).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert!(trail.verify_chain().is_ok());
+        assert!(trail.verify_signatures(&test_key()).is_ok());
+    }
+
+    // 3. Full pipeline with attestation rejection
+    #[test]
+    fn test_e2e_attestation_rejection_recorded() {
+        let attest_key = b"attest-e2e-key".to_vec();
+        let wrong_key = b"wrong-e2e-key".to_vec();
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } }",
+            pipeline_config_with_attestation(&attest_key),
+        ).unwrap();
+
+        // Verify with wrong key → rejection.
+        let att = test_attestation(&wrong_key, "signer");
+        let verdict = pipeline.verify_model(&att);
+        assert!(verdict.is_err());
+
+        // Audit trail records the rejection.
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 1);
+        assert_eq!(trail.get(0).unwrap().event_type, AuditEventType::ModelAttestationRejected);
+        assert!(trail.verify_chain().is_ok());
+    }
+
+    // 4. Full pipeline multiple evaluations: 5 requests, chain intact
+    #[test]
+    fn test_e2e_multiple_evaluations_audit_chain() {
+        let mut pipeline = RuntimePipeline::from_source(
+            r#"
+policy risk {
+    rule check(score: Int) {
+        if score > 80 { escalate } else { permit }
+    }
+}
+"#,
+            pipeline_config(),
+        ).unwrap();
+
+        let decisions = [
+            (90, PolicyDecision::Escalate),
+            (50, PolicyDecision::Permit),
+            (95, PolicyDecision::Escalate),
+            (10, PolicyDecision::Permit),
+            (85, PolicyDecision::Escalate),
+        ];
+
+        for (score, expected) in &decisions {
+            let result = pipeline.evaluate(&PolicyRequest::new(*score, 0, 0, 0)).unwrap();
+            assert_eq!(result.decision, *expected);
+        }
+
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 5);
+        assert!(trail.verify_chain().is_ok());
+        assert!(trail.verify_signatures(&test_key()).is_ok());
+
+        // Verify each decision recorded correctly.
+        for (i, (_, expected)) in decisions.iter().enumerate() {
+            assert_eq!(trail.get(i).unwrap().decision, Some(*expected));
+        }
+    }
+
+    // 5. Full pipeline with risk-based conditional logic
+    #[test]
+    fn test_e2e_risk_based_policy_decisions_in_audit() {
+        let mut pipeline = RuntimePipeline::from_source(
+            r#"
+policy ai_governance {
+    rule risk_check(risk_score: Int) {
+        if risk_score > 90 { quarantine }
+        else { if risk_score > 70 { escalate }
+        else { if risk_score > 50 { deny }
+        else { permit } } }
+    }
+}
+"#,
+            pipeline_config(),
+        ).unwrap();
+
+        let r1 = pipeline.evaluate(&PolicyRequest::new(95, 0, 0, 0)).unwrap();
+        assert_eq!(r1.decision, PolicyDecision::Quarantine);
+
+        let r2 = pipeline.evaluate(&PolicyRequest::new(75, 0, 0, 0)).unwrap();
+        assert_eq!(r2.decision, PolicyDecision::Escalate);
+
+        let r3 = pipeline.evaluate(&PolicyRequest::new(55, 0, 0, 0)).unwrap();
+        assert_eq!(r3.decision, PolicyDecision::Deny);
+
+        let r4 = pipeline.evaluate(&PolicyRequest::new(30, 0, 0, 0)).unwrap();
+        assert_eq!(r4.decision, PolicyDecision::Permit);
+
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 4);
+        assert!(trail.verify_chain().is_ok());
+
+        assert_eq!(trail.get(0).unwrap().decision, Some(PolicyDecision::Quarantine));
+        assert_eq!(trail.get(1).unwrap().decision, Some(PolicyDecision::Escalate));
+        assert_eq!(trail.get(2).unwrap().decision, Some(PolicyDecision::Deny));
+        assert_eq!(trail.get(3).unwrap().decision, Some(PolicyDecision::Permit));
+    }
+
+    // 6. Pipeline compile error: clear error, no panic
+    #[test]
+    fn test_e2e_compile_error() {
+        let result = RuntimePipeline::from_source(
+            "fn bad( { }",
+            pipeline_config(),
+        );
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RuntimeError::CompilationFailed(msg) => {
+                assert!(!msg.is_empty());
+            }
+            other => panic!("expected CompilationFailed, got {other:?}"),
+        }
+    }
+
+    // 7. Pipeline rule evaluation with audit trail
+    #[test]
+    fn test_e2e_rule_evaluation_audited() {
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } rule block() { deny } }",
+            pipeline_config(),
+        ).unwrap();
+
+        let r1 = pipeline.evaluate_rule("access__allow", &[]).unwrap();
+        assert_eq!(r1.decision, PolicyDecision::Permit);
+
+        let r2 = pipeline.evaluate_rule("access__block", &[]).unwrap();
+        assert_eq!(r2.decision, PolicyDecision::Deny);
+
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 2);
+        assert_eq!(trail.get(0).unwrap().function_name, "access__allow");
+        assert_eq!(trail.get(1).unwrap().function_name, "access__block");
+        assert!(trail.verify_chain().is_ok());
+    }
+
+    // 8. Pipeline config with no attestation checker: verify_model returns error
+    #[test]
+    fn test_e2e_no_attestation_checker_verify_model_error() {
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } }",
+            pipeline_config(), // No attestation checker.
+        ).unwrap();
+
+        let att = test_attestation(b"key", "signer");
+        let result = pipeline.verify_model(&att);
+        assert!(result.is_err());
+
+        // Evaluation still works without attestation.
+        let eval = pipeline.evaluate(&PolicyRequest::new(0, 0, 0, 0)).unwrap();
+        assert_eq!(eval.decision, PolicyDecision::Permit);
+    }
+
+    // 9. Audit trail export and independent verification
+    #[test]
+    fn test_e2e_export_and_independent_verification() {
+        let signing_key = test_key();
+        let mut pipeline = RuntimePipeline::from_source(
+            "policy access { rule allow() { permit } }",
+            PipelineConfig {
+                signing_key: signing_key.clone(),
+                module_name: "export-test".to_string(),
+                attestation_checker: None,
+            },
+        ).unwrap();
+
+        pipeline.evaluate(&PolicyRequest::new(1, 0, 0, 0)).unwrap();
+        pipeline.evaluate(&PolicyRequest::new(2, 0, 0, 0)).unwrap();
+        pipeline.evaluate(&PolicyRequest::new(3, 0, 0, 0)).unwrap();
+
+        // Export audit log.
+        let exported = pipeline.export_audit_log();
+        assert_eq!(exported.len(), 3);
+
+        // Independent verification: rebuild chain from exported records.
+        let genesis = "0000000000000000000000000000000000000000000000000000000000000000";
+        assert_eq!(exported[0].previous_hash, genesis);
+        assert_eq!(exported[1].previous_hash, exported[0].record_hash);
+        assert_eq!(exported[2].previous_hash, exported[1].record_hash);
+
+        // Verify all record IDs are sequential.
+        assert_eq!(exported[0].record_id, 0);
+        assert_eq!(exported[1].record_id, 1);
+        assert_eq!(exported[2].record_id, 2);
+
+        // Verify module name is recorded.
+        for record in &exported {
+            assert_eq!(record.policy_module, "export-test");
+        }
+
+        // Verify via trail methods still works.
+        let trail = pipeline.audit_trail();
+        assert!(trail.verify_chain().is_ok());
+        assert!(trail.verify_signatures(&signing_key).is_ok());
+    }
+
+    // 10. Full governance scenario: EU AI Act multi-rule policy
+    #[test]
+    fn test_e2e_full_governance_eu_ai_act() {
+        let attest_key = b"eu-ai-act-signer-key".to_vec();
+
+        let mut pipeline = RuntimePipeline::from_source(
+            r#"
+fn is_high_risk(score: Int) -> Bool { score > 70 }
+
+policy eu_ai_act {
+    rule risk_assessment(risk_score: Int) {
+        if risk_score > 90 { quarantine }
+        else { if risk_score > 70 { escalate }
+        else { permit } }
+    }
+
+    rule human_oversight(action: Int) {
+        if action > 100 { escalate } else { permit }
+    }
+
+    rule transparency_check(resource_id: Int) {
+        if resource_id == 0 { deny } else { permit }
+    }
+}
+"#,
+            pipeline_config_with_attestation(&attest_key),
+        ).unwrap();
+
+        // Step 1: Verify model attestation.
+        let att = test_attestation(&attest_key, "signer");
+        let verdict = pipeline.verify_model(&att).unwrap();
+        match verdict {
+            AttestationVerdict::Trusted { signer, .. } => assert_eq!(signer, "signer"),
+            _ => panic!("expected Trusted"),
+        }
+
+        // Note: evaluate(subject_id, action, resource_id, risk_score) dispatches
+        // to each rule with positional params. Each single-param rule receives
+        // subject_id as its first arg. Multi-rule first-non-permit-wins semantics.
+
+        // Step 2: subject_id=95 → risk_assessment(95) = quarantine (first non-permit wins).
+        let r1 = pipeline.evaluate(&PolicyRequest::new(95, 0, 1, 0)).unwrap();
+        assert_eq!(r1.decision, PolicyDecision::Quarantine);
+
+        // Step 3: subject_id=80 → risk_assessment(80) = escalate.
+        let r2 = pipeline.evaluate(&PolicyRequest::new(80, 0, 1, 0)).unwrap();
+        assert_eq!(r2.decision, PolicyDecision::Escalate);
+
+        // Step 4: subject_id=0 → risk_assessment(0) = permit, human_oversight(0) = permit,
+        //         transparency_check(0) = deny.
+        let r3 = pipeline.evaluate(&PolicyRequest::new(0, 0, 0, 0)).unwrap();
+        assert_eq!(r3.decision, PolicyDecision::Deny);
+
+        // Step 5: subject_id=50, all rules permit → permit.
+        let r4 = pipeline.evaluate(&PolicyRequest::new(50, 0, 1, 0)).unwrap();
+        assert_eq!(r4.decision, PolicyDecision::Permit);
+
+        // Verify complete audit trail: 1 attestation + 4 evaluations = 5 records.
+        let trail = pipeline.audit_trail();
+        assert_eq!(trail.len(), 5);
+        assert!(trail.verify_chain().is_ok());
+        assert!(trail.verify_signatures(&test_key()).is_ok());
+
+        // Verify event sequence.
+        assert_eq!(trail.get(0).unwrap().event_type, AuditEventType::ModelAttestationVerified);
+        assert_eq!(trail.get(1).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert_eq!(trail.get(2).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert_eq!(trail.get(3).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert_eq!(trail.get(4).unwrap().event_type, AuditEventType::PolicyDecision);
+
+        // Verify decisions recorded.
+        assert_eq!(trail.get(1).unwrap().decision, Some(PolicyDecision::Quarantine));
+        assert_eq!(trail.get(2).unwrap().decision, Some(PolicyDecision::Escalate));
+        assert_eq!(trail.get(3).unwrap().decision, Some(PolicyDecision::Deny));
+        assert_eq!(trail.get(4).unwrap().decision, Some(PolicyDecision::Permit));
+    }
 }
