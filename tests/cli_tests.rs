@@ -68,3 +68,21 @@ fn test_cli_run_valid_policy() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Permit"), "stdout: {stdout}");
 }
+
+#[test]
+fn test_cli_fmt_check_formatted_exits_0() {
+    // Already-formatted source.
+    let formatted = "policy access {\n    rule allow() {\n        permit\n    }\n}\n";
+    let path = write_temp("fmt_ok.rune", formatted);
+    let output = rune_bin().args(["fmt", "--check", path.to_str().unwrap()]).output().unwrap();
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+}
+
+#[test]
+fn test_cli_fmt_check_unformatted_exits_1() {
+    let path = write_temp("fmt_bad.rune", "policy   access{rule   allow()   {permit}}");
+    let output = rune_bin().args(["fmt", "--check", path.to_str().unwrap()]).output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("would reformat"), "stderr: {stderr}");
+}

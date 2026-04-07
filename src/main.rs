@@ -5,6 +5,7 @@ use std::process;
 use clap::{Parser, Subcommand};
 
 use rune_lang::compiler::{check_source, compile_source, CompileError};
+use rune_lang::formatter::format_source;
 use rune_lang::runtime::evaluator::{PolicyDecision, PolicyRequest};
 use rune_lang::runtime::pipeline::compile_and_load;
 
@@ -43,6 +44,14 @@ enum Commands {
         /// Path to the .rune source file
         file: PathBuf,
     },
+    /// Format a .rune file with canonical style
+    Fmt {
+        /// Path to the .rune source file
+        file: PathBuf,
+        /// Check if the file is already formatted (exit 1 if not)
+        #[arg(long)]
+        check: bool,
+    },
     /// Compile and run a .rune file with a default policy evaluation
     Run {
         /// Path to the .rune source file
@@ -70,6 +79,7 @@ fn main() {
     match cli.command {
         Commands::Build { file } => cmd_build(&file),
         Commands::Check { file } => cmd_check(&file),
+        Commands::Fmt { file, check } => cmd_fmt(&file, check),
         Commands::Run { file, subject, action, resource, risk } => {
             cmd_run(&file, subject, action, resource, risk)
         }
@@ -113,6 +123,40 @@ fn cmd_check(path: &PathBuf) {
         Err(errors) => {
             report_errors(path, &source, &errors);
             process::exit(EXIT_COMPILE_ERROR);
+        }
+    }
+}
+
+fn cmd_fmt(path: &PathBuf, check: bool) {
+    let source = read_source(path);
+
+    let formatted = match format_source(&source) {
+        Ok(f) => f,
+        Err(errors) => {
+            report_errors(path, &source, &errors);
+            process::exit(EXIT_COMPILE_ERROR);
+        }
+    };
+
+    if check {
+        if source == formatted {
+            eprintln!("{}ok:{} {} already formatted", GREEN, RESET, path.display());
+        } else {
+            eprintln!(
+                "{}would reformat:{} {}",
+                YELLOW, RESET, path.display()
+            );
+            process::exit(EXIT_COMPILE_ERROR);
+        }
+    } else {
+        if source == formatted {
+            eprintln!("{}already formatted:{} {}", GREEN, RESET, path.display());
+        } else {
+            if let Err(e) = fs::write(path, &formatted) {
+                eprintln!("{}error:{} failed to write {}: {e}", RED, RESET, path.display());
+                process::exit(EXIT_COMPILE_ERROR);
+            }
+            eprintln!("{}formatted:{} {}", GREEN, RESET, path.display());
         }
     }
 }
