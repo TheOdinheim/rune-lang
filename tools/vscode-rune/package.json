@@ -1,7 +1,7 @@
 {
   "name": "rune-lang",
   "displayName": "RUNE Language Support",
-  "description": "Syntax highlighting for the RUNE governance-first programming language",
+  "description": "Syntax highlighting and language server for the RUNE governance-first programming language",
   "version": "0.1.0",
   "publisher": "rune-lang",
   "engines": {
@@ -10,6 +10,10 @@
   "categories": [
     "Programming Languages"
   ],
+  "activationEvents": [
+    "onLanguage:rune"
+  ],
+  "main": "./extension.js",
   "contributes": {
     "languages": [
       {
@@ -31,5 +35,8 @@
         "path": "./syntaxes/rune.tmLanguage.json"
       }
     ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
   }
 }

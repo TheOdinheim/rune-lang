@@ -154,3 +154,83 @@ cargo test: 545 passed (537 lib + 8 CLI), 0 failed
 - **Assumed Breach:** `rune fmt --check` in CI ensures no unformatted code is merged. Formatting changes are visible in diffs.
 - **Zero Trust Throughout:** The formatter reuses the same lexer and parser as the compiler — formatting cannot bypass syntax validation.
 - **No Single Points of Failure:** The formatter is a library function (`format_source`) and a CLI command (`rune fmt`). Both interfaces are available for different integration needs.
+
+---
+
+## 2026-04-07 — M6 Layer 3: LSP Server
+
+### What was built
+
+Language Server Protocol (LSP) server for RUNE providing real-time diagnostics, go-to-definition, hover, and completions. Works with VS Code, Neovim, Helix, Zed, and any LSP-compatible editor. Handles invalid and incomplete source gracefully — never panics on malformed input.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Added tower-lsp, tokio, serde_json deps; declared rune-lsp binary | +12 lines |
+| src/lib.rs | Added lsp module | +1 line |
+| src/lsp/mod.rs | RuneLanguageServer, diagnostics, hover, goto-def, completions | New file, ~450 lines |
+| src/lsp/tests.rs | 27 LSP tests | New file, ~200 lines |
+| src/bin/rune-lsp.rs | LSP server binary entry point (tokio + tower-lsp) | New file, ~12 lines |
+| tools/vscode-rune/package.json | Added activation events, main, LSP client dependency | Updated |
+| tools/vscode-rune/extension.js | VS Code language client connecting to rune-lsp | New file, ~40 lines |
+
+### Architecture
+
+**RuneLanguageServer** (tower-lsp LanguageServer):
+- TextDocumentSyncKind::Full — receives full document on every change
+- document_map: stores open document contents
+- Diagnostics: runs check_source on every edit, wraps in catch_unwind for safety
+- Hover: keyword documentation (30+ keywords) + declaration info from parsed AST
+- Go-to-definition: parses file, finds declaration span, converts to LSP Location
+- Completions: keyword completions (40+ items) + identifier completions from file
+
+**rune-lsp binary**: tokio + tower-lsp stdin/stdout transport, separate from CLI
+
+**VS Code extension**: spawns rune-lsp, connects via vscode-languageclient
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 572 passed (564 lib + 8 CLI), 0 failed
+```
+
+### New LSP tests (27 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_find_word_at_identifier | Word extraction at identifier |
+| test_find_word_at_keyword | Word extraction at keyword |
+| test_find_word_at_type | Word extraction at type name |
+| test_find_word_at_whitespace_returns_none | Whitespace → None |
+| test_find_word_at_operator_returns_none | Operator → None |
+| test_find_word_at_start_of_line | Start of line |
+| test_find_word_at_end_of_line | End of line |
+| test_find_word_past_end_returns_none | Past end → None |
+| test_find_word_empty_line_returns_none | Empty line → None |
+| test_find_word_multiline | Multi-line source |
+| test_diagnostic_line_column_conversion | 1-based → 0-based |
+| test_diagnostics_multiple_errors | Multiple errors |
+| test_diagnostics_valid_source_zero_diagnostics | Clean source → 0 diags |
+| test_diagnostics_invalid_source_has_error | Bad source → ERROR diag |
+| test_keyword_hover_policy | "policy" → docs |
+| test_keyword_hover_permit | "permit" → docs |
+| test_keyword_hover_deny | "deny" → docs |
+| test_keyword_hover_escalate | "escalate" → docs |
+| test_keyword_hover_quarantine | "quarantine" → docs |
+| test_keyword_hover_unknown_returns_none | Unknown → None |
+| test_keyword_hover_types | Int/Float/Bool/String → docs |
+| test_keyword_completions_contains_governance | All governance keywords |
+| test_keyword_completions_contains_type_keywords | Type keywords present |
+| test_completion_item_kinds | KEYWORD vs STRUCT kinds |
+| test_identifier_completions_from_source | File declarations in completions |
+| test_identifier_completion_kinds | FUNCTION vs MODULE kinds |
+| test_identifier_completions_invalid_source_returns_empty | Bad source → empty |
+
+### Pillars served
+
+- **Security Baked In:** Real-time diagnostics catch governance errors as developers type — before code is committed or compiled. The same check_source pipeline runs in the editor.
+- **Zero Trust Throughout:** The LSP reuses the compiler's lexer, parser, and type checker. No separate or weaker validation path.
+- **Assumed Breach:** catch_unwind wraps all compilation — malformed input cannot crash the server. Internal errors are reported as diagnostics.
+- **No Single Points of Failure:** The LSP is a separate binary (rune-lsp) working with any LSP-compatible editor. VS Code extension is provided but not required.

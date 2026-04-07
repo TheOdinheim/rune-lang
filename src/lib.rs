@@ -8,3 +8,4 @@ pub mod compiler;
 pub mod smt;
 pub mod runtime;
 pub mod formatter;
+pub mod lsp;
