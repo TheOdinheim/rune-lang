@@ -652,6 +652,13 @@ impl Lowerer {
                 self.emit(InstKind::UnitConst, IrType::Unit)
             }
 
+            // ── Require expression — predicates verified at compile time,
+            // lowers to Bool true (the check passed statically).
+            ExprKind::Require { target, .. } => {
+                self.lower_expr(target);
+                self.emit(InstKind::BoolConst(true), IrType::Bool)
+            }
+
             // ── Constructs deferred for later layers ───────────────
             ExprKind::FieldAccess { .. }
             | ExprKind::MethodCall { .. }
@@ -659,8 +666,7 @@ impl Lowerer {
             | ExprKind::Perform { .. }
             | ExprKind::Handle { .. }
             | ExprKind::StructLiteral { .. }
-            | ExprKind::Tuple(_)
-            | ExprKind::Require { .. } => {
+            | ExprKind::Tuple(_) => {
                 self.emit(InstKind::UnitConst, IrType::Unit)
             }
         }

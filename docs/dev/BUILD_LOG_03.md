@@ -165,3 +165,76 @@ cargo test: 418 passed (49 lexer + 102 parser + 33 types + 55 checker + 23 effec
 - **Zero Trust Throughout:** Every refinement type, parameter constraint, and require assertion is independently verified. The compiler trusts nothing — all predicate sets must be formally satisfiable.
 - **Assumed Breach:** If an attacker modifies governance predicates, the SMT solver catches inconsistencies. Contradictory constraints cannot slip through — the compiler rejects them with clear explanations.
 - **No Single Points of Failure:** SMT verification runs at three independent integration points (type declarations, function parameters, require expressions). A contradiction caught at any point produces an error.
+
+---
+
+## 2026-04-07 — M4 Layer 3: Refinement Subtyping and Call-Site Verification
+
+### What was built
+
+Refinement subtyping at call sites. When a function requires a refined parameter (e.g., `fn deploy(model: Int where { certified == true })`), the compiler now verifies that every caller provides a value whose refinements *imply* the callee's requirements. A value with `{ certified == true, audited == true }` satisfies `{ certified == true }` (superset). A plain unrefined value is rejected. Uses Z3 implication checking: assert caller predicates, then check if NOT(callee) is UNSAT.
+
+### Files modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/smt/solver.rs | Added `check_implication()` for refinement subtyping, `op_symbol_pub`/`value_display_pub` helpers | +85 lines |
+| src/types/scope.rs | Extended Symbol::Variable with `refinements` field, Symbol::Function with `param_refinements` | +4 lines |
+| src/types/checker.rs | Call-site refinement checking: `check_refinement_subtyping`, `extract_argument_refinements`, param registration with predicates | +90 lines |
+| src/ir/lower.rs | `require` expression lowers to Bool true (predicates verified at compile time) | +5 lines |
+| src/smt/tests.rs | 17 new tests: 8 implication unit tests + 9 call-site integration tests | +190 lines |
+| src/types/{tests,checker_tests,capability_tests,effects_tests}.rs | Added `refinements`/`param_refinements` fields to Symbol constructions | mechanical |
+
+### SMT implication checking
+
+The new `check_implication(caller_preds, callee_preds) -> SmtResult` function verifies that one set of predicates entails another:
+
+1. Assert all caller predicates as Z3 assumptions
+2. Assert NOT(conjunction of callee predicates)
+3. If UNSAT → caller implies callee (subtyping holds)
+4. If SAT → found counterexample where caller holds but callee doesn't (error)
+
+### Call-site verification
+
+At function call sites, for each parameter with refinement predicates:
+1. Extract the argument's refinements from the symbol table (variables carry predicates)
+2. If argument has no refinements → error: "no refinement guarantees"
+3. If argument has refinements → SMT implication check: do they imply the parameter's requirements?
+
+Parameters carry their refinement predicates through `Symbol::Function::param_refinements` and `Symbol::Variable::refinements`.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 435 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen + 18 compiler + 45 smt), 0 failed
+```
+
+### New tests (17 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_implication_superset_implies_subset | Superset predicates imply subset → SAT |
+| test_implication_exact_match | Same predicates imply themselves → SAT |
+| test_implication_empty_caller_fails | No caller predicates → cannot imply callee |
+| test_implication_empty_callee_passes | Any predicates imply empty callee |
+| test_implication_weaker_does_not_imply_stronger | x≤100 does not imply x≤50 |
+| test_implication_stronger_implies_weaker | x≤50 implies x≤100 |
+| test_implication_disjoint_fields_fails | Different fields → no implication |
+| test_implication_range_entailment | [10,20] ⊂ [0,100] → implication holds |
+| test_call_matching_refined_param_passes | Matching refinement → no error |
+| test_call_unrefined_arg_to_refined_param_error | Plain value → error with governance message |
+| test_call_superset_refinement_passes | Superset predicates → passes |
+| test_call_weaker_refinement_error | Weaker predicates → error |
+| test_type_constraint_subtype_of_base | TypeConstraint used where base type expected → passes |
+| test_base_type_used_where_type_constraint_expected_error | Base type where TypeConstraint expected → error |
+| test_multiple_refined_params | Multiple refined parameters all satisfied |
+| test_chained_refinements | fn b requires superset, calls fn a → passes |
+| test_disjoint_refinement_error | Wrong field refinement → error |
+
+### Pillars served
+
+- **Security Baked In:** Refinement subtyping is verified at compile time using Z3 implication checking. No unchecked governance bypasses — if a function requires `certified == true`, the caller *must* prove it. Formal methods guarantee compliance.
+- **Zero Trust Throughout:** Every call site is independently verified. No implicit trust — even when a value has *some* refinements, the compiler checks they are *sufficient*. Passing a value with `audited == true` to a function requiring `certified == true` is an error.
+- **Assumed Breach:** Call-site verification prevents privilege escalation through unrefined values. An attacker cannot pass an uncertified model to a function that requires certification — the type system blocks it at compile time.
+- **No Single Points of Failure:** Refinement predicates are tracked per-variable and per-parameter. Each call site is independently verified, so a missing check at one site cannot compromise another.

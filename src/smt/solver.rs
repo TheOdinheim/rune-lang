@@ -59,6 +59,95 @@ pub fn verify_predicates(predicates: &[RefinementPredicate]) -> SmtResult {
     }
 }
 
+/// Check whether `caller_predicates` imply `callee_predicates`.
+///
+/// This verifies refinement subtyping: if a function requires
+/// `{ certified == true }`, the caller must provide a value whose
+/// predicates are at least as strong.
+///
+/// Encoding: assert all caller predicates, then check whether callee
+/// predicates are entailed. If NOT(callee) is UNSAT under the caller
+/// assumptions, the implication holds.
+///
+/// Returns `SmtResult::Satisfiable` if the implication holds (caller
+/// predicates are strong enough), `SmtResult::Unsatisfiable` if not.
+pub fn check_implication(
+    caller_predicates: &[RefinementPredicate],
+    callee_predicates: &[RefinementPredicate],
+) -> SmtResult {
+    if callee_predicates.is_empty() {
+        return SmtResult::Satisfiable;
+    }
+
+    let solver = Solver::new();
+
+    // Assert all caller predicates as assumptions.
+    for pred in caller_predicates {
+        match encode_predicate(pred) {
+            Ok(assertion) => solver.assert(&assertion),
+            Err(msg) => return SmtResult::Unknown(msg),
+        }
+    }
+
+    // Encode the conjunction of callee predicates.
+    let mut callee_bools = Vec::new();
+    for pred in callee_predicates {
+        match encode_predicate(pred) {
+            Ok(assertion) => callee_bools.push(assertion),
+            Err(msg) => return SmtResult::Unknown(msg),
+        }
+    }
+
+    let callee_refs: Vec<&z3::ast::Bool> = callee_bools.iter().collect();
+    let callee_conj = z3::ast::Bool::and(&callee_refs);
+
+    // Assert NOT(callee). If UNSAT, then caller => callee.
+    solver.assert(&callee_conj.not());
+
+    match solver.check() {
+        SatResult::Unsat => {
+            // NOT(callee) is unsatisfiable under caller → implication holds
+            SmtResult::Satisfiable
+        }
+        SatResult::Sat => {
+            // Found assignment where caller holds but callee doesn't → insufficient
+            let explanation = build_implication_failure(caller_predicates, callee_predicates);
+            SmtResult::Unsatisfiable(explanation)
+        }
+        SatResult::Unknown => {
+            SmtResult::Unknown("SMT solver returned unknown for implication check".to_string())
+        }
+    }
+}
+
+/// Build explanation for a failed implication check.
+fn build_implication_failure(
+    caller: &[RefinementPredicate],
+    callee: &[RefinementPredicate],
+) -> String {
+    let caller_str: Vec<String> = caller
+        .iter()
+        .map(|p| format!("{} {} {}", p.field.name, op_symbol(&p.op), value_display(&p.value)))
+        .collect();
+    let callee_str: Vec<String> = callee
+        .iter()
+        .map(|p| format!("{} {} {}", p.field.name, op_symbol(&p.op), value_display(&p.value)))
+        .collect();
+
+    if caller_str.is_empty() {
+        format!(
+            "no refinement guarantees provided, but requires {{ {} }}",
+            callee_str.join(", ")
+        )
+    } else {
+        format!(
+            "{{ {} }} does not imply {{ {} }}",
+            caller_str.join(", "),
+            callee_str.join(", ")
+        )
+    }
+}
+
 /// Encode a single refinement predicate as a Z3 Bool assertion.
 fn encode_predicate(pred: &RefinementPredicate) -> Result<z3::ast::Bool, String> {
     let field_name = &pred.field.name;
@@ -227,6 +316,14 @@ fn build_unsat_explanation(predicates: &[RefinementPredicate]) -> String {
         "contradictory constraints: {}",
         constraints.join(" AND ")
     )
+}
+
+pub fn op_symbol_pub(op: &RefinementOp) -> &'static str {
+    op_symbol(op)
+}
+
+pub fn value_display_pub(val: &RefinementValue) -> String {
+    value_display(val)
 }
 
 fn op_symbol(op: &RefinementOp) -> &'static str {

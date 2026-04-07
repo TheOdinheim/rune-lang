@@ -356,4 +356,206 @@ type Impossible = Int where {
         assert!(errors[0].contains("Impossible"));
         assert!(errors[0].contains("contradictory"));
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // SMT implication checking (M4 Layer 3)
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_implication_superset_implies_subset() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // caller: { certified == true, audited == true }
+        // callee: { certified == true }
+        // Superset implies subset → SAT
+        let caller = vec![
+            pred("certified", RefinementOp::Eq, RefinementValue::Bool(true)),
+            pred("audited", RefinementOp::Eq, RefinementValue::Bool(true)),
+        ];
+        let callee = vec![
+            pred("certified", RefinementOp::Eq, RefinementValue::Bool(true)),
+        ];
+        assert_eq!(check_implication(&caller, &callee), SmtResult::Satisfiable);
+    }
+
+    #[test]
+    fn test_implication_exact_match() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        let preds = vec![
+            pred("x", RefinementOp::Eq, RefinementValue::Int(42)),
+        ];
+        assert_eq!(check_implication(&preds, &preds), SmtResult::Satisfiable);
+    }
+
+    #[test]
+    fn test_implication_empty_caller_fails() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // No caller predicates cannot imply non-empty callee predicates.
+        let callee = vec![
+            pred("certified", RefinementOp::Eq, RefinementValue::Bool(true)),
+        ];
+        let result = check_implication(&[], &callee);
+        assert!(matches!(result, SmtResult::Unsatisfiable(_)));
+    }
+
+    #[test]
+    fn test_implication_empty_callee_passes() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // Any caller predicates imply empty callee predicates.
+        let caller = vec![
+            pred("x", RefinementOp::Eq, RefinementValue::Int(1)),
+        ];
+        assert_eq!(check_implication(&caller, &[]), SmtResult::Satisfiable);
+    }
+
+    #[test]
+    fn test_implication_weaker_does_not_imply_stronger() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // caller: { x <= 100 }
+        // callee: { x <= 50 }
+        // x <= 100 does NOT imply x <= 50 (e.g., x = 75)
+        let caller = vec![pred("x", RefinementOp::Le, RefinementValue::Int(100))];
+        let callee = vec![pred("x", RefinementOp::Le, RefinementValue::Int(50))];
+        let result = check_implication(&caller, &callee);
+        assert!(matches!(result, SmtResult::Unsatisfiable(_)));
+    }
+
+    #[test]
+    fn test_implication_stronger_implies_weaker() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // caller: { x <= 50 }
+        // callee: { x <= 100 }
+        // x <= 50 implies x <= 100
+        let caller = vec![pred("x", RefinementOp::Le, RefinementValue::Int(50))];
+        let callee = vec![pred("x", RefinementOp::Le, RefinementValue::Int(100))];
+        assert_eq!(check_implication(&caller, &callee), SmtResult::Satisfiable);
+    }
+
+    #[test]
+    fn test_implication_disjoint_fields_fails() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // caller: { audited == true }
+        // callee: { certified == true }
+        // Different fields — no implication.
+        let caller = vec![pred("audited", RefinementOp::Eq, RefinementValue::Bool(true))];
+        let callee = vec![pred("certified", RefinementOp::Eq, RefinementValue::Bool(true))];
+        let result = check_implication(&caller, &callee);
+        assert!(matches!(result, SmtResult::Unsatisfiable(_)));
+    }
+
+    #[test]
+    fn test_implication_range_entailment() {
+        use crate::smt::solver::{check_implication, SmtResult};
+        // caller: { x >= 10, x <= 20 }
+        // callee: { x >= 0, x <= 100 }
+        // [10,20] ⊂ [0,100] → implication holds
+        let caller = vec![
+            pred("x", RefinementOp::Ge, RefinementValue::Int(10)),
+            pred("x", RefinementOp::Le, RefinementValue::Int(20)),
+        ];
+        let callee = vec![
+            pred("x", RefinementOp::Ge, RefinementValue::Int(0)),
+            pred("x", RefinementOp::Le, RefinementValue::Int(100)),
+        ];
+        assert_eq!(check_implication(&caller, &callee), SmtResult::Satisfiable);
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Call-site refinement verification (M4 Layer 3)
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_call_matching_refined_param_passes() {
+        // Caller passes value with matching refinement → no error.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn caller(m: Int where { certified == true }) -> Int { deploy(m) }
+"#);
+        assert!(errors.is_empty(), "matching refinement should pass: {errors:?}");
+    }
+
+    #[test]
+    fn test_call_unrefined_arg_to_refined_param_error() {
+        // Caller passes plain value to refined parameter → error.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn caller(m: Int) -> Int { deploy(m) }
+"#);
+        assert!(!errors.is_empty(), "unrefined arg to refined param should error");
+        assert!(errors[0].contains("no refinement guarantees"), "error: {}", errors[0]);
+    }
+
+    #[test]
+    fn test_call_superset_refinement_passes() {
+        // Caller's value has superset of callee's predicates → passes.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn caller(m: Int where { certified == true, audited == true }) -> Int { deploy(m) }
+"#);
+        assert!(errors.is_empty(), "superset refinement should pass: {errors:?}");
+    }
+
+    #[test]
+    fn test_call_weaker_refinement_error() {
+        // Caller's value has weaker predicates than callee requires → error.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { score <= 50 }) -> Int { 1 }
+fn caller(m: Int where { score <= 100 }) -> Int { deploy(m) }
+"#);
+        assert!(!errors.is_empty(), "weaker refinement should error");
+        assert!(errors[0].contains("does not imply"), "error: {}", errors[0]);
+    }
+
+    #[test]
+    fn test_type_constraint_subtype_of_base() {
+        // TypeConstraint used where base type expected → passes (subtype).
+        let errors = typecheck_errors(r#"
+type SafeModel = Int where { certified == true };
+fn accept_int(x: Int) -> Int { x }
+fn caller(m: SafeModel) -> Int { accept_int(m) }
+"#);
+        assert!(errors.is_empty(), "TypeConstraint subtype of base should pass: {errors:?}");
+    }
+
+    #[test]
+    fn test_base_type_used_where_type_constraint_expected_error() {
+        // Plain base type used where TypeConstraint expected → error.
+        let errors = typecheck_errors(r#"
+type SafeModel = Int where { certified == true };
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn caller(m: Int) -> Int { deploy(m) }
+"#);
+        assert!(!errors.is_empty(), "base type where TypeConstraint expected should error");
+        assert!(errors[0].contains("no refinement guarantees"), "error: {}", errors[0]);
+    }
+
+    #[test]
+    fn test_multiple_refined_params() {
+        // Function with multiple refined parameters, all satisfied.
+        let errors = typecheck_errors(r#"
+fn process(x: Int where { a == true }, y: Int where { b == true }) -> Int { 1 }
+fn caller(p: Int where { a == true }, q: Int where { b == true }) -> Int { process(p, q) }
+"#);
+        assert!(errors.is_empty(), "multiple matching refined params should pass: {errors:?}");
+    }
+
+    #[test]
+    fn test_chained_refinements() {
+        // fn a requires { certified }, fn b requires { certified, audited },
+        // b calls a → passes because b's param has superset.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn deploy_audited(model: Int where { certified == true, audited == true }) -> Int { deploy(model) }
+"#);
+        assert!(errors.is_empty(), "chained refinements should pass: {errors:?}");
+    }
+
+    #[test]
+    fn test_disjoint_refinement_error() {
+        // Caller has refinement on different field → error.
+        let errors = typecheck_errors(r#"
+fn deploy(model: Int where { certified == true }) -> Int { 1 }
+fn caller(m: Int where { audited == true }) -> Int { deploy(m) }
+"#);
+        assert!(!errors.is_empty(), "disjoint refinement should error");
+    }
 }

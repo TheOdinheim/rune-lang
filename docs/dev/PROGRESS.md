@@ -27,7 +27,7 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
 | M1: Parser + AST | Month 3 | **Complete** |
 | M2: Core type system | Month 6 | **Complete** |
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
-| M4: Refinement types | Month 12 | **In Progress** — Layer 1 (syntax + AST) done, Layer 2 (Z3 SMT solver) done |
+| M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | Not started |
 | M6: Toolchain MVP | Month 18 | Not started |
 
@@ -172,6 +172,14 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
   - Type checker integration at 3 points: TypeConstraint, Require, refined params
   - EU AI Act risk category encoding verified as satisfiable/contradictory
 
+- **M4 Layer 3: Refinement subtyping and call-site verification** (17 tests: 8 unit + 9 integration)
+  - SMT implication checking: `check_implication(caller, callee)` verifies caller predicates entail callee
+  - Call-site refinement verification: every argument to a refined parameter checked via Z3
+  - Symbol::Variable carries `refinements`, Symbol::Function carries `param_refinements`
+  - Governance-aware error messages: "no refinement guarantees" / "does not imply"
+  - Refinement subtyping: superset predicates satisfy subset, weaker rejected
+  - `require` expression lowers to Bool true in IR (predicates verified at compile time)
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -180,6 +188,6 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
 - ~~M3 Polish: Advanced control flow and codegen hardening~~ **Done** (8 new execution tests)
 - ~~M4 Layer 1: Refinement type syntax and AST~~ **Done** (15 parser tests)
 - ~~M4 Layer 2: Z3 SMT solver integration~~ **Done** (28 tests)
-- M4 Layer 3: Refinement type checking integration (subtyping, call-site verification)
+- ~~M4 Layer 3: Refinement subtyping and call-site verification~~ **Done** (17 tests)
 - M5: Runtime engine
 - M6: Toolchain MVP

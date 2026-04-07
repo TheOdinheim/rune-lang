@@ -798,17 +798,19 @@ impl<'ctx> TypeChecker<'ctx> {
             _ => None,
         };
 
-        // Look up required_capabilities from the symbol table before type-checking
-        // the callee expression (which yields a Type::Function without capability info).
-        let required_caps: Vec<String> = if let Some(ref name) = callee_name {
-            if let Some(Symbol::Function { required_capabilities, .. }) = self.ctx.lookup(name) {
-                required_capabilities.clone()
+        // Look up required_capabilities and param_refinements from the symbol table
+        // before type-checking the callee expression (which yields a Type::Function
+        // without capability/refinement info).
+        let (required_caps, callee_param_refinements): (Vec<String>, Vec<Vec<RefinementPredicate>>) =
+            if let Some(ref name) = callee_name {
+                if let Some(Symbol::Function { required_capabilities, param_refinements, .. }) = self.ctx.lookup(name) {
+                    (required_capabilities.clone(), param_refinements.clone())
+                } else {
+                    (Vec::new(), Vec::new())
+                }
             } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+                (Vec::new(), Vec::new())
+            };
 
         let callee_ty = self.check_expr(callee);
         let arg_types: Vec<TypeId> = args.iter().map(|a| self.check_expr(a)).collect();
@@ -856,6 +858,18 @@ impl<'ctx> TypeChecker<'ctx> {
                         );
                     }
                 }
+
+                // ── Refinement subtyping (M4 Layer 3) ──────────
+                if !callee_param_refinements.is_empty() {
+                    let fn_name = callee_name.as_deref().unwrap_or("<anonymous>");
+                    self.check_refinement_subtyping(
+                        fn_name,
+                        &callee_param_refinements,
+                        args,
+                        span,
+                    );
+                }
+
                 return_type
             }
             Type::Error => self.error_type(),
@@ -1062,6 +1076,7 @@ impl<'ctx> TypeChecker<'ctx> {
             Symbol::Variable {
                 ty: declared_ty,
                 is_mut,
+                refinements: vec![],
                 span: name.span,
             },
             name.span,
@@ -1094,6 +1109,7 @@ impl<'ctx> TypeChecker<'ctx> {
             Symbol::Variable {
                 ty: binding_ty,
                 is_mut: false,
+                refinements: vec![],
                 span: binding.span,
             },
             binding.span,
@@ -1206,6 +1222,15 @@ impl<'ctx> TypeChecker<'ctx> {
             None
         }).collect();
 
+        // Collect refinement predicates per parameter for call-site checking.
+        let param_refinements: Vec<Vec<RefinementPredicate>> = sig.params.iter().map(|p| {
+            if let TypeExprKind::Refined { where_clause, .. } = &p.ty.kind {
+                where_clause.predicates.clone()
+            } else {
+                Vec::new()
+            }
+        }).collect();
+
         let result = self.ctx.define(
             &sig.name.name,
             Symbol::Function {
@@ -1213,6 +1238,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 return_type,
                 effects,
                 required_capabilities: required_caps,
+                param_refinements,
                 span: sig.name.span,
             },
             sig.name.span,
@@ -1356,7 +1382,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let ty = self.ctx.resolve_type_expr(&decl.ty);
         let result = self.ctx.define(
             &decl.name.name,
-            Symbol::Variable { ty, is_mut: false, span: decl.name.span },
+            Symbol::Variable { ty, is_mut: false, refinements: vec![], span: decl.name.span },
             decl.name.span,
         );
         if let Err(e) = result {
@@ -1396,14 +1422,20 @@ impl<'ctx> TypeChecker<'ctx> {
 
         self.ctx.enter_scope();
 
-        // Register parameters in scope.
+        // Register parameters in scope, carrying refinement predicates.
         for param in &sig.params {
             let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let refinements = if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
+                where_clause.predicates.clone()
+            } else {
+                vec![]
+            };
             let _ = self.ctx.define(
                 &param.name.name,
                 Symbol::Variable {
                     ty: param_ty,
                     is_mut: param.is_mut,
+                    refinements,
                     span: param.name.span,
                 },
                 param.name.span,
@@ -1464,11 +1496,17 @@ impl<'ctx> TypeChecker<'ctx> {
         // Register rule parameters.
         for param in &rule.params {
             let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let refinements = if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
+                where_clause.predicates.clone()
+            } else {
+                vec![]
+            };
             let _ = self.ctx.define(
                 &param.name.name,
                 Symbol::Variable {
                     ty: param_ty,
                     is_mut: param.is_mut,
+                    refinements,
                     span: param.name.span,
                 },
                 param.name.span,
@@ -1547,6 +1585,97 @@ impl<'ctx> TypeChecker<'ctx> {
 
     /// Verify that refinement predicates are satisfiable using the SMT solver.
     /// If contradictory, emit a governance-aware type error.
+    /// Check refinement subtyping at a call site.
+    ///
+    /// For each parameter with refinement predicates, verify that the
+    /// argument's refinements imply the parameter's requirements.
+    fn check_refinement_subtyping(
+        &mut self,
+        fn_name: &str,
+        param_refinements: &[Vec<RefinementPredicate>],
+        args: &[Expr],
+        _span: Span,
+    ) {
+        use crate::smt::solver::{check_implication, SmtResult};
+
+        for (i, callee_preds) in param_refinements.iter().enumerate() {
+            if callee_preds.is_empty() {
+                continue;
+            }
+            if i >= args.len() {
+                break; // arity mismatch already reported
+            }
+
+            let arg_preds = self.extract_argument_refinements(&args[i]);
+
+            if arg_preds.is_empty() {
+                // Argument has no refinement guarantees.
+                let pred_strs: Vec<String> = callee_preds
+                    .iter()
+                    .map(|p| format!("{} {} {}", p.field.name,
+                        crate::smt::solver::op_symbol_pub(&p.op),
+                        crate::smt::solver::value_display_pub(&p.value)))
+                    .collect();
+                self.error(
+                    format!(
+                        "function '{}' requires argument {} to satisfy {{ {} }}, \
+                         but the argument has no refinement guarantees",
+                        fn_name, i + 1, pred_strs.join(", ")
+                    ),
+                    args[i].span,
+                );
+                continue;
+            }
+
+            // Use SMT implication check: caller_preds => callee_preds?
+            match check_implication(&arg_preds, callee_preds) {
+                SmtResult::Satisfiable => {} // caller implies callee — OK
+                SmtResult::Unsatisfiable(explanation) => {
+                    self.error(
+                        format!(
+                            "function '{}' requires argument {} to satisfy stronger refinements: {}",
+                            fn_name, i + 1, explanation,
+                        ),
+                        args[i].span,
+                    );
+                }
+                SmtResult::Unknown(reason) => {
+                    self.error(
+                        format!(
+                            "function '{}': SMT solver could not verify argument {} refinements ({reason})",
+                            fn_name, i + 1,
+                        ),
+                        args[i].span,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Extract refinement predicates from a call argument expression.
+    ///
+    /// If the argument is a variable, look up its refinements in the symbol table.
+    /// If the argument is a more complex expression, no refinements are known.
+    fn extract_argument_refinements(&self, arg: &Expr) -> Vec<RefinementPredicate> {
+        match &arg.kind {
+            ExprKind::Identifier(name) => {
+                if let Some(Symbol::Variable { refinements, .. }) = self.ctx.lookup(name) {
+                    return refinements.clone();
+                }
+                Vec::new()
+            }
+            ExprKind::Path(path) => {
+                if let Some(last) = path.segments.last() {
+                    if let Some(Symbol::Variable { refinements, .. }) = self.ctx.lookup(&last.name) {
+                        return refinements.clone();
+                    }
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn verify_refinement_predicates(
         &mut self,
         predicates: &[RefinementPredicate],

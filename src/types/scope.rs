@@ -1,3 +1,4 @@
+use crate::ast::nodes::RefinementPredicate;
 use crate::lexer::token::Span;
 use crate::types::ty::TypeId;
 use std::collections::HashMap;
@@ -13,6 +14,8 @@ pub enum Symbol {
     Variable {
         ty: TypeId,
         is_mut: bool,
+        /// Refinement predicates carried by this variable (empty if none).
+        refinements: Vec<RefinementPredicate>,
         span: Span,
     },
     /// A function declaration.
@@ -21,6 +24,8 @@ pub enum Symbol {
         return_type: TypeId,
         effects: Vec<String>,
         required_capabilities: Vec<String>,
+        /// Refinement predicates per parameter (empty vec if no refinement).
+        param_refinements: Vec<Vec<RefinementPredicate>>,
         span: Span,
     },
     /// A type definition (struct, enum, type alias).
