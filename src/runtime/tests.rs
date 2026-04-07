@@ -697,4 +697,473 @@ policy risk {
         assert_ne!(h1, h3);
         assert_eq!(h1.len(), 64); // SHA-256 = 32 bytes = 64 hex chars
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Model attestation — trust chain verification (M5 Layer 3)
+    // ═════════════════════════════════════════════════════════════════
+
+    use crate::runtime::attestation::*;
+    use std::time::SystemTime;
+
+    fn test_provenance() -> ModelProvenance {
+        ModelProvenance {
+            source_repository: "https://example.com/models".to_string(),
+            training_data_hash: Some("abc123".to_string()),
+            framework: "pytorch".to_string(),
+            architecture: "transformer".to_string(),
+            slsa_level: Some(3),
+        }
+    }
+
+    fn test_attestation(key: &[u8], signer: &str) -> ModelAttestation {
+        let timestamp = SystemTime::now();
+        let model_hash = "deadbeef".to_string();
+        let signature = sign_attestation(key, &model_hash, signer, timestamp);
+        ModelAttestation {
+            model_id: "test-model-v1".to_string(),
+            model_hash,
+            signer: signer.to_string(),
+            signature,
+            timestamp,
+            provenance: test_provenance(),
+            policy_requirements: vec!["eu-ai-act".to_string()],
+        }
+    }
+
+    // ── AttestationChecker — signature verification ──────────────
+
+    #[test]
+    fn test_attestation_valid_signature() {
+        let key = b"attestation-key-1234".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy::permissive());
+        checker.add_trusted_key("trusted-signer", key.clone());
+
+        let att = test_attestation(&key, "trusted-signer");
+        let result = checker.verify(&att);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            AttestationVerdict::Trusted { signer, .. } => {
+                assert_eq!(signer, "trusted-signer");
+            }
+            _ => panic!("expected Trusted verdict"),
+        }
+    }
+
+    #[test]
+    fn test_attestation_invalid_signature() {
+        let key = b"attestation-key-1234".to_vec();
+        let wrong_key = b"wrong-key-5678".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy::permissive());
+        checker.add_trusted_key("trusted-signer", key);
+
+        // Sign with wrong key but claim trusted-signer.
+        let att = test_attestation(&wrong_key, "trusted-signer");
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::InvalidSignature { .. }
+        ));
+    }
+
+    #[test]
+    fn test_attestation_unknown_signer() {
+        let key = b"attestation-key-1234".to_vec();
+        let checker = AttestationChecker::new(AttestationPolicy::permissive());
+        // No trusted keys added.
+
+        let att = test_attestation(&key, "unknown-signer");
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::UnknownSigner { .. }
+        ));
+    }
+
+    #[test]
+    fn test_attestation_multiple_trusted_signers() {
+        let key_a = b"key-for-signer-a".to_vec();
+        let key_b = b"key-for-signer-b".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy::permissive());
+        checker.add_trusted_key("signer-a", key_a.clone());
+        checker.add_trusted_key("signer-b", key_b.clone());
+
+        let att_a = test_attestation(&key_a, "signer-a");
+        assert!(checker.verify(&att_a).is_ok());
+
+        let att_b = test_attestation(&key_b, "signer-b");
+        assert!(checker.verify(&att_b).is_ok());
+    }
+
+    // ── AttestationChecker — provenance verification ─────────────
+
+    #[test]
+    fn test_attestation_slsa_level_sufficient() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            minimum_slsa_level: Some(2),
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // slsa_level = Some(3)
+        assert!(checker.verify(&att).is_ok());
+    }
+
+    #[test]
+    fn test_attestation_slsa_level_insufficient() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            minimum_slsa_level: Some(4),
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // slsa_level = Some(3)
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AttestationError::InsufficientSLSALevel { required, actual } => {
+                assert_eq!(required, 4);
+                assert_eq!(actual, 3);
+            }
+            other => panic!("expected InsufficientSLSALevel, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_attestation_slsa_level_missing_treated_as_zero() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            minimum_slsa_level: Some(1),
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let mut att = test_attestation(&key, "signer");
+        att.provenance.slsa_level = None;
+        // Re-sign not needed — provenance not in signature, only model_hash/signer/timestamp.
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::InsufficientSLSALevel { required: 1, actual: 0 }
+        ));
+    }
+
+    #[test]
+    fn test_attestation_allowed_framework_pass() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            allowed_frameworks: Some(vec!["pytorch".to_string(), "onnx".to_string()]),
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // framework = "pytorch"
+        assert!(checker.verify(&att).is_ok());
+    }
+
+    #[test]
+    fn test_attestation_disallowed_framework() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            allowed_frameworks: Some(vec!["onnx".to_string(), "tensorflow".to_string()]),
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // framework = "pytorch"
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AttestationError::DisallowedFramework { framework, allowed } => {
+                assert_eq!(framework, "pytorch");
+                assert!(allowed.contains(&"onnx".to_string()));
+            }
+            other => panic!("expected DisallowedFramework, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_attestation_training_data_hash_required_present() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            require_training_data_hash: true,
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // has training_data_hash
+        assert!(checker.verify(&att).is_ok());
+    }
+
+    #[test]
+    fn test_attestation_training_data_hash_required_missing() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            require_training_data_hash: true,
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let mut att = test_attestation(&key, "signer");
+        att.provenance.training_data_hash = None;
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::MissingTrainingDataHash { .. }
+        ));
+    }
+
+    // ── AttestationChecker — policy verification ─────────────────
+
+    #[test]
+    fn test_attestation_required_signer_present() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            required_signers: vec!["signer".to_string(), "backup-signer".to_string()],
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer");
+        assert!(checker.verify(&att).is_ok());
+    }
+
+    #[test]
+    fn test_attestation_no_trusted_signer() {
+        let key_a = b"key-a".to_vec();
+        let key_b = b"key-b".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            required_signers: vec!["required-signer".to_string()],
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("other-signer", key_a.clone());
+
+        // Sign with key_a as "other-signer" — valid signature but not a required signer.
+        let att = test_attestation(&key_a, "other-signer");
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::NoTrustedSigner { .. }
+        ));
+    }
+
+    #[test]
+    fn test_attestation_expired() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            max_age_seconds: Some(0), // Immediately expired.
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        // Use a timestamp slightly in the past.
+        let old_time = SystemTime::now() - std::time::Duration::from_secs(2);
+        let model_hash = "deadbeef".to_string();
+        let signature = sign_attestation(&key, &model_hash, "signer", old_time);
+        let att = ModelAttestation {
+            model_id: "old-model".to_string(),
+            model_hash,
+            signer: "signer".to_string(),
+            signature,
+            timestamp: old_time,
+            provenance: test_provenance(),
+            policy_requirements: vec![],
+        };
+
+        let result = checker.verify(&att);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            AttestationError::ExpiredAttestation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_attestation_not_expired() {
+        let key = b"key".to_vec();
+        let mut checker = AttestationChecker::new(AttestationPolicy {
+            max_age_seconds: Some(3600), // 1 hour.
+            ..AttestationPolicy::permissive()
+        });
+        checker.add_trusted_key("signer", key.clone());
+
+        let att = test_attestation(&key, "signer"); // Just created → not expired.
+        assert!(checker.verify(&att).is_ok());
+    }
+
+    // ── Permissive policy ────────────────────────────────────────
+
+    #[test]
+    fn test_attestation_permissive_policy() {
+        let policy = AttestationPolicy::permissive();
+        assert!(policy.required_signers.is_empty());
+        assert!(policy.minimum_slsa_level.is_none());
+        assert!(policy.allowed_frameworks.is_none());
+        assert!(!policy.require_training_data_hash);
+        assert!(policy.max_age_seconds.is_none());
+    }
+
+    // ── sign_attestation determinism ─────────────────────────────
+
+    #[test]
+    fn test_sign_attestation_deterministic() {
+        let key = b"key".to_vec();
+        let ts = SystemTime::now();
+        let s1 = sign_attestation(&key, "hash1", "signer", ts);
+        let s2 = sign_attestation(&key, "hash1", "signer", ts);
+        let s3 = sign_attestation(&key, "hash2", "signer", ts);
+        assert_eq!(s1, s2);
+        assert_ne!(s1, s3);
+        assert_eq!(s1.len(), 64); // HMAC-SHA256 = 32 bytes = 64 hex chars
+    }
+
+    // ── AttestationError display ─────────────────────────────────
+
+    #[test]
+    fn test_attestation_error_display() {
+        let e1 = AttestationError::UnknownSigner { signer: "x".into() };
+        assert!(format!("{e1}").contains("unknown signer"));
+
+        let e2 = AttestationError::InvalidSignature {
+            signer: "s".into(), model_id: "m".into(),
+        };
+        assert!(format!("{e2}").contains("invalid signature"));
+
+        let e3 = AttestationError::InsufficientSLSALevel { required: 3, actual: 1 };
+        assert!(format!("{e3}").contains("SLSA level"));
+
+        let e4 = AttestationError::DisallowedFramework {
+            framework: "tf".into(), allowed: vec!["pt".into()],
+        };
+        assert!(format!("{e4}").contains("not in allowed list"));
+
+        let e5 = AttestationError::MissingTrainingDataHash { model_id: "m".into() };
+        assert!(format!("{e5}").contains("missing required training data hash"));
+
+        let e6 = AttestationError::ExpiredAttestation {
+            age_seconds: 100, max_age_seconds: 60,
+        };
+        assert!(format!("{e6}").contains("expired"));
+
+        let e7 = AttestationError::NoTrustedSigner {
+            model_id: "m".into(), required_signers: vec!["s".into()],
+        };
+        assert!(format!("{e7}").contains("not signed by any required signer"));
+    }
+
+    // ── AttestationChecker debug ─────────────────────────────────
+
+    #[test]
+    fn test_attestation_checker_debug() {
+        let mut checker = AttestationChecker::new(AttestationPolicy::permissive());
+        checker.add_trusted_key("signer-a", b"key-a".to_vec());
+        let debug = format!("{checker:?}");
+        assert!(debug.contains("AttestationChecker"));
+        assert!(debug.contains("signer-a"));
+    }
+
+    // ── Evaluator integration with attestation ───────────────────
+
+    #[test]
+    fn test_audited_evaluator_with_attestation_verify_trusted() {
+        let key = b"attest-key".to_vec();
+        let wasm = compile_wasm("policy access { rule allow() { permit } }");
+        let module = PolicyModule::from_bytes(&wasm).unwrap();
+
+        let mut attest_checker = AttestationChecker::new(AttestationPolicy::permissive());
+        attest_checker.add_trusted_key("signer", key.clone());
+
+        let mut evaluator = AuditedPolicyEvaluator::new(&module, test_key(), "mod")
+            .unwrap()
+            .with_attestation(attest_checker);
+
+        let att = test_attestation(&key, "signer");
+        let verdict = evaluator.verify_model(&att);
+        assert!(verdict.is_ok());
+
+        // Audit trail should record the attestation verification event.
+        let trail = evaluator.audit_trail();
+        assert_eq!(trail.len(), 1);
+        assert_eq!(
+            trail.get(0).unwrap().event_type,
+            AuditEventType::ModelAttestationVerified
+        );
+        assert!(trail.get(0).unwrap().function_name.contains("test-model-v1"));
+    }
+
+    #[test]
+    fn test_audited_evaluator_with_attestation_verify_rejected() {
+        let key = b"attest-key".to_vec();
+        let wrong_key = b"wrong-attest-key".to_vec();
+        let wasm = compile_wasm("policy access { rule allow() { permit } }");
+        let module = PolicyModule::from_bytes(&wasm).unwrap();
+
+        let mut attest_checker = AttestationChecker::new(AttestationPolicy::permissive());
+        attest_checker.add_trusted_key("signer", key.clone());
+
+        let mut evaluator = AuditedPolicyEvaluator::new(&module, test_key(), "mod")
+            .unwrap()
+            .with_attestation(attest_checker);
+
+        // Sign with wrong key → invalid signature.
+        let att = test_attestation(&wrong_key, "signer");
+        let verdict = evaluator.verify_model(&att);
+        assert!(verdict.is_err());
+
+        // Audit trail should record the rejection event.
+        let trail = evaluator.audit_trail();
+        assert_eq!(trail.len(), 1);
+        assert_eq!(
+            trail.get(0).unwrap().event_type,
+            AuditEventType::ModelAttestationRejected
+        );
+    }
+
+    #[test]
+    fn test_audited_evaluator_attestation_then_evaluate() {
+        let key = b"attest-key".to_vec();
+        let wasm = compile_wasm("policy access { rule allow() { permit } }");
+        let module = PolicyModule::from_bytes(&wasm).unwrap();
+
+        let mut attest_checker = AttestationChecker::new(AttestationPolicy::permissive());
+        attest_checker.add_trusted_key("signer", key.clone());
+
+        let mut evaluator = AuditedPolicyEvaluator::new(&module, test_key(), "mod")
+            .unwrap()
+            .with_attestation(attest_checker);
+
+        // First verify the model, then evaluate policy.
+        let att = test_attestation(&key, "signer");
+        assert!(evaluator.verify_model(&att).is_ok());
+
+        let result = evaluator.evaluate(&PolicyRequest::new(0, 0, 0, 0)).unwrap();
+        assert_eq!(result.decision, PolicyDecision::Permit);
+
+        // Trail: attestation verified + policy decision = 2 records.
+        let trail = evaluator.audit_trail();
+        assert_eq!(trail.len(), 2);
+        assert_eq!(trail.get(0).unwrap().event_type, AuditEventType::ModelAttestationVerified);
+        assert_eq!(trail.get(1).unwrap().event_type, AuditEventType::PolicyDecision);
+        assert!(trail.verify_chain().is_ok());
+    }
+
+    #[test]
+    fn test_audited_evaluator_no_attestation_checker_error() {
+        let wasm = compile_wasm("policy access { rule allow() { permit } }");
+        let module = PolicyModule::from_bytes(&wasm).unwrap();
+
+        let mut evaluator = AuditedPolicyEvaluator::new(&module, test_key(), "mod")
+            .unwrap();
+        // No attestation checker attached.
+
+        let att = test_attestation(b"key", "signer");
+        let result = evaluator.verify_model(&att);
+        assert!(result.is_err());
+    }
 }

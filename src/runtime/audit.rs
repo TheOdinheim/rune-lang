@@ -38,6 +38,10 @@ pub enum AuditEventType {
     CapabilityExercise,
     /// A model was invoked.
     ModelInvocation,
+    /// A model attestation was verified successfully.
+    ModelAttestationVerified,
+    /// A model attestation was rejected.
+    ModelAttestationRejected,
 }
 
 impl fmt::Display for AuditEventType {
@@ -48,6 +52,8 @@ impl fmt::Display for AuditEventType {
             AuditEventType::FunctionExit => write!(f, "FunctionExit"),
             AuditEventType::CapabilityExercise => write!(f, "CapabilityExercise"),
             AuditEventType::ModelInvocation => write!(f, "ModelInvocation"),
+            AuditEventType::ModelAttestationVerified => write!(f, "ModelAttestationVerified"),
+            AuditEventType::ModelAttestationRejected => write!(f, "ModelAttestationRejected"),
         }
     }
 }
@@ -350,7 +356,7 @@ fn compute_record_hash(record: &AuditRecord) -> String {
 // No other code in this file needs to change.
 // ═══════════════════════════════════════════════════════════════════════
 
-mod crypto {
+pub(crate) mod crypto {
     use hmac::{Hmac, Mac};
     use sha2::{Digest, Sha256};
 

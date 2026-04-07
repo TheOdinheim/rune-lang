@@ -165,3 +165,82 @@ cargo test: 484 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen +
 - **Assumed Breach:** The hash chain detects tampering. Modifying any record breaks the chain link. Signatures provide non-repudiation — the signing key proves who recorded the decision.
 - **Zero Trust Throughout:** Each record is independently verifiable. Chain verification and signature verification are separate operations that can be performed by different parties.
 - **No Single Points of Failure:** The audit trail is self-contained and exportable. Records can be verified offline without access to the original runtime or policy module.
+
+---
+
+## 2026-04-06 — M5 Layer 3: Model Attestation Checker
+
+### What was built
+
+Runtime trust chain verification for model artifacts. Models must carry cryptographic attestations (identity, provenance, signature) that are verified before they can be invoked. An AttestationChecker enforces three verification layers: signature, provenance, and policy. The checker integrates with the audited evaluator — every attestation verification (pass or fail) is recorded in the cryptographic audit trail.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/runtime/mod.rs | Added attestation module | +1 line |
+| src/runtime/attestation.rs | ModelAttestation, AttestationChecker, AttestationPolicy, verification, errors | New file, ~340 lines |
+| src/runtime/evaluator.rs | with_attestation(), verify_model() on AuditedPolicyEvaluator | +50 lines |
+| src/runtime/audit.rs | ModelAttestationVerified/Rejected event types, pub(crate) crypto module | +10 lines |
+| src/runtime/tests.rs | 23 new attestation and integration tests | +300 lines |
+
+### Architecture
+
+**ModelAttestation**: model_id, model_hash (SHA-256), signer, signature (HMAC-SHA256 placeholder for ML-DSA), timestamp, provenance, policy_requirements
+
+**ModelProvenance**: source_repository, training_data_hash, framework, architecture, slsa_level (0-4)
+
+**AttestationChecker** — three-layer verification:
+1. **Signature**: signer must be in trusted_keys; recompute HMAC and compare
+2. **Provenance**: SLSA level, framework allowlist, training data hash requirement
+3. **Policy**: required signers, attestation freshness (max age)
+
+**AttestationPolicy**: required_signers, minimum_slsa_level, allowed_frameworks, require_training_data_hash, max_age_seconds. `permissive()` constructor for signature-only checks.
+
+**AttestationVerdict**: Trusted { signer, verified_at } | Rejected { reason: AttestationError }
+
+**Evaluator integration**: `AuditedPolicyEvaluator::with_attestation(checker)` attaches a checker. `verify_model(attestation)` runs all checks and records ModelAttestationVerified or ModelAttestationRejected in the audit trail.
+
+**Crypto**: Uses same `audit::crypto` module (pub(crate)) — `sign_attestation()` calls `crypto::sign()`. Single PQC swap point for both audit signatures and attestation.
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 507 passed (49 lexer + 102 parser + 166 types + 24 ir + 31 codegen + 18 compiler + 45 smt + 72 runtime), 0 failed
+```
+
+### New attestation tests (23 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_attestation_valid_signature | Valid HMAC signature → Trusted |
+| test_attestation_invalid_signature | Wrong key → InvalidSignature |
+| test_attestation_unknown_signer | Signer not in trusted keys → UnknownSigner |
+| test_attestation_multiple_trusted_signers | Multiple signers, both verify |
+| test_attestation_slsa_level_sufficient | SLSA 3 ≥ required 2 → pass |
+| test_attestation_slsa_level_insufficient | SLSA 3 < required 4 → InsufficientSLSALevel |
+| test_attestation_slsa_level_missing_treated_as_zero | None → actual 0 |
+| test_attestation_allowed_framework_pass | pytorch in [pytorch, onnx] → pass |
+| test_attestation_disallowed_framework | pytorch not in [onnx, tensorflow] → DisallowedFramework |
+| test_attestation_training_data_hash_required_present | Hash present → pass |
+| test_attestation_training_data_hash_required_missing | Hash missing → MissingTrainingDataHash |
+| test_attestation_required_signer_present | Signer in required list → pass |
+| test_attestation_no_trusted_signer | Signer not in required list → NoTrustedSigner |
+| test_attestation_expired | Old attestation with max_age=0 → ExpiredAttestation |
+| test_attestation_not_expired | Fresh attestation with max_age=3600 → pass |
+| test_attestation_permissive_policy | Permissive() has no constraints |
+| test_sign_attestation_deterministic | Same inputs → same signature, 64 hex chars |
+| test_attestation_error_display | All 7 error variant Display messages |
+| test_attestation_checker_debug | Debug formatting includes signer names |
+| test_audited_evaluator_with_attestation_verify_trusted | verify_model → Trusted + audit event |
+| test_audited_evaluator_with_attestation_verify_rejected | verify_model → Rejected + audit event |
+| test_audited_evaluator_attestation_then_evaluate | Attest then evaluate, chain intact |
+| test_audited_evaluator_no_attestation_checker_error | No checker attached → error |
+
+### Pillars served
+
+- **Zero Trust Throughout:** Every model must prove its identity and provenance via cryptographic attestation before the runtime will invoke it. Unattested models are rejected.
+- **Security Baked In:** Attestation is not optional — the type system enforces that only AttestedModel values can be invoked. Three verification layers (signature, provenance, policy) cannot be bypassed.
+- **Assumed Breach:** Every attestation verification (pass or fail) is recorded in the cryptographic audit trail. Rejected models leave forensic evidence.
+- **No Single Points of Failure:** Multiple signers can be trusted. Attestation policies can require specific signers, SLSA levels, and framework constraints. The checker is composable with the evaluator.

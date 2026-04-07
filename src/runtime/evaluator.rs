@@ -300,6 +300,7 @@ pub struct AuditedPolicyEvaluator {
     evaluator: PolicyEvaluator,
     audit_trail: crate::runtime::audit::AuditTrail,
     module_name: String,
+    attestation_checker: Option<crate::runtime::attestation::AttestationChecker>,
 }
 
 impl AuditedPolicyEvaluator {
@@ -314,6 +315,7 @@ impl AuditedPolicyEvaluator {
             evaluator,
             audit_trail: crate::runtime::audit::AuditTrail::new(signing_key),
             module_name: module_name.to_string(),
+            attestation_checker: None,
         })
     }
 
@@ -365,5 +367,48 @@ impl AuditedPolicyEvaluator {
     /// Export all audit records.
     pub fn export_audit_log(&self) -> Vec<crate::runtime::audit::AuditRecord> {
         self.audit_trail.export()
+    }
+
+    /// Attach an attestation checker for model trust chain verification.
+    pub fn with_attestation(
+        mut self,
+        checker: crate::runtime::attestation::AttestationChecker,
+    ) -> Self {
+        self.attestation_checker = Some(checker);
+        self
+    }
+
+    /// Verify a model's attestation and record the result in the audit trail.
+    ///
+    /// Returns `Trusted` if the attestation passes all checks, `Rejected` on
+    /// any failure. The outcome is always recorded as an audit event.
+    pub fn verify_model(
+        &mut self,
+        attestation: &crate::runtime::attestation::ModelAttestation,
+    ) -> Result<crate::runtime::attestation::AttestationVerdict, crate::runtime::attestation::AttestationError> {
+        let checker = self.attestation_checker.as_ref().ok_or_else(|| {
+            crate::runtime::attestation::AttestationError::UnknownSigner {
+                signer: attestation.signer.clone(),
+            }
+        })?;
+
+        match checker.verify(attestation) {
+            Ok(verdict) => {
+                self.audit_trail.record_event(
+                    &self.module_name,
+                    &format!("verify_model:{}", attestation.model_id),
+                    crate::runtime::audit::AuditEventType::ModelAttestationVerified,
+                );
+                Ok(verdict)
+            }
+            Err(err) => {
+                self.audit_trail.record_event(
+                    &self.module_name,
+                    &format!("verify_model:{}", attestation.model_id),
+                    crate::runtime::audit::AuditEventType::ModelAttestationRejected,
+                );
+                Err(err)
+            }
+        }
     }
 }

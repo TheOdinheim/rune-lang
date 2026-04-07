@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M5: Runtime engine** — Target: Month 15
+**M5: Runtime engine** — Target: Month 15 — **COMPLETE**
 
-Runtime policy evaluator built. Host applications can load compiled .rune.wasm modules and evaluate policy decisions through a clean API. Each evaluation creates a fresh wasmtime Store (arena model).
+Runtime engine complete. Policy evaluator, cryptographic audit trail, and model attestation checker all operational. Host applications can load compiled .rune.wasm modules, verify model trust chains, evaluate policy decisions, and produce tamper-evident audit records.
 
 ### M1 Deliverables
 
@@ -28,7 +28,7 @@ Runtime policy evaluator built. Host applications can load compiled .rune.wasm m
 | M2: Core type system | Month 6 | **Complete** |
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
-| M5: Runtime engine | Month 15 | **In Progress** — Layer 1 (runtime evaluator) done |
+| M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation checker |
 | M6: Toolchain MVP | Month 18 | Not started |
 
 ## What's Done
@@ -197,6 +197,14 @@ Runtime policy evaluator built. Host applications can load compiled .rune.wasm m
   - AuditedPolicyEvaluator: auto-records every evaluation to audit trail
   - Chain verification (detect tampering) and signature verification (non-repudiation)
 
+- **M5 Layer 3: Model attestation checker** (23 tests)
+  - ModelAttestation: model_id, model_hash, signer, signature, timestamp, provenance
+  - ModelProvenance: source_repository, training_data_hash, framework, architecture, slsa_level
+  - AttestationChecker: three-layer verification (signature → provenance → policy)
+  - AttestationPolicy: required_signers, SLSA level, framework allowlist, freshness
+  - Evaluator integration: with_attestation() + verify_model() with audit trail recording
+  - Uses shared crypto module — single PQC swap point for audit + attestation
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -208,5 +216,5 @@ Runtime policy evaluator built. Host applications can load compiled .rune.wasm m
 - ~~M4 Layer 3: Refinement subtyping and call-site verification~~ **Done** (17 tests)
 - ~~M5 Layer 1: Runtime policy evaluator~~ **Done** (32 tests)
 - ~~M5 Layer 2: Cryptographic audit trail~~ **Done** (17 tests)
-- M5 Layer 3: Runtime governance hooks
+- ~~M5 Layer 3: Model attestation checker~~ **Done** (23 tests)
 - M6: Toolchain MVP
