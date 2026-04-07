@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M3: Cranelift backend** — Target: Month 9
+**M5: Runtime engine** — Target: Month 15
 
-IR design, AST-to-IR lowering, WASM code generation, module packaging, and compiler CLI complete. RUNE programs compile to .rune.wasm modules with a standard `evaluate` entry point.
+Runtime policy evaluator built. Host applications can load compiled .rune.wasm modules and evaluate policy decisions through a clean API. Each evaluation creates a fresh wasmtime Store (arena model).
 
 ### M1 Deliverables
 
@@ -28,7 +28,7 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
 | M2: Core type system | Month 6 | **Complete** |
 | M3: Cranelift backend | Month 9 | **Complete** — IR, WASM codegen, module packaging, CLI, advanced control flow |
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
-| M5: Runtime engine | Month 15 | Not started |
+| M5: Runtime engine | Month 15 | **In Progress** — Layer 1 (runtime evaluator) done |
 | M6: Toolchain MVP | Month 18 | Not started |
 
 ## What's Done
@@ -180,6 +180,15 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
   - Refinement subtyping: superset predicates satisfy subset, weaker rejected
   - `require` expression lowers to Bool true in IR (predicates verified at compile time)
 
+- **M5 Layer 1: Runtime policy evaluator** (32 tests)
+  - PolicyModule: loads WASM bytes or .rune.wasm files, thread-safe Engine + Module
+  - PolicyEvaluator: fresh Store per evaluation (arena model), evaluate() + evaluate_rule()
+  - PolicyDecision: Permit/Deny/Escalate/Quarantine with i32 encoding
+  - Module inspection: list_exports(), list_policy_rules(), has_evaluate()
+  - compile_and_evaluate() and compile_and_load() convenience pipeline
+  - Evaluation timing recorded for performance monitoring
+  - RuntimeError enum with context for all failure modes
+
 ## What's Next
 
 - ~~M3 Layer 1: IR design and AST-to-IR lowering~~ **Done** (24 tests)
@@ -189,5 +198,7 @@ IR design, AST-to-IR lowering, WASM code generation, module packaging, and compi
 - ~~M4 Layer 1: Refinement type syntax and AST~~ **Done** (15 parser tests)
 - ~~M4 Layer 2: Z3 SMT solver integration~~ **Done** (28 tests)
 - ~~M4 Layer 3: Refinement subtyping and call-site verification~~ **Done** (17 tests)
-- M5: Runtime engine
+- ~~M5 Layer 1: Runtime policy evaluator~~ **Done** (32 tests)
+- M5 Layer 2: Audit trail and attestation
+- M5 Layer 3: Runtime governance hooks
 - M6: Toolchain MVP
