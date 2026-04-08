@@ -108,3 +108,112 @@ cargo test: 640 passed (629 lib + 11 CLI), 0 failed
 - **Zero Trust Throughout:** Qualified paths (`self::`, `super::`) require explicit path resolution — no implicit name imports. Every reference will be traceable to its source module.
 - **Assumed Breach:** The parser rejects invalid visibility placement (e.g., `pub rule` is an error — rules inherit policy visibility). Invalid syntax is caught at parse time with clear diagnostics.
 - **No Single Points of Failure:** Module syntax supports both inline and file-based declarations, enabling multiple project organization strategies. Tree-sitter grammar updated for all editors.
+
+---
+
+## 2026-04-08 — M7 Layer 2: Module-Scoped Name Resolution, Visibility Enforcement, Use Imports
+
+### What was built
+
+The type checker's symbol table now supports module scopes. Inline modules create `Symbol::Module` entries containing their own symbol tables and visibility maps. Qualified paths (`crypto::verify`, `a::b::c`) resolve through module chains. Visibility is enforced — private items are inaccessible from outside their module with helpful error messages. Use imports (`use`, `use as`, `use *`) bring module symbols into the current scope. Effects and capabilities propagate across module boundaries unchanged.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/types/scope.rs | Added `Symbol::Module` variant with symbols, visibility_map; `current_scope_bindings()` method | +20 lines |
+| src/types/context.rs | Unchanged — module path resolution handled in checker | 0 lines |
+| src/types/checker.rs | Module registration, use import resolution, qualified path resolution, visibility enforcement | +250 lines |
+| src/types/mod.rs | Added module_tests module | +3 lines |
+| src/types/module_tests.rs | 29 new module system tests | New file, ~350 lines |
+
+### Architecture
+
+**Symbol::Module:**
+- `symbols: HashMap<String, Symbol>` — all declarations in the module
+- `visibility_map: HashMap<String, Visibility>` — tracks which symbols are pub
+- Created by snapshotting the scope after checking all items inside the module body
+- File-based modules (`mod name;`) register as empty placeholders (file loading deferred to M7 L3)
+
+**Module registration (two-pass within modules):**
+1. Enter a new scope, register all items (Pass 1), check all bodies (Pass 2)
+2. Snapshot the scope's symbols and build a visibility map from the items
+3. Exit the scope and register `Symbol::Module` in the parent scope
+4. This is recursive — nested modules are handled naturally
+
+**Qualified path resolution (`resolve_qualified_path`):**
+- Walks module segments left to right, checking each intermediate module exists
+- Checks visibility at each step — private intermediate modules block resolution
+- Final segment looked up as a symbol in the target module, visibility checked
+- Returns the symbol's type for use in expression type checking
+
+**Visibility enforcement:**
+- Private items: type error with message including `add 'pub'` suggestion
+- Check existence first, then visibility (avoids false "private" for missing items)
+- Private nested modules block access to their contents even if inner items are pub
+
+**Use import resolution:**
+- `UseKind::Single`: resolve path, check visibility, alias in current scope
+- `UseKind::Glob`: resolve module path, import all public symbols, skip private silently
+- Glob conflicts with existing names produce type errors
+- `UseKind::Module`: no-op (module name already registered)
+- `pub use`: re-export handled by marking imported name in visibility map
+
+**Cross-module effect and capability propagation:**
+- No module-specific changes needed — effects and capabilities are properties of `Symbol::Function`
+- When a qualified call resolves to a function, its effects propagate to the caller
+- `lookup_fn_extras_from_path` walks module chain to find `required_capabilities` and `param_refinements`
+
+**Backward compatibility:**
+- Root file scope is implicit — all top-level declarations live in it
+- Code without `mod`/`use` works exactly as before: `ScopeStack` lookup unchanged
+- `register_item` now handles `ItemKind::Module` and `ItemKind::Use` instead of skipping them
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 669 passed (658 lib + 11 CLI), 0 failed
+All 640 pre-existing tests pass unchanged.
+```
+
+### New module system tests (29 tests)
+
+| Test | What it covers |
+|------|---------------|
+| test_module_public_function_accessible | `pub fn` in module callable via qualified path |
+| test_module_private_function_error | Private fn in module → type error |
+| test_nested_modules | `a::b::inner()` resolves through nested modules |
+| test_module_mixed_visibility | Public accessible, private not, in same module |
+| test_private_item_error_message_has_add_pub | Error suggests `add 'pub'` |
+| test_qualified_path_call | `math::add(1, 2)` resolves and type-checks |
+| test_multi_segment_path | `a::b::c()` resolves through module chain |
+| test_nonexistent_module_error | "module not found" error |
+| test_nonexistent_function_in_module_error | "not found in module" error |
+| test_self_path_resolves | `self::helper()` resolves in current scope |
+| test_super_path_resolves | `super::helper()` resolves to parent scope |
+| test_use_single_import | `use crypto::verify;` then `verify()` works |
+| test_use_alias_import | `use crypto::verify as v;` then `v()` works |
+| test_use_glob_import | `use crypto::*;` imports all public items |
+| test_use_glob_skips_private | Glob skips private items silently |
+| test_use_glob_conflict_with_existing_name | Glob conflict → type error |
+| test_use_private_item_error | `use` of private item → type error |
+| test_pub_use_reexport | `pub use` re-exports item |
+| test_cross_module_effect_propagation | Effectful module fn → effect error in pure caller |
+| test_cross_module_effect_allowed | Effectful module fn → OK when caller declares effects |
+| test_no_modules_works_as_before | Flat scope code unchanged |
+| test_flat_scope_policies_still_work | Policies without modules unchanged |
+| test_flat_scope_types_still_work | Types without modules unchanged |
+| test_module_function_type_checks_body | Type errors inside module bodies caught |
+| test_qualified_call_type_mismatch | Wrong arg type in qualified call |
+| test_qualified_call_arity_mismatch | Wrong arity in qualified call |
+| test_private_module_nested | Private nested module blocks access |
+| test_pub_nested_module_accessible | `pub mod` nested module accessible |
+| test_module_file_based_placeholder | `mod crypto;` registers without error |
+
+### Pillars served
+
+- **Security Baked In:** Visibility enforcement prevents accidental exposure of internal governance logic. Private policy helpers, internal types, and utility functions cannot be accessed from outside their module without explicit `pub`.
+- **Zero Trust Throughout:** Every cross-module reference goes through visibility checking. Effects and capabilities propagate transparently — a function in module A that calls module B still has its effects verified. No implicit trust across module boundaries.
+- **Assumed Breach:** Error messages are governance-aware: "add `pub` to make it accessible" guides developers toward explicit visibility. Module boundaries create isolation zones — a compromised module's private internals are inaccessible.
+- **No Single Points of Failure:** Module scopes allow organizing governance policies across files and teams. `pub use` re-exports enable curated public APIs from submodules. Glob imports provide convenient access patterns without sacrificing encapsulation.

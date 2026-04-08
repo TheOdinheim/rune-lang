@@ -3,6 +3,7 @@ use crate::lexer::token::Span;
 use crate::types::context::{TypeContext, TypeError};
 use crate::types::scope::Symbol;
 use crate::types::ty::{Type, TypeId};
+use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Effect context — tracks which effects are allowed in the current scope
@@ -594,6 +595,10 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.error_type()
             }
             Some(Symbol::Capability { ty, .. }) | Some(Symbol::Effect { ty, .. }) => *ty,
+            Some(Symbol::Module { .. }) => {
+                self.error(format!("`{name}` is a module, not a value"), span);
+                self.error_type()
+            }
             None => {
                 self.error(format!("undefined variable `{name}`"), span);
                 self.error_type()
@@ -602,9 +607,191 @@ impl<'ctx> TypeChecker<'ctx> {
     }
 
     fn check_path(&mut self, path: &Path) -> TypeId {
-        // For now, treat multi-segment paths as identifier lookup on the last segment.
-        let name = &path.segments.last().expect("empty path").name;
-        self.check_identifier(name, path.span)
+        let segments = &path.segments;
+        if segments.is_empty() {
+            return self.error_type();
+        }
+
+        // Single-segment paths are just identifiers.
+        if segments.len() == 1 {
+            return self.check_identifier(&segments[0].name, path.span);
+        }
+
+        // Handle self:: and super:: prefixes.
+        let first = &segments[0].name;
+        if first == "self" || first == "super" {
+            // For self:: and super::, fall back to identifier lookup on the
+            // last segment within the current scope. Full module tree traversal
+            // for self/super requires a module tree reference (M7 Layer 3+).
+            if first == "super" {
+                // Check we're not at root — but without a module tree we can't
+                // truly validate this. For now, just resolve the last segment.
+            }
+            let last = &segments[segments.len() - 1].name;
+            return self.check_identifier(last, path.span);
+        }
+
+        // Multi-segment qualified path: walk module chain.
+        self.resolve_qualified_path(segments, path.span)
+    }
+
+    /// Resolve a qualified path like `crypto::verify` or `a::b::c`.
+    /// Walks module symbols for all but the last segment, then looks up
+    /// the final name and checks visibility.
+    fn resolve_qualified_path(&mut self, segments: &[Ident], span: Span) -> TypeId {
+        // Start from the first segment as a module in the current scope.
+        let first_name = &segments[0].name;
+        let first_sym = match self.ctx.lookup(first_name) {
+            Some(sym) => sym.clone(),
+            None => {
+                self.error(format!("module `{}` not found", first_name), span);
+                return self.error_type();
+            }
+        };
+
+        // Walk through intermediate module segments.
+        let mut current_sym = first_sym;
+        let mut current_mod_name = first_name.clone();
+        for segment in &segments[1..segments.len() - 1] {
+            match &current_sym {
+                Symbol::Module { symbols, visibility_map, .. } => {
+                    let name = &segment.name;
+                    let vis = visibility_map.get(name).copied().unwrap_or(Visibility::Private);
+                    if vis == Visibility::Private {
+                        self.error(
+                            format!(
+                                "module `{}` is private to module `{}` — add `pub` to make it accessible",
+                                name, current_mod_name,
+                            ),
+                            span,
+                        );
+                        return self.error_type();
+                    }
+                    match symbols.get(name) {
+                        Some(sym) => {
+                            current_sym = sym.clone();
+                            current_mod_name = name.clone();
+                        }
+                        None => {
+                            self.error(
+                                format!("module `{}` not found in module `{}`", name, current_mod_name),
+                                span,
+                            );
+                            return self.error_type();
+                        }
+                    }
+                }
+                _ => {
+                    self.error(
+                        format!("`{}` is not a module", current_mod_name),
+                        span,
+                    );
+                    return self.error_type();
+                }
+            }
+        }
+
+        // Resolve the final segment.
+        let target_name = &segments[segments.len() - 1].name;
+        match &current_sym {
+            Symbol::Module { symbols, visibility_map, .. } => {
+                match symbols.get(target_name) {
+                    Some(sym) => {
+                        let vis = visibility_map.get(target_name).copied().unwrap_or(Visibility::Private);
+                        if vis == Visibility::Private {
+                            self.error(
+                                format!(
+                                    "`{}` is private to module `{}` — add `pub` to make it accessible",
+                                    target_name, current_mod_name,
+                                ),
+                                span,
+                            );
+                            return self.error_type();
+                        }
+                        self.symbol_to_type(sym, target_name, span)
+                    }
+                    None => {
+                        self.error(
+                            format!("`{}` not found in module `{}`", target_name, current_mod_name),
+                            span,
+                        );
+                        self.error_type()
+                    }
+                }
+            }
+            _ => {
+                self.error(
+                    format!("`{}` is not a module", current_mod_name),
+                    span,
+                );
+                self.error_type()
+            }
+        }
+    }
+
+    /// Convert a Symbol to a TypeId (for use in expression type checking).
+    fn symbol_to_type(&mut self, sym: &Symbol, name: &str, span: Span) -> TypeId {
+        match sym {
+            Symbol::Variable { ty, .. } => *ty,
+            Symbol::Function { return_type, params, effects, .. } => {
+                let params = params.clone();
+                let return_type = *return_type;
+                let effects = effects.clone();
+                self.intern(Type::Function { params, return_type, effects })
+            }
+            Symbol::Type { .. } => self.error_type(),
+            Symbol::Capability { ty, .. } | Symbol::Effect { ty, .. } => *ty,
+            Symbol::Module { .. } => {
+                self.error(
+                    format!("`{}` is a module, not a value", name),
+                    span,
+                );
+                self.error_type()
+            }
+        }
+    }
+
+    /// Look up function extras (required_capabilities, param_refinements)
+    /// from a qualified path through module symbols.
+    fn lookup_fn_extras_from_path(
+        &self,
+        segments: &[Ident],
+    ) -> (Vec<String>, Vec<Vec<RefinementPredicate>>) {
+        if segments.len() < 2 {
+            return (Vec::new(), Vec::new());
+        }
+
+        // Walk through module chain.
+        let first_name = &segments[0].name;
+        let mut current = match self.ctx.lookup(first_name) {
+            Some(sym) => sym.clone(),
+            None => return (Vec::new(), Vec::new()),
+        };
+
+        for segment in &segments[1..segments.len() - 1] {
+            match &current {
+                Symbol::Module { symbols, .. } => {
+                    match symbols.get(&segment.name) {
+                        Some(sym) => current = sym.clone(),
+                        None => return (Vec::new(), Vec::new()),
+                    }
+                }
+                _ => return (Vec::new(), Vec::new()),
+            }
+        }
+
+        // Look up the final segment as a function.
+        let target_name = &segments[segments.len() - 1].name;
+        match &current {
+            Symbol::Module { symbols, .. } => {
+                if let Some(Symbol::Function { required_capabilities, param_refinements, .. }) = symbols.get(target_name) {
+                    (required_capabilities.clone(), param_refinements.clone())
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            }
+            _ => (Vec::new(), Vec::new()),
+        }
     }
 
     // ── Binary operators ─────────────────────────────────────────────
@@ -805,7 +992,19 @@ impl<'ctx> TypeChecker<'ctx> {
         // without capability/refinement info).
         #[allow(unused_variables)]
         let (required_caps, callee_param_refinements): (Vec<String>, Vec<Vec<RefinementPredicate>>) =
-            if let Some(ref name) = callee_name {
+            if let ExprKind::Path(path) = &callee.kind {
+                if path.segments.len() > 1 {
+                    self.lookup_fn_extras_from_path(&path.segments)
+                } else if let Some(ref name) = callee_name {
+                    if let Some(Symbol::Function { required_capabilities, param_refinements, .. }) = self.ctx.lookup(name) {
+                        (required_capabilities.clone(), param_refinements.clone())
+                    } else {
+                        (Vec::new(), Vec::new())
+                    }
+                } else {
+                    (Vec::new(), Vec::new())
+                }
+            } else if let Some(ref name) = callee_name {
                 if let Some(Symbol::Function { required_capabilities, param_refinements, .. }) = self.ctx.lookup(name) {
                     (required_capabilities.clone(), param_refinements.clone())
                 } else {
@@ -1200,7 +1399,8 @@ impl<'ctx> TypeChecker<'ctx> {
             ItemKind::Const(decl) => self.register_const(decl),
             ItemKind::Policy(decl) => self.register_policy(decl),
             ItemKind::ImplBlock(_) => {} // impl blocks checked in pass 2
-            ItemKind::Module(_) | ItemKind::Use(_) => {} // deferred to M7
+            ItemKind::Module(decl) => self.register_module(decl),
+            ItemKind::Use(decl) => self.register_use(decl),
         }
     }
 
@@ -1401,6 +1601,324 @@ impl<'ctx> TypeChecker<'ctx> {
         // Rules are checked in pass 2.
     }
 
+    // ── Module registration ─────────────────────────────────────────
+
+    fn register_module(&mut self, decl: &ModuleDecl) {
+        if let Some(items) = &decl.items {
+            // Inline module: create a child TypeContext scope, register all
+            // items inside it, then snapshot the symbols into a Symbol::Module.
+            self.ctx.enter_scope();
+
+            // Pass 1: register all declarations inside the module.
+            for item in items {
+                self.register_item(item);
+            }
+
+            // Pass 2: check all bodies inside the module scope.
+            for item in items {
+                self.check_item(item);
+            }
+
+            // Snapshot the module's symbols and visibility before exiting.
+            let module_symbols = self.snapshot_current_scope();
+            let visibility_map = Self::build_visibility_map(items);
+
+            self.ctx.exit_scope();
+
+            // Register the module in the parent scope.
+            let result = self.ctx.define(
+                &decl.name.name,
+                Symbol::Module {
+                    symbols: module_symbols,
+                    visibility_map,
+                    span: decl.name.span,
+                },
+                decl.name.span,
+            );
+            if let Err(e) = result {
+                self.error(e.message, e.span);
+            }
+        } else {
+            // File-based module (mod name;): register as empty placeholder.
+            // File loading is deferred to M7 Layer 3.
+            let result = self.ctx.define(
+                &decl.name.name,
+                Symbol::Module {
+                    symbols: HashMap::new(),
+                    visibility_map: HashMap::new(),
+                    span: decl.name.span,
+                },
+                decl.name.span,
+            );
+            if let Err(e) = result {
+                self.error(e.message, e.span);
+            }
+        }
+    }
+
+    /// Snapshot all symbols in the current (innermost) scope.
+    fn snapshot_current_scope(&self) -> HashMap<String, Symbol> {
+        let mut result = HashMap::new();
+        // Walk all known names in the current scope by checking lookup_current.
+        // Since Scope is private, we use the define/lookup API. We collect
+        // by re-reading from the scope stack.
+        // NOTE: We access scopes directly through the public ScopeStack.
+        // The current scope is the last in the stack.
+        if let Some(scope) = self.ctx.scopes.current_scope_bindings() {
+            result = scope.clone();
+        }
+        result
+    }
+
+    /// Build a visibility map from a list of items.
+    fn build_visibility_map(items: &[Item]) -> HashMap<String, Visibility> {
+        use std::collections::HashMap;
+        let mut vis_map = HashMap::new();
+        for item in items {
+            match &item.kind {
+                ItemKind::Function(decl) => {
+                    let v = if decl.signature.is_pub { Visibility::Public } else { Visibility::Private };
+                    vis_map.insert(decl.signature.name.name.clone(), v);
+                }
+                ItemKind::Policy(decl) => {
+                    vis_map.insert(decl.name.name.clone(), decl.visibility);
+                }
+                ItemKind::StructDef(def) => {
+                    vis_map.insert(def.name.name.clone(), def.visibility);
+                }
+                ItemKind::EnumDef(def) => {
+                    vis_map.insert(def.name.name.clone(), def.visibility);
+                }
+                ItemKind::TypeAlias(decl) => {
+                    vis_map.insert(decl.name.name.clone(), decl.visibility);
+                }
+                ItemKind::TypeConstraint(decl) => {
+                    vis_map.insert(decl.name.name.clone(), decl.visibility);
+                }
+                ItemKind::TraitDef(def) => {
+                    // Traits don't have a visibility field on TraitDef; check is_pub on each fn
+                    // For now, treat traits as public if they exist in module.
+                    vis_map.insert(def.name.name.clone(), Visibility::Public);
+                }
+                ItemKind::Capability(decl) => {
+                    vis_map.insert(decl.name.name.clone(), Visibility::Public);
+                }
+                ItemKind::Effect(decl) => {
+                    vis_map.insert(decl.name.name.clone(), Visibility::Public);
+                }
+                ItemKind::Const(decl) => {
+                    // Consts are private by default.
+                    vis_map.insert(decl.name.name.clone(), Visibility::Private);
+                }
+                ItemKind::Module(decl) => {
+                    vis_map.insert(decl.name.name.clone(), decl.visibility);
+                }
+                ItemKind::Use(decl) => {
+                    // pub use re-exports are handled during use registration.
+                    if decl.visibility == Visibility::Public {
+                        let name = decl.alias.as_ref()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| {
+                                decl.path.segments.last()
+                                    .map(|s| s.name.clone())
+                                    .unwrap_or_default()
+                            });
+                        vis_map.insert(name, Visibility::Public);
+                    }
+                }
+                ItemKind::ImplBlock(_) => {} // impl blocks don't introduce names
+            }
+        }
+        vis_map
+    }
+
+    fn register_use(&mut self, decl: &UseDecl) {
+        let segments = &decl.path.segments;
+        if segments.is_empty() {
+            return;
+        }
+
+        match decl.kind {
+            UseKind::Single => {
+                // use crypto::verify; or use crypto::verify as v;
+                // Resolve the path to a symbol in the target module.
+                match self.resolve_use_path(segments, decl.span) {
+                    Some((sym, vis)) => {
+                        if vis == Visibility::Private {
+                            let target_name = segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                            let module_name = if segments.len() >= 2 {
+                                segments[segments.len() - 2].name.as_str()
+                            } else {
+                                "<root>"
+                            };
+                            self.error(
+                                format!(
+                                    "`{}` is private to module `{}` — add `pub` to make it accessible",
+                                    target_name, module_name,
+                                ),
+                                decl.span,
+                            );
+                            return;
+                        }
+                        let import_name = decl.alias.as_ref()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| {
+                                segments.last().map(|s| s.name.clone()).unwrap_or_default()
+                            });
+                        let result = self.ctx.define(&import_name, sym, decl.span);
+                        if let Err(e) = result {
+                            self.error(e.message, e.span);
+                        }
+                    }
+                    None => {} // error already reported by resolve_use_path
+                }
+            }
+            UseKind::Glob => {
+                // use crypto::*; — import all public symbols from the module.
+                let module_sym = self.resolve_module_path(segments, decl.span);
+                if let Some(Symbol::Module { symbols, visibility_map, .. }) = module_sym {
+                    let symbols = symbols.clone();
+                    let visibility_map = visibility_map.clone();
+                    for (name, sym) in &symbols {
+                        let vis = visibility_map.get(name).copied().unwrap_or(Visibility::Private);
+                        if vis == Visibility::Public {
+                            // Check for conflicts with existing names.
+                            if self.ctx.scopes.lookup_current(name).is_some() {
+                                let mod_name = segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                                self.error(
+                                    format!(
+                                        "name `{}` already exists in this scope (imported via `use {}::*`)",
+                                        name, mod_name,
+                                    ),
+                                    decl.span,
+                                );
+                                continue;
+                            }
+                            let result = self.ctx.define(name, sym.clone(), decl.span);
+                            if let Err(e) = result {
+                                self.error(e.message, e.span);
+                            }
+                        }
+                        // Private symbols silently skipped.
+                    }
+                }
+            }
+            UseKind::Module => {
+                // use crypto; — the module is already registered by register_module.
+                // Nothing additional to do; the module name is accessible as a prefix.
+            }
+        }
+    }
+
+    /// Resolve a use path to the target symbol and its visibility.
+    /// For `use crypto::verify`, segments = ["crypto", "verify"].
+    /// Walks module segments, then looks up the final name.
+    fn resolve_use_path(&mut self, segments: &[Ident], span: Span) -> Option<(Symbol, Visibility)> {
+        if segments.len() == 1 {
+            // Single-segment use: look up directly in current scope.
+            let name = &segments[0].name;
+            match self.ctx.lookup(name) {
+                Some(sym) => Some((sym.clone(), Visibility::Public)),
+                None => {
+                    self.error(format!("undefined name `{}`", name), span);
+                    None
+                }
+            }
+        } else {
+            // Multi-segment: walk modules for all but the last segment.
+            let module_segments = &segments[..segments.len() - 1];
+            let target_name = &segments[segments.len() - 1].name;
+
+            let module_sym = self.resolve_module_path(module_segments, span)?;
+            match module_sym {
+                Symbol::Module { symbols, visibility_map, .. } => {
+                    match symbols.get(target_name) {
+                        Some(sym) => {
+                            let vis = visibility_map.get(target_name)
+                                .copied()
+                                .unwrap_or(Visibility::Private);
+                            Some((sym.clone(), vis))
+                        }
+                        None => {
+                            let mod_name = module_segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                            self.error(
+                                format!("`{}` not found in module `{}`", target_name, mod_name),
+                                span,
+                            );
+                            None
+                        }
+                    }
+                }
+                _ => {
+                    let mod_name = module_segments.last().map(|s| s.name.as_str()).unwrap_or("");
+                    self.error(
+                        format!("`{}` is not a module", mod_name),
+                        span,
+                    );
+                    None
+                }
+            }
+        }
+    }
+
+    /// Resolve a path of module segments to the final Symbol::Module.
+    /// For path ["a", "b"], resolves a::b as a module.
+    fn resolve_module_path(&mut self, segments: &[Ident], span: Span) -> Option<Symbol> {
+        if segments.is_empty() {
+            return None;
+        }
+
+        let first = &segments[0].name;
+        let mut current = match self.ctx.lookup(first) {
+            Some(sym) => sym.clone(),
+            None => {
+                self.error(format!("module `{}` not found", first), span);
+                return None;
+            }
+        };
+
+        for segment in &segments[1..] {
+            match &current {
+                Symbol::Module { symbols, visibility_map, .. } => {
+                    let name = &segment.name;
+                    match symbols.get(name) {
+                        Some(sym) => {
+                            // Check visibility for intermediate modules.
+                            let vis = visibility_map.get(name).copied().unwrap_or(Visibility::Private);
+                            if vis == Visibility::Private {
+                                self.error(
+                                    format!(
+                                        "module `{}` is private — add `pub` to make it accessible",
+                                        name,
+                                    ),
+                                    span,
+                                );
+                                return None;
+                            }
+                            current = sym.clone();
+                        }
+                        None => {
+                            self.error(
+                                format!("module `{}` not found in `{}`", name, segments[0].name),
+                                span,
+                            );
+                            return None;
+                        }
+                    }
+                }
+                _ => {
+                    self.error(
+                        format!("`{}` is not a module", first),
+                        span,
+                    );
+                    return None;
+                }
+            }
+        }
+
+        Some(current)
+    }
+
     // ── Pass 2: body checking ───────────────────────────────────────
 
     fn check_item(&mut self, item: &Item) {
@@ -1418,7 +1936,7 @@ impl<'ctx> TypeChecker<'ctx> {
             | ItemKind::Capability(_)
             | ItemKind::Effect(_)
             | ItemKind::Module(_)
-            | ItemKind::Use(_) => {}
+            | ItemKind::Use(_) => {} // registration handles everything
         }
     }
 

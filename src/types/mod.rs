@@ -17,3 +17,6 @@ mod capability_tests;
 
 #[cfg(test)]
 mod program_tests;
+
+#[cfg(test)]
+mod module_tests;

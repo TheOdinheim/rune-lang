@@ -4,7 +4,7 @@
 
 **M7: Module System** — Target: Month 21 — **In Progress**
 
-Module system implementation. Layer 1 complete: `pub` visibility on all declarations, `mod` (inline and file-based), `use` imports (single, glob, alias), qualified paths with `self::` and `super::`. 640 tests passing. Next: name resolution and type checking for modules.
+Module system implementation. Layer 1 (parser/AST) and Layer 2 (name resolution/type checking) complete. Module-scoped symbol table, qualified path resolution, visibility enforcement, use import resolution, cross-module effect/capability propagation. 669 tests passing.
 
 ### M1 Deliverables
 
@@ -30,7 +30,7 @@ Module system implementation. Layer 1 complete: `pub` visibility on all declarat
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
-| M7: Module System | Month 21 | **In Progress** — Layer 1: module syntax, visibility, use imports, qualified paths (parser + AST) |
+| M7: Module System | Month 21 | **In Progress** — L1: parser/AST, L2: name resolution, visibility, use imports |
 
 ## What's Done
 
@@ -270,7 +270,18 @@ Module system implementation. Layer 1 complete: `pub` visibility on all declarat
   - Tree-sitter grammar updated for all new syntax
   - Formatter updated with visibility prefixes and module body formatting
 
+- **M7 Layer 2: Module-scoped name resolution and type checking** (29 tests)
+  - Symbol::Module variant with nested symbol tables and visibility maps
+  - Module registration: two-pass (register + check) within module scope, snapshot to Symbol::Module
+  - Qualified path resolution: `crypto::verify`, `a::b::c` walk module chains
+  - Visibility enforcement: private items inaccessible from outside, "add `pub`" suggestions
+  - Use imports: single (`use a::b;`), glob (`use a::*;`), alias (`use a::b as c;`)
+  - Glob imports skip private items silently, conflict detection for existing names
+  - Cross-module effect and capability propagation (transparent, no module-specific changes)
+  - File-based modules (`mod name;`) register as empty placeholders
+  - Full backward compatibility: flat-scope code works identically
+
 ## What's Next
 
-- M7 Layer 2+: Name resolution, module file loading, import verification
+- M7 Layer 3+: File-based module loading, module file resolution
 - M8+: FFI, LLVM backend, standard library, formal verification

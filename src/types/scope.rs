@@ -1,4 +1,4 @@
-use crate::ast::nodes::RefinementPredicate;
+use crate::ast::nodes::{RefinementPredicate, Visibility};
 use crate::lexer::token::Span;
 use crate::types::ty::TypeId;
 use std::collections::HashMap;
@@ -43,6 +43,12 @@ pub enum Symbol {
         ty: TypeId,
         span: Span,
     },
+    /// A module scope containing its own symbols and visibility info.
+    Module {
+        symbols: HashMap<String, Symbol>,
+        visibility_map: HashMap<String, Visibility>,
+        span: Span,
+    },
 }
 
 impl Symbol {
@@ -53,7 +59,8 @@ impl Symbol {
             | Symbol::Function { span, .. }
             | Symbol::Type { span, .. }
             | Symbol::Capability { span, .. }
-            | Symbol::Effect { span, .. } => *span,
+            | Symbol::Effect { span, .. }
+            | Symbol::Module { span, .. } => *span,
         }
     }
 }
@@ -176,6 +183,12 @@ impl ScopeStack {
     /// Look up a name only in the current (innermost) scope.
     pub fn lookup_current(&self, name: &str) -> Option<&Symbol> {
         self.scopes.last().and_then(|s| s.bindings.get(name))
+    }
+
+    /// Return a clone of all bindings in the current (innermost) scope.
+    /// Used by module registration to snapshot a module's symbol table.
+    pub fn current_scope_bindings(&self) -> Option<HashMap<String, Symbol>> {
+        self.scopes.last().map(|s| s.bindings.clone())
     }
 }
 
