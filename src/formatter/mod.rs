@@ -204,6 +204,9 @@ impl Formatter {
 
     fn format_policy(&mut self, policy: &PolicyDecl) {
         self.indent();
+        if policy.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push(&format!("policy {} {{", policy.name.name));
         self.newline();
         self.indent_level += 1;
@@ -291,6 +294,9 @@ impl Formatter {
 
     fn format_type_alias(&mut self, alias: &TypeAliasDecl) {
         self.indent();
+        if alias.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push(&format!("type {} = ", alias.name.name));
         self.format_type_expr(&alias.ty);
         self.push(";");
@@ -299,6 +305,9 @@ impl Formatter {
 
     fn format_type_constraint(&mut self, tc: &TypeConstraintDecl) {
         self.indent();
+        if tc.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push(&format!("type {} = ", tc.name.name));
         self.format_type_expr(&tc.base_type);
         self.push(" where {");
@@ -318,6 +327,9 @@ impl Formatter {
 
     fn format_struct(&mut self, s: &StructDef) {
         self.indent();
+        if s.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push(&format!("struct {}", s.name.name));
         self.format_generic_params(&s.generic_params);
         self.push(" {");
@@ -342,6 +354,9 @@ impl Formatter {
 
     fn format_enum(&mut self, e: &EnumDef) {
         self.indent();
+        if e.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push(&format!("enum {}", e.name.name));
         self.format_generic_params(&e.generic_params);
         self.push(" {");
@@ -496,14 +511,39 @@ impl Formatter {
 
     fn format_module(&mut self, m: &ModuleDecl) {
         self.indent();
-        self.push(&format!("mod {};", m.name.name));
-        self.newline();
+        if m.visibility == Visibility::Public {
+            self.push("pub ");
+        }
+        if let Some(items) = &m.items {
+            self.push(&format!("mod {} {{", m.name.name));
+            self.newline();
+            self.indent_level += 1;
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    self.newline();
+                }
+                self.emit_comments_before(item.span.line);
+                self.format_item(item);
+            }
+            self.indent_level -= 1;
+            self.push_line("}");
+        } else {
+            self.push(&format!("mod {};", m.name.name));
+            self.newline();
+        }
     }
 
     fn format_use(&mut self, u: &UseDecl) {
         self.indent();
+        if u.visibility == Visibility::Public {
+            self.push("pub ");
+        }
         self.push("use ");
         self.format_path(&u.path);
+        match u.kind {
+            UseKind::Glob => self.push("::*"),
+            UseKind::Single | UseKind::Module => {}
+        }
         if let Some(alias) = &u.alias {
             self.push(&format!(" as {}", alias.name));
         }

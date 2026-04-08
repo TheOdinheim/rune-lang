@@ -253,4 +253,88 @@ policy eu_ai_act{rule risk_assessment(risk_score:Int){if risk_score>90{quarantin
             "fn example() -> Int {\n    let x: Int = 42;\n    x\n}\n",
         );
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M7 Layer 1: Module, visibility, use formatting
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_module_inline_formatting() {
+        assert_formats_to(
+            "mod crypto{fn verify()->Bool{true}}",
+            "mod crypto {\n    fn verify() -> Bool {\n        true\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn test_module_file_formatting() {
+        assert_formats_to(
+            "mod crypto;",
+            "mod crypto;\n",
+        );
+    }
+
+    #[test]
+    fn test_pub_visibility_formatting() {
+        assert_formats_to(
+            "pub fn verify() -> Bool { true }",
+            "pub fn verify() -> Bool {\n    true\n}\n",
+        );
+    }
+
+    #[test]
+    fn test_pub_policy_formatting() {
+        assert_formats_to(
+            "pub policy access{rule allow(){permit}}",
+            "pub policy access {\n    rule allow() {\n        permit\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn test_use_single_formatting() {
+        assert_formats_to(
+            "use crypto::verify;",
+            "use crypto::verify;\n",
+        );
+    }
+
+    #[test]
+    fn test_use_glob_formatting() {
+        assert_formats_to(
+            "use crypto::*;",
+            "use crypto::*;\n",
+        );
+    }
+
+    #[test]
+    fn test_use_alias_formatting() {
+        assert_formats_to(
+            "use crypto::verify as v;",
+            "use crypto::verify as v;\n",
+        );
+    }
+
+    #[test]
+    fn test_pub_use_formatting() {
+        assert_formats_to(
+            "pub use crypto::verify;",
+            "pub use crypto::verify;\n",
+        );
+    }
+
+    #[test]
+    fn test_nested_module_formatting() {
+        assert_formats_to(
+            "mod a { mod b { fn inner() -> Int { 1 } } }",
+            "mod a {\n    mod b {\n        fn inner() -> Int {\n            1\n        }\n    }\n}\n",
+        );
+    }
+
+    #[test]
+    fn test_pub_module_formatting() {
+        assert_formats_to(
+            "pub mod crypto { fn verify() -> Bool { true } }",
+            "pub mod crypto {\n    fn verify() -> Bool {\n        true\n    }\n}\n",
+        );
+    }
 }

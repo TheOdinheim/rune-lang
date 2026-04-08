@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M6: Toolchain MVP** — Target: Month 18 — **COMPLETE**
+**M7: Module System** — Target: Month 21 — **In Progress**
 
-Toolchain MVP complete. Tree-sitter grammar, VS Code extension, CLI with clap subcommands, AST-based formatter, LSP server, package manifest, project scaffolding, documentation generator, and browser playground. Feature-gated compilation enables Bronze-level RUNE in the browser via WebAssembly. 606 tests passing.
+Module system implementation. Layer 1 complete: `pub` visibility on all declarations, `mod` (inline and file-based), `use` imports (single, glob, alias), qualified paths with `self::` and `super::`. 640 tests passing. Next: name resolution and type checking for modules.
 
 ### M1 Deliverables
 
@@ -30,6 +30,7 @@ Toolchain MVP complete. Tree-sitter grammar, VS Code extension, CLI with clap su
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
+| M7: Module System | Month 21 | **In Progress** — Layer 1: module syntax, visibility, use imports, qualified paths (parser + AST) |
 
 ## What's Done
 
@@ -260,4 +261,16 @@ Toolchain MVP complete. Tree-sitter grammar, VS Code extension, CLI with clap su
 - ~~M6 Layer 3: LSP server~~ **Done** (27 unit tests)
 - ~~M6 Layer 4: Package manifest, project scaffolding, docgen~~ **Done** (24 unit + 3 CLI tests)
 - ~~M6 Layer 5: Online playground and feature-gated compilation~~ **Done** (6 unit tests)
-- M7+: Module system, FFI, LLVM backend, standard library, formal verification
+- **M7 Layer 1: Module syntax, visibility, use imports, qualified paths** (23 parser + 10 formatter tests)
+  - Visibility enum (Public/Private) on PolicyDecl, StructDef, EnumDef, TypeAliasDecl, TypeConstraintDecl, ModuleDecl, UseDecl
+  - Module declarations: inline `mod name { ... }` and file-based `mod name;`
+  - Use imports: single (`use a::b;`), glob (`use a::*;`), alias (`use a::b as c;`), module (`use a;`)
+  - Qualified paths: `self::helper`, `super::utils::hash`, `a::b::c::d`
+  - Super keyword added to lexer
+  - Tree-sitter grammar updated for all new syntax
+  - Formatter updated with visibility prefixes and module body formatting
+
+## What's Next
+
+- M7 Layer 2+: Name resolution, module file loading, import verification
+- M8+: FFI, LLVM backend, standard library, formal verification

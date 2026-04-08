@@ -202,10 +202,12 @@ impl Parser {
         let is_pub = self.eat(&TokenKind::Pub);
         let start_span = if is_pub { self.previous_span() } else { self.current_span() };
 
+        let visibility = if is_pub { Visibility::Public } else { Visibility::Private };
+
         let kind = match self.current_kind().clone() {
             TokenKind::Policy => {
                 self.advance();
-                ItemKind::Policy(self.parse_policy_decl(start_span)?)
+                ItemKind::Policy(self.parse_policy_decl(is_pub, start_span)?)
             }
             TokenKind::Fn => {
                 self.advance();
@@ -213,15 +215,15 @@ impl Parser {
             }
             TokenKind::Struct => {
                 self.advance();
-                ItemKind::StructDef(self.parse_struct_def(start_span)?)
+                ItemKind::StructDef(self.parse_struct_def(visibility, start_span)?)
             }
             TokenKind::Enum => {
                 self.advance();
-                ItemKind::EnumDef(self.parse_enum_def(start_span)?)
+                ItemKind::EnumDef(self.parse_enum_def(visibility, start_span)?)
             }
             TokenKind::Type => {
                 self.advance();
-                self.parse_type_decl(start_span)?
+                self.parse_type_decl(visibility, start_span)?
             }
             TokenKind::Impl => {
                 self.advance();
@@ -241,11 +243,11 @@ impl Parser {
             }
             TokenKind::Mod => {
                 self.advance();
-                ItemKind::Module(self.parse_module_decl(start_span)?)
+                ItemKind::Module(self.parse_module_decl(visibility, start_span)?)
             }
             TokenKind::Use => {
                 self.advance();
-                ItemKind::Use(self.parse_use_decl(start_span)?)
+                ItemKind::Use(self.parse_use_decl(visibility, start_span)?)
             }
             TokenKind::Const => {
                 self.advance();
@@ -260,17 +262,35 @@ impl Parser {
 
     // ── Policy declarations ──────────────────────────────────────────
 
-    fn parse_policy_decl(&mut self, start_span: Span) -> Result<PolicyDecl, ParseError> {
+    fn parse_policy_decl(&mut self, is_pub: bool, start_span: Span) -> Result<PolicyDecl, ParseError> {
         let name = self.expect_identifier()?;
         self.expect(&TokenKind::LeftBrace)?;
 
         let mut rules = Vec::new();
         while !self.check(&TokenKind::RightBrace) && !self.at_eof() {
+            // `pub` before `rule` is a parse error.
+            if self.check(&TokenKind::Pub) {
+                let pub_span = self.current_span();
+                self.advance();
+                if self.check(&TokenKind::Rule) {
+                    self.errors.push(ParseError {
+                        message: "rules are always public within their policy — remove `pub`".to_string(),
+                        span: pub_span,
+                    });
+                    // Continue parsing the rule.
+                } else {
+                    return Err(ParseError {
+                        message: "expected `rule` inside policy block".to_string(),
+                        span: self.current_span(),
+                    });
+                }
+            }
             rules.push(self.parse_rule_def()?);
         }
 
         let end = self.expect(&TokenKind::RightBrace)?;
         Ok(PolicyDecl {
+            visibility: if is_pub { Visibility::Public } else { Visibility::Private },
             name,
             rules,
             span: self.merge_spans(start_span, end),
@@ -428,7 +448,7 @@ impl Parser {
 
     // ── Struct definitions ───────────────────────────────────────────
 
-    fn parse_struct_def(&mut self, start_span: Span) -> Result<StructDef, ParseError> {
+    fn parse_struct_def(&mut self, visibility: Visibility, start_span: Span) -> Result<StructDef, ParseError> {
         let name = self.expect_identifier()?;
         let generic_params = self.parse_optional_generic_params()?;
 
@@ -443,6 +463,7 @@ impl Parser {
         let end = self.expect(&TokenKind::RightBrace)?;
 
         Ok(StructDef {
+            visibility,
             name,
             generic_params,
             fields,
@@ -467,7 +488,7 @@ impl Parser {
 
     // ── Enum definitions ─────────────────────────────────────────────
 
-    fn parse_enum_def(&mut self, start_span: Span) -> Result<EnumDef, ParseError> {
+    fn parse_enum_def(&mut self, visibility: Visibility, start_span: Span) -> Result<EnumDef, ParseError> {
         let name = self.expect_identifier()?;
         let generic_params = self.parse_optional_generic_params()?;
 
@@ -482,6 +503,7 @@ impl Parser {
         let end = self.expect(&TokenKind::RightBrace)?;
 
         Ok(EnumDef {
+            visibility,
             name,
             generic_params,
             variants,
@@ -529,13 +551,14 @@ impl Parser {
 
     // ── Type alias ───────────────────────────────────────────────────
 
-    fn parse_type_alias(&mut self, start_span: Span) -> Result<TypeAliasDecl, ParseError> {
+    fn parse_type_alias(&mut self, visibility: Visibility, start_span: Span) -> Result<TypeAliasDecl, ParseError> {
         let name = self.expect_identifier()?;
         self.expect(&TokenKind::Equal)?;
         let ty = self.parse_type_expr()?;
         self.expect_semicolon()?;
         let end = self.previous_span();
         Ok(TypeAliasDecl {
+            visibility,
             name,
             ty,
             span: self.merge_spans(start_span, end),
@@ -544,7 +567,7 @@ impl Parser {
 
     /// Parse `type Name = Type;` or `type Name = Type where { ... };`.
     /// Returns TypeAlias for plain aliases, TypeConstraint for refined types.
-    fn parse_type_decl(&mut self, start_span: Span) -> Result<ItemKind, ParseError> {
+    fn parse_type_decl(&mut self, visibility: Visibility, start_span: Span) -> Result<ItemKind, ParseError> {
         let name = self.expect_identifier()?;
         self.expect(&TokenKind::Equal)?;
         let ty = self.parse_type_expr()?;
@@ -555,13 +578,14 @@ impl Parser {
         // If the type has a where clause, produce a TypeConstraint.
         if let TypeExprKind::Refined { base, where_clause } = ty.kind {
             Ok(ItemKind::TypeConstraint(TypeConstraintDecl {
+                visibility,
                 name,
                 base_type: *base,
                 where_clause,
                 span,
             }))
         } else {
-            Ok(ItemKind::TypeAlias(TypeAliasDecl { name, ty, span }))
+            Ok(ItemKind::TypeAlias(TypeAliasDecl { visibility, name, ty, span }))
         }
     }
 
@@ -644,7 +668,7 @@ impl Parser {
             }
             TokenKind::Type => {
                 self.advance();
-                let alias = self.parse_type_alias(start_span)?;
+                let alias = self.parse_type_alias(Visibility::Private, start_span)?;
                 let end = self.previous_span();
                 Ok(TraitItem {
                     kind: TraitItemKind::TypeAlias(alias),
@@ -734,7 +758,7 @@ impl Parser {
 
     // ── Module declarations ──────────────────────────────────────────
 
-    fn parse_module_decl(&mut self, start_span: Span) -> Result<ModuleDecl, ParseError> {
+    fn parse_module_decl(&mut self, visibility: Visibility, start_span: Span) -> Result<ModuleDecl, ParseError> {
         let name = self.expect_identifier()?;
 
         let items = if self.check(&TokenKind::LeftBrace) {
@@ -752,6 +776,7 @@ impl Parser {
 
         let end = self.previous_span();
         Ok(ModuleDecl {
+            visibility,
             name,
             items,
             span: self.merge_spans(start_span, end),
@@ -760,17 +785,73 @@ impl Parser {
 
     // ── Use declarations ─────────────────────────────────────────────
 
-    fn parse_use_decl(&mut self, start_span: Span) -> Result<UseDecl, ParseError> {
+    fn parse_use_decl(&mut self, visibility: Visibility, start_span: Span) -> Result<UseDecl, ParseError> {
         let path = self.parse_path()?;
-        let alias = if self.eat(&TokenKind::As) {
-            Some(self.expect_identifier()?)
+
+        // Check for glob: use path::*;
+        let (kind, alias) = if self.check(&TokenKind::ColonColon) {
+            self.advance();
+            if self.eat(&TokenKind::Star) {
+                (UseKind::Glob, None)
+            } else {
+                // Another path segment — extend the path.
+                let extra = self.parse_path_segment()?;
+                let mut segments = path.segments.clone();
+                segments.push(extra);
+                while self.check(&TokenKind::ColonColon) {
+                    self.advance();
+                    if self.eat(&TokenKind::Star) {
+                        let end_span = self.previous_span();
+                        let extended_path = Path {
+                            segments,
+                            span: self.merge_spans(start_span, end_span),
+                        };
+                        self.expect_semicolon()?;
+                        let end = self.previous_span();
+                        return Ok(UseDecl {
+                            visibility,
+                            path: extended_path,
+                            kind: UseKind::Glob,
+                            alias: None,
+                            span: self.merge_spans(start_span, end),
+                        });
+                    }
+                    segments.push(self.parse_path_segment()?);
+                }
+                let end_span = self.previous_span();
+                let extended_path = Path {
+                    segments,
+                    span: self.merge_spans(start_span, end_span),
+                };
+                let alias = if self.eat(&TokenKind::As) {
+                    Some(self.expect_identifier()?)
+                } else {
+                    None
+                };
+                self.expect_semicolon()?;
+                let end = self.previous_span();
+                return Ok(UseDecl {
+                    visibility,
+                    path: extended_path,
+                    kind: UseKind::Single,
+                    alias,
+                    span: self.merge_spans(start_span, end),
+                });
+            }
+        } else if self.eat(&TokenKind::As) {
+            (UseKind::Single, Some(self.expect_identifier()?))
+        } else if path.segments.len() == 1 {
+            (UseKind::Module, None)
         } else {
-            None
+            (UseKind::Single, None)
         };
+
         self.expect_semicolon()?;
         let end = self.previous_span();
         Ok(UseDecl {
+            visibility,
             path,
+            kind,
             alias,
             span: self.merge_spans(start_span, end),
         })
@@ -832,12 +913,18 @@ impl Parser {
 
     pub(crate) fn parse_path(&mut self) -> Result<Path, ParseError> {
         let start_span = self.current_span();
-        let first = self.expect_identifier()?;
+        let first = self.parse_path_segment()?;
         let mut segments = vec![first];
 
         while self.check(&TokenKind::ColonColon) {
+            // Don't consume :: if followed by * (glob import handled by caller).
+            if self.pos + 1 < self.tokens.len()
+                && matches!(self.tokens[self.pos + 1].kind, TokenKind::Star)
+            {
+                break;
+            }
             self.advance();
-            segments.push(self.expect_identifier()?);
+            segments.push(self.parse_path_segment()?);
         }
 
         let end = self.previous_span();
@@ -845,6 +932,25 @@ impl Parser {
             segments,
             span: self.merge_spans(start_span, end),
         })
+    }
+
+    /// Parse a single path segment: an identifier, `self`, or `super`.
+    pub(crate) fn parse_path_segment(&mut self) -> Result<Ident, ParseError> {
+        match self.current_kind().clone() {
+            TokenKind::Identifier(name) => {
+                let span = self.advance().span;
+                Ok(Ident::new(name, span))
+            }
+            TokenKind::SelfValue => {
+                let span = self.advance().span;
+                Ok(Ident::new("self".to_string(), span))
+            }
+            TokenKind::Super => {
+                let span = self.advance().span;
+                Ok(Ident::new("super".to_string(), span))
+            }
+            _ => Err(self.error_expected("identifier, self, or super")),
+        }
     }
 
     // ── Block parsing ────────────────────────────────────────────────

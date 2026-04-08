@@ -12,6 +12,25 @@ pub struct SourceFile {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Visibility
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Visibility modifier for declarations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    /// Declared with `pub` — visible outside the module.
+    Public,
+    /// No modifier — visible only within the module (default).
+    Private,
+}
+
+impl Default for Visibility {
+    fn default() -> Self {
+        Visibility::Private
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Items — top-level declarations
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -55,9 +74,10 @@ pub enum ItemKind {
 // Governance constructs
 // ═══════════════════════════════════════════════════════════════════════
 
-/// `policy <name> { <rules...> }`
+/// `[pub] policy <name> { <rules...> }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct PolicyDecl {
+    pub visibility: Visibility,
     pub name: Ident,
     pub rules: Vec<RuleDef>,
     pub span: Span,
@@ -125,9 +145,10 @@ pub struct EffectDecl {
 // Type definitions
 // ═══════════════════════════════════════════════════════════════════════
 
-/// `type <name> = <type>;`
+/// `[pub] type <name> = <type>;`
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasDecl {
+    pub visibility: Visibility,
     pub name: Ident,
     pub ty: TypeExpr,
     pub span: Span,
@@ -140,15 +161,17 @@ pub struct TypeAliasDecl {
 /// Pillar: Security Baked In — governance constraints are named and reusable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeConstraintDecl {
+    pub visibility: Visibility,
     pub name: Ident,
     pub base_type: TypeExpr,
     pub where_clause: WhereClause,
     pub span: Span,
 }
 
-/// `struct <name> { <fields...> }`
+/// `[pub] struct <name> { <fields...> }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructDef {
+    pub visibility: Visibility,
     pub name: Ident,
     pub generic_params: Vec<GenericParam>,
     pub fields: Vec<FieldDef>,
@@ -164,9 +187,10 @@ pub struct FieldDef {
     pub span: Span,
 }
 
-/// `enum <name> { <variants...> }`
+/// `[pub] enum <name> { <variants...> }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDef {
+    pub visibility: Visibility,
     pub name: Ident,
     pub generic_params: Vec<GenericParam>,
     pub variants: Vec<VariantDef>,
@@ -274,20 +298,34 @@ pub struct Param {
 // Modules
 // ═══════════════════════════════════════════════════════════════════════
 
-/// `mod <name> { <items...> }` or `mod <name>;` (external file).
+/// `[pub] mod <name> { <items...> }` or `[pub] mod <name>;` (external file).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleDecl {
+    pub visibility: Visibility,
     pub name: Ident,
     pub items: Option<Vec<Item>>,
     pub span: Span,
 }
 
-/// `use <path> [as <alias>];`
+/// `[pub] use <path> [as <alias>];`
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
+    pub visibility: Visibility,
     pub path: Path,
+    pub kind: UseKind,
     pub alias: Option<Ident>,
     pub span: Span,
+}
+
+/// The kind of use import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UseKind {
+    /// `use crypto::verify;` — imports one item.
+    Single,
+    /// `use crypto::*;` — imports everything public.
+    Glob,
+    /// `use crypto;` — imports the module itself.
+    Module,
 }
 
 // ═══════════════════════════════════════════════════════════════════════

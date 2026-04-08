@@ -20,6 +20,9 @@
 "pub" @keyword
 "mod" @keyword
 "use" @keyword
+"as" @keyword
+"self" @variable.builtin
+"super" @variable.builtin
 "if" @keyword.conditional
 "else" @keyword.conditional
 "match" @keyword.conditional

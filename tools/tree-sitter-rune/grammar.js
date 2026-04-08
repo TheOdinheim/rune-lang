@@ -39,6 +39,7 @@ module.exports = grammar({
     // ── Policy declarations ──────────────────────────────────────
 
     policy_declaration: $ => seq(
+      optional("pub"),
       "policy",
       field("name", $.identifier),
       "{",
@@ -137,6 +138,7 @@ module.exports = grammar({
     ),
 
     type_alias: $ => seq(
+      optional("pub"),
       "type",
       field("name", $.identifier),
       "=",
@@ -145,6 +147,7 @@ module.exports = grammar({
     ),
 
     type_constraint: $ => seq(
+      optional("pub"),
       "type",
       field("name", $.identifier),
       "=",
@@ -204,15 +207,30 @@ module.exports = grammar({
       ";",
     ),
 
-    mod_declaration: $ => seq("mod", field("name", $.identifier), ";"),
+    mod_declaration: $ => seq(
+      optional("pub"),
+      "mod",
+      field("name", $.identifier),
+      choice(
+        ";",
+        seq("{", repeat($._item), "}"),
+      ),
+    ),
 
     use_declaration: $ => seq(
+      optional("pub"),
       "use",
       $.path,
+      optional(choice(
+        seq("::", "*"),
+        seq("as", field("alias", $.identifier)),
+      )),
       ";",
     ),
 
-    path: $ => seq($.identifier, repeat(seq("::", $.identifier))),
+    path: $ => seq($._path_segment, repeat(seq("::", $._path_segment))),
+
+    _path_segment: $ => choice($.identifier, "self", "super"),
 
     // ── Type expressions ─────────────────────────────────────────
 

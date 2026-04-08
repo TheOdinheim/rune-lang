@@ -102,6 +102,7 @@ pub enum TokenKind {
     Use,
     Pub,
     As,
+    Super,
 
     // ── Governance modifiers ─────────────────────────────────────────
     Attest,
@@ -242,10 +243,11 @@ impl TokenKind {
             "continue" => Some(TokenKind::Continue),
 
             // Modules
-            "mod" => Some(TokenKind::Mod),
-            "use" => Some(TokenKind::Use),
-            "pub" => Some(TokenKind::Pub),
-            "as"  => Some(TokenKind::As),
+            "mod"   => Some(TokenKind::Mod),
+            "use"   => Some(TokenKind::Use),
+            "pub"   => Some(TokenKind::Pub),
+            "as"    => Some(TokenKind::As),
+            "super" => Some(TokenKind::Super),
 
             // Governance modifiers
             "attest"      => Some(TokenKind::Attest),

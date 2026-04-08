@@ -252,10 +252,33 @@ impl Parser {
                 }
             }
 
-            // ── self as expression ────────────────────────────────
-            TokenKind::SelfValue => {
-                let span = self.advance().span;
-                Ok(Expr { kind: ExprKind::Identifier("self".to_string()), span })
+            // ── self and super as path starts ────────────────────
+            TokenKind::SelfValue | TokenKind::Super => {
+                let start_span = self.current_span();
+                let keyword = if matches!(self.current_kind(), TokenKind::Super) { "super" } else { "self" };
+                let ident_span = self.advance().span;
+
+                if self.check(&TokenKind::ColonColon) {
+                    // self::foo or super::bar::baz
+                    let mut segments = vec![Ident::new(keyword.to_string(), ident_span)];
+                    while self.eat(&TokenKind::ColonColon) {
+                        segments.push(self.expect_identifier()?);
+                    }
+                    let end = self.previous_span();
+                    let path = Path {
+                        segments,
+                        span: self.merge_spans(start_span, end),
+                    };
+                    Ok(Expr {
+                        kind: ExprKind::Path(path.clone()),
+                        span: path.span,
+                    })
+                } else {
+                    Ok(Expr {
+                        kind: ExprKind::Identifier(keyword.to_string()),
+                        span: ident_span,
+                    })
+                }
             }
 
             // ── Unary operators ──────────────────────────────────
