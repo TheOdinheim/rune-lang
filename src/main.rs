@@ -4,7 +4,7 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 
-use rune_lang::compiler::{check_source, compile_source, CompileError};
+use rune_lang::compiler::{check_project, compile_project, CompileError};
 use rune_lang::docgen::{extract_docs, render_markdown};
 use rune_lang::formatter::format_source;
 use rune_lang::manifest::RuneManifest;
@@ -114,7 +114,7 @@ fn main() {
 fn cmd_build(path: &PathBuf) {
     let source = read_source(path);
 
-    match compile_source(&source, 0) {
+    match compile_project(path) {
         Ok(wasm_bytes) => {
             let output_path = path.with_extension("rune.wasm");
             if let Err(e) = fs::write(&output_path, &wasm_bytes) {
@@ -139,7 +139,7 @@ fn cmd_build(path: &PathBuf) {
 fn cmd_check(path: &PathBuf) {
     let source = read_source(path);
 
-    match check_source(&source, 0) {
+    match check_project(path) {
         Ok(()) => {
             eprintln!("{}ok:{} {} — no errors", GREEN, RESET, path.display());
         }

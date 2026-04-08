@@ -217,3 +217,98 @@ All 640 pre-existing tests pass unchanged.
 - **Zero Trust Throughout:** Every cross-module reference goes through visibility checking. Effects and capabilities propagate transparently — a function in module A that calls module B still has its effects verified. No implicit trust across module boundaries.
 - **Assumed Breach:** Error messages are governance-aware: "add `pub` to make it accessible" guides developers toward explicit visibility. Module boundaries create isolation zones — a compromised module's private internals are inaccessible.
 - **No Single Points of Failure:** Module scopes allow organizing governance policies across files and teams. `pub use` re-exports enable curated public APIs from submodules. Glob imports provide convenient access patterns without sacrificing encapsulation.
+
+---
+
+## 2026-04-08 — M7 Layer 3: Multi-File Compilation and Module Loading
+
+### What was built
+
+File-based module loading for RUNE. `mod crypto;` (without a body) now triggers file resolution: the compiler looks for `crypto.rune` or `crypto/mod.rune`, parses and type-checks the file, and registers its declarations as a `Symbol::Module`. Multi-file projects compile into a single WASM module. The CLI commands `rune build` and `rune check` are now project-aware — they automatically load file-based modules.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/compiler/module_loader.rs | ModuleLoader: file resolution, loading, cycle detection, caching | New file, ~220 lines |
+| src/compiler/mod.rs | Added module_loader module, compile_project, check_project functions | +120 lines |
+| src/compiler/multifile_tests.rs | 12 multi-file integration tests | New file, ~200 lines |
+| src/types/checker.rs | Module loader integration: set_module_loader, set_current_file, file-based module parsing | +50 lines |
+| src/ir/lower.rs | Module item lowering: lower_module_items, pre_collect_module_return_types | +60 lines |
+| src/main.rs | cmd_build/cmd_check use compile_project/check_project | ~10 lines modified |
+
+### Architecture
+
+**ModuleLoader** (src/compiler/module_loader.rs):
+- `resolve_module_path(parent_file, module_name)`: searches for `name.rune` or `name/mod.rune` relative to parent file
+- `load_module(parent_file, module_name)`: resolves, checks cycles, reads file, returns (source, path, file_id)
+- `loading_stack: Vec<PathBuf>`: tracks files currently being processed for cycle detection
+- `loaded_files: HashMap<PathBuf, String>`: caches file contents to avoid re-reading
+- `file_paths: HashMap<u32, PathBuf>`: maps file IDs to paths for error reporting
+- `ModuleLoadError`: FileNotFound, AmbiguousModule, CircularDependency, IoError
+
+**TypeChecker integration:**
+- `set_module_loader(&mut ModuleLoader)`: attaches a loader for file-based module resolution
+- `set_current_file(&Path)`: sets the current file for relative path resolution
+- When `register_module` encounters `mod name;` with a loader: lex + parse the file, enter scope, two-pass type check, snapshot to Symbol::Module, exit scope
+- When no loader is available (unit tests, playground): empty placeholder (backward compatible)
+- Current file path saved/restored around nested module loading
+
+**IR lowering for modules:**
+- `pre_collect_module_return_types`: pre-pass collects function return types from inline module items with name-mangled names (`module::function`)
+- `lower_module_items`: lowers functions, policies, consts inside modules with name-mangled export names
+- Recursive: nested modules get nested prefixes (`a::b::c`)
+
+**Compiler pipeline:**
+- `compile_project(root_file: &Path)`: reads root file, creates ModuleLoader, runs full pipeline with loader attached
+- `check_project(root_file: &Path)`: same but stops after type checking
+- `compile_source(source, file_id)`: unchanged for backward compatibility
+
+**CLI:**
+- `cmd_build` and `cmd_check` now use `compile_project`/`check_project` — automatically project-aware
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 688 passed (677 lib + 11 CLI), 0 failed
+All 669 pre-existing tests pass unchanged.
+```
+
+### New tests (19 tests)
+
+**Module loader tests (7):**
+
+| Test | What it covers |
+|------|---------------|
+| test_resolve_sibling_file | Finds `crypto.rune` next to parent |
+| test_resolve_directory_mod_file | Finds `crypto/mod.rune` |
+| test_resolve_not_found | Neither path exists → FileNotFound |
+| test_resolve_ambiguous | Both paths exist → AmbiguousModule |
+| test_load_module_returns_source | Full load: source content, path, file_id |
+| test_circular_dependency_detection | a → b → a cycle detected |
+| test_io_error_on_unreadable | Directory instead of file → IoError |
+
+**Multi-file integration tests (12):**
+
+| Test | What it covers |
+|------|---------------|
+| test_file_module_loads_and_resolves | `mod crypto;` + `crypto.rune` → qualified path works |
+| test_file_module_private_function_error | Private fn in loaded file → visibility error |
+| test_directory_mod_file | `rules/mod.rune` loaded via directory convention |
+| test_nested_file_modules | `mod rules;` → `rules/mod.rune` → `mod access;` → `rules/access.rune` |
+| test_use_import_from_file_module | `use crypto::verify;` from file-based module |
+| test_type_error_in_loaded_module | Type error in loaded file is reported |
+| test_file_not_found_error | Missing module file → clear error |
+| test_empty_file_module | Empty `.rune` file produces empty module |
+| test_compile_two_file_project | Two-file project → valid WASM with magic bytes |
+| test_compile_policy_across_files | Policy in main + helpers in separate file |
+| test_single_file_via_compile_project | Single-file through project pipeline |
+| test_check_project_single_file | check_project on single file |
+
+### Pillars served
+
+- **Security Baked In:** Every loaded module file goes through the full compilation pipeline (lex → parse → type check). No file is trusted by default — visibility is enforced across file boundaries just as within a single file.
+- **Zero Trust Throughout:** File-based modules get their own scope. Cross-file function calls go through the same effect and capability checking as local calls. No implicit trust between files.
+- **Assumed Breach:** Circular dependency detection prevents infinite loops from malicious or accidental circular imports. File load errors produce clear, actionable messages. Type errors in loaded modules are reported with module context.
+- **No Single Points of Failure:** Multi-file projects enable team-scale RUNE development. The `crypto.rune` / `crypto/mod.rune` convention follows Rust's well-understood module layout. Both sibling-file and directory-module patterns are supported.

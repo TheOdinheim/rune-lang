@@ -1,9 +1,13 @@
 use crate::ast::nodes::*;
+use crate::compiler::module_loader::ModuleLoader;
+use crate::lexer::scanner::Lexer;
 use crate::lexer::token::Span;
+use crate::parser::parser::Parser;
 use crate::types::context::{TypeContext, TypeError};
 use crate::types::scope::Symbol;
 use crate::types::ty::{Type, TypeId};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Effect context — tracks which effects are allowed in the current scope
@@ -59,6 +63,11 @@ pub struct TypeChecker<'ctx> {
     effect_stack: Vec<EffectFrame>,
     /// Stack of capability frames. Tracks available capabilities per scope.
     capability_stack: Vec<CapabilityFrame>,
+    /// Optional module loader for file-based module resolution.
+    /// When None, file-based modules register as empty placeholders.
+    module_loader: Option<*mut ModuleLoader>,
+    /// Current file being compiled (for resolving relative module paths).
+    current_file: Option<PathBuf>,
 }
 
 impl<'ctx> TypeChecker<'ctx> {
@@ -67,7 +76,22 @@ impl<'ctx> TypeChecker<'ctx> {
             ctx,
             effect_stack: Vec::new(),
             capability_stack: Vec::new(),
+            module_loader: None,
+            current_file: None,
         }
+    }
+
+    /// Set the module loader for file-based module resolution.
+    ///
+    /// # Safety
+    /// The caller must ensure the ModuleLoader outlives the TypeChecker.
+    pub fn set_module_loader(&mut self, loader: &mut ModuleLoader) {
+        self.module_loader = Some(loader as *mut ModuleLoader);
+    }
+
+    /// Set the current file path (for resolving relative module paths).
+    pub fn set_current_file(&mut self, path: &std::path::Path) {
+        self.current_file = Some(path.to_path_buf());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -1639,19 +1663,89 @@ impl<'ctx> TypeChecker<'ctx> {
                 self.error(e.message, e.span);
             }
         } else {
-            // File-based module (mod name;): register as empty placeholder.
-            // File loading is deferred to M7 Layer 3.
-            let result = self.ctx.define(
-                &decl.name.name,
-                Symbol::Module {
-                    symbols: HashMap::new(),
-                    visibility_map: HashMap::new(),
-                    span: decl.name.span,
-                },
-                decl.name.span,
-            );
-            if let Err(e) = result {
-                self.error(e.message, e.span);
+            // File-based module (mod name;): load from disk if a loader is available.
+            if let Some(loader_ptr) = self.module_loader {
+                let current_file = self.current_file.clone().unwrap_or_else(|| PathBuf::from("main.rune"));
+                // SAFETY: The caller of set_module_loader guarantees the loader outlives us.
+                let loader = unsafe { &mut *loader_ptr };
+                match loader.load_module(&current_file, &decl.name.name) {
+                    Ok((source, resolved_path, file_id)) => {
+                        // Parse the loaded module file.
+                        let (tokens, lex_errors) = Lexer::new(&source, file_id).tokenize();
+                        if !lex_errors.is_empty() {
+                            for e in &lex_errors {
+                                self.error(
+                                    format!("in module `{}`: {}", decl.name.name, e.message),
+                                    decl.name.span,
+                                );
+                            }
+                            return;
+                        }
+
+                        let (module_file, parse_errors) = Parser::new(tokens).parse();
+                        if !parse_errors.is_empty() {
+                            for e in &parse_errors {
+                                self.error(
+                                    format!("in module `{}`: {}", decl.name.name, e.message),
+                                    decl.name.span,
+                                );
+                            }
+                            return;
+                        }
+
+                        // Save current file, switch to module file.
+                        let prev_file = self.current_file.take();
+                        self.current_file = Some(resolved_path.clone());
+                        loader.push_loading(&resolved_path);
+
+                        // Type-check the module file (same two-pass as inline modules).
+                        self.ctx.enter_scope();
+                        for item in &module_file.items {
+                            self.register_item(item);
+                        }
+                        for item in &module_file.items {
+                            self.check_item(item);
+                        }
+                        let module_symbols = self.snapshot_current_scope();
+                        let visibility_map = Self::build_visibility_map(&module_file.items);
+                        self.ctx.exit_scope();
+
+                        // Restore file context.
+                        loader.pop_loading();
+                        self.current_file = prev_file;
+
+                        // Register the module.
+                        let result = self.ctx.define(
+                            &decl.name.name,
+                            Symbol::Module {
+                                symbols: module_symbols,
+                                visibility_map,
+                                span: decl.name.span,
+                            },
+                            decl.name.span,
+                        );
+                        if let Err(e) = result {
+                            self.error(e.message, e.span);
+                        }
+                    }
+                    Err(load_err) => {
+                        self.error(load_err.to_string(), decl.name.span);
+                    }
+                }
+            } else {
+                // No loader available: register as empty placeholder.
+                let result = self.ctx.define(
+                    &decl.name.name,
+                    Symbol::Module {
+                        symbols: HashMap::new(),
+                        visibility_map: HashMap::new(),
+                        span: decl.name.span,
+                    },
+                    decl.name.span,
+                );
+                if let Err(e) = result {
+                    self.error(e.message, e.span);
+                }
             }
         }
     }

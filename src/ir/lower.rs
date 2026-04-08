@@ -87,6 +87,11 @@ impl Lowerer {
                             .insert(fn_name, IrType::PolicyDecision);
                     }
                 }
+                ItemKind::Module(decl) => {
+                    if let Some(items) = &decl.items {
+                        self.pre_collect_module_return_types(items, &decl.name.name);
+                    }
+                }
                 _ => {}
             }
         }
@@ -111,7 +116,16 @@ impl Lowerer {
                         functions.push(func);
                     }
                 }
-                // Types, capabilities, effects, traits, impls, modules, use —
+                ItemKind::Module(decl) => {
+                    if let Some(items) = &decl.items {
+                        self.lower_module_items(items, &decl.name.name, &mut functions);
+                    }
+                    // File-based modules: items were inlined during type checking
+                    // into the AST as inline modules. If items is None, there's
+                    // nothing to lower (module file loading is handled by the
+                    // type checker which produces Symbol::Module).
+                }
+                // Types, capabilities, effects, traits, impls, use —
                 // no runtime code to lower (declarations only).
                 _ => {}
             }
@@ -205,6 +219,68 @@ impl Lowerer {
         sig.return_type.as_ref()
             .map(|t| self.map_type_expr(t))
             .unwrap_or(IrType::Unit)
+    }
+
+    // ── Module lowering ────────────────────────────────────────────────
+
+    /// Pre-collect function return types from items inside a module (for forward references).
+    fn pre_collect_module_return_types(&mut self, items: &[Item], prefix: &str) {
+        for item in items {
+            match &item.kind {
+                ItemKind::Function(decl) => {
+                    let ret_ty = self.return_type_from_sig(&decl.signature);
+                    let mangled = format!("{}::{}", prefix, decl.signature.name.name);
+                    self.function_return_types.insert(mangled, ret_ty);
+                }
+                ItemKind::Policy(decl) => {
+                    for rule in &decl.rules {
+                        let fn_name = format!("{}::{}::{}", prefix, decl.name.name, rule.name.name);
+                        self.function_return_types.insert(fn_name, IrType::PolicyDecision);
+                    }
+                }
+                ItemKind::Module(decl) => {
+                    if let Some(inner_items) = &decl.items {
+                        let nested_prefix = format!("{}::{}", prefix, decl.name.name);
+                        self.pre_collect_module_return_types(inner_items, &nested_prefix);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lower all items inside a module, name-mangling functions with the module prefix.
+    fn lower_module_items(&mut self, items: &[Item], prefix: &str, functions: &mut Vec<IrFunction>) {
+        for item in items {
+            match &item.kind {
+                ItemKind::Function(decl) => {
+                    if let Some(mut func) = self.lower_function(decl) {
+                        func.name = format!("{}::{}", prefix, func.name);
+                        functions.push(func);
+                    }
+                }
+                ItemKind::Policy(decl) => {
+                    for rule in &decl.rules {
+                        let mut func = self.lower_policy_rule(rule, &decl.name.name);
+                        func.name = format!("{}::{}", prefix, func.name);
+                        functions.push(func);
+                    }
+                }
+                ItemKind::Const(decl) => {
+                    if let Some(mut func) = self.lower_const(decl) {
+                        func.name = format!("{}::{}", prefix, func.name);
+                        functions.push(func);
+                    }
+                }
+                ItemKind::Module(decl) => {
+                    if let Some(inner_items) = &decl.items {
+                        let nested_prefix = format!("{}::{}", prefix, decl.name.name);
+                        self.lower_module_items(inner_items, &nested_prefix, functions);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     // ── Function lowering ────────────────────────────────────────────────

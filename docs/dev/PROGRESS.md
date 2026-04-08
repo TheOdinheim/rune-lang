@@ -4,7 +4,7 @@
 
 **M7: Module System** — Target: Month 21 — **In Progress**
 
-Module system implementation. Layer 1 (parser/AST) and Layer 2 (name resolution/type checking) complete. Module-scoped symbol table, qualified path resolution, visibility enforcement, use import resolution, cross-module effect/capability propagation. 669 tests passing.
+Module system implementation. Layers 1–3 complete: parser/AST, name resolution/type checking, and multi-file compilation. File-based modules (`mod name;`) resolve to `name.rune` or `name/mod.rune`, parse, type-check, and compile into the same WASM module. 688 tests passing.
 
 ### M1 Deliverables
 
@@ -30,7 +30,7 @@ Module system implementation. Layer 1 (parser/AST) and Layer 2 (name resolution/
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
-| M7: Module System | Month 21 | **In Progress** — L1: parser/AST, L2: name resolution, visibility, use imports |
+| M7: Module System | Month 21 | **In Progress** — L1: parser/AST, L2: name resolution, L3: multi-file compilation |
 
 ## What's Done
 
@@ -281,7 +281,15 @@ Module system implementation. Layer 1 (parser/AST) and Layer 2 (name resolution/
   - File-based modules (`mod name;`) register as empty placeholders
   - Full backward compatibility: flat-scope code works identically
 
+- **M7 Layer 3: Multi-file compilation and module loading** (7 loader + 12 integration tests)
+  - ModuleLoader: file resolution (sibling file or directory mod.rune), caching, cycle detection
+  - TypeChecker integration: set_module_loader, set_current_file, file-based module lex+parse+type-check
+  - IR lowering: module functions name-mangled (module::function), recursive for nested modules
+  - compile_project/check_project: project-aware compilation entry points
+  - CLI: cmd_build and cmd_check use compile_project/check_project
+  - Nested file modules: mod rules; → rules/mod.rune → mod access; → rules/access.rune
+
 ## What's Next
 
-- M7 Layer 3+: File-based module loading, module file resolution
+- M7 Layer 4+: Module re-exports, pub(crate) visibility, module-level constants
 - M8+: FFI, LLVM backend, standard library, formal verification
