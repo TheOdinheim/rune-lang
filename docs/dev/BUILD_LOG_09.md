@@ -72,3 +72,49 @@ Standard library cryptographic module (`src/stdlib/crypto/`) implementing PQC-fi
 - **Placeholder over stub**: ML-DSA and ML-KEM have correct interfaces that will work with real implementations. Better than empty functions.
 - **Constant-time MAC comparison**: Prevents timing attacks on verification. Uses XOR-accumulate pattern.
 - **No changes to audit.rs**: Existing M5 audit trail untouched. Swap happens in Layer 4.
+
+---
+
+## 2026-04-09 — M10 Layer 2: rune::io, rune::net, rune::env, rune::time, rune::collections
+
+### What was built
+
+Five standard library modules providing system interaction with effect enforcement. File I/O (`io` effect), TCP networking (`network` effect), environment access (`io` effect), timestamps (`io` effect for clock reads), and pure collection utilities (no effects). All functions document their effect requirements — calling from RUNE without declaring the effect is a compile-time error via the FFI effect system.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Every I/O and network function requires explicit effect declaration — no silent side effects
+- **Assumed Breach**: TCP connections track bytes_sent/bytes_received and carry unique connection_id for audit
+- **Zero Trust Throughout**: Even checking file existence or reading environment variables requires the `io` effect
+- **No Single Points of Failure**: IoError and NetError with specific variants (NotFound, PermissionDenied, ConnectionRefused) — no opaque failures
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/stdlib/mod.rs | Register io, net, env, time, collections modules | +5 lines |
+| src/stdlib/io/mod.rs | File I/O: read, write, append, dir ops, IoError | New (~180 lines) |
+| src/stdlib/net/mod.rs | TCP networking, DNS, URL parsing, TcpConnection, NetError | New (~200 lines) |
+| src/stdlib/env/mod.rs | Environment variables, hostname, cwd | New (~80 lines) |
+| src/stdlib/time/mod.rs | Timestamps, duration formatting, constants | New (~120 lines) |
+| src/stdlib/collections/mod.rs | Sort, unique, contains, min/max/sum/avg | New (~110 lines) |
+
+### Test summary
+
+47 new tests (902 total passing, 1 ignored):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| io | 13 | read/write roundtrip, not found, UTF-8, lines, exists, append, dir, remove, error display/conversion |
+| net | 9 | URL parsing (full, no port, no path, invalid, empty host), connection IDs, error display, connect fail, DNS (ignored) |
+| env | 6 | PATH exists, missing var, default fallback, env_vars non-empty, hostname, current_dir |
+| time | 9 | now_ms/secs positive, consistency, elapsed, duration_secs, duration_human (ms/s/m), constants |
+| collections | 10 | sort int/string, unique int/string, contains present/absent, min/max/empty, sum, avg |
+
+### Decisions
+
+- **Minimal TCP, not HTTP**: Adding reqwest/hyper would bloat compile time. TCP demonstrates the effect pattern. HTTP comes later.
+- **URL parsing is pure**: No network access → no effect required. Computation on strings.
+- **IoError From<std::io::Error>**: Maps io::ErrorKind to specific variants for clear error messages.
+- **TcpConnection audit tracking**: connection_id, bytes_sent, bytes_received — ready for governance audit.
+- **tcp_connect timeout marked #[ignore]**: 5-second TCP timeout test is slow. Runs in CI but not by default.

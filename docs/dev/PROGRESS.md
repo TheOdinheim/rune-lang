@@ -4,7 +4,7 @@
 
 **M10: Standard Library** — Target: Month 36 — **In Progress**
 
-Layer 1 complete: rune::crypto PQC-first module (SHA-3, ML-DSA placeholder, HMAC). 856 tests passing (+ 91 LLVM-gated).
+Layer 2 complete: io, net, env, time, collections modules with effect enforcement. 902 tests passing (+ 91 LLVM-gated).
 
 ### M8 Deliverables
 
@@ -57,7 +57,7 @@ Layer 1 complete: rune::crypto PQC-first module (SHA-3, ML-DSA placeholder, HMAC
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
 | M9: LLVM Backend | Month 30 | **Complete** — L1-L4: LLVM infra, IR translation, native linking, cross-backend validation |
-| M10: Standard Library | Month 36 | **In Progress** — L1 done: rune::crypto PQC-first module |
+| M10: Standard Library | Month 36 | **In Progress** — L1-L2: crypto, io, net, env, time, collections |
 
 ## What's Done
 
@@ -386,7 +386,14 @@ Layer 1 complete: rune::crypto PQC-first module (SHA-3, ML-DSA placeholder, HMAC
   - ML-KEM-768 (FIPS 203): placeholder interface, returns NotImplemented
   - Backward compatible with M5 audit trail (byte-for-byte verified)
 
+- **M10 Layer 2: rune::io, rune::net, rune::env, rune::time, rune::collections** (47 new tests)
+  - rune::io: file read/write/append, directory ops, IoError with From<std::io::Error>
+  - rune::net: TCP connect/send/receive, DNS resolution, URL parsing (pure), TcpConnection with audit tracking
+  - rune::env: environment variables, hostname, cwd
+  - rune::time: Unix timestamps, duration formatting, constants
+  - rune::collections: sort, unique, contains, min/max/sum/avg (pure, no effects)
+
 ## What's Next
 
-- M10 Layer 2+: rune::collections, rune::io, audit trail PQC swap
+- M10 Layer 3+: audit trail PQC swap, stdlib integration
 - Future: formal verification, pub(crate) visibility, cross-compilation
