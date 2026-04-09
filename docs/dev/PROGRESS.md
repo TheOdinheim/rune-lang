@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M7: Module System** — Target: Month 21 — **In Progress**
+**M7: Module System** — Target: Month 21 — **Complete**
 
-Module system implementation. Layers 1–3 complete: parser/AST, name resolution/type checking, and multi-file compilation. File-based modules (`mod name;`) resolve to `name.rune` or `name/mod.rune`, parse, type-check, and compile into the same WASM module. 688 tests passing.
+Module system fully implemented across 4 layers: parser/AST (L1), name resolution/type checking (L2), multi-file compilation (L3), edition system + LSP + docgen + end-to-end integration (L4). 717 tests passing.
 
 ### M1 Deliverables
 
@@ -30,7 +30,7 @@ Module system implementation. Layers 1–3 complete: parser/AST, name resolution
 | M4: Refinement types | Month 12 | **Complete** — syntax + AST, Z3 SMT solver, refinement subtyping + call-site verification |
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
-| M7: Module System | Month 21 | **In Progress** — L1: parser/AST, L2: name resolution, L3: multi-file compilation |
+| M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 
 ## What's Done
 
@@ -289,7 +289,14 @@ Module system implementation. Layers 1–3 complete: parser/AST, name resolution
   - CLI: cmd_build and cmd_check use compile_project/check_project
   - Nested file modules: mod rules; → rules/mod.rune → mod access; → rules/access.rune
 
+- **M7 Layer 4: Edition system, LSP module support, end-to-end integration** (6 edition + 11 LSP + 5 docgen + 3 CLI tests)
+  - Edition enum (Edition2026), resolve from rune.toml, passed to TypeChecker
+  - LSP: mod/use/as/self/super/pub keyword hover, module declaration hover, module completions, module go-to-definition
+  - Docgen: DocItemKind::Module, public-only children extraction
+  - CLI: multi-file build/check integration tests
+  - Invalid edition detection with clear error messages
+
 ## What's Next
 
-- M7 Layer 4+: Module re-exports, pub(crate) visibility, module-level constants
 - M8+: FFI, LLVM backend, standard library, formal verification
+- Future module enhancements: pub(crate) visibility, module-level constants

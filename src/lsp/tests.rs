@@ -228,4 +228,95 @@ mod tests {
         let items = identifier_completions("fn bad( { }");
         assert!(items.is_empty());
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Module support
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_keyword_hover_mod() {
+        let doc = keyword_hover("mod");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("module"));
+    }
+
+    #[test]
+    fn test_keyword_hover_use() {
+        let doc = keyword_hover("use");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("Imports"));
+    }
+
+    #[test]
+    fn test_keyword_hover_as() {
+        let doc = keyword_hover("as");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("Renames"));
+    }
+
+    #[test]
+    fn test_keyword_hover_self() {
+        let doc = keyword_hover("self");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("current module"));
+    }
+
+    #[test]
+    fn test_keyword_hover_super() {
+        let doc = keyword_hover("super");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("parent module"));
+    }
+
+    #[test]
+    fn test_keyword_hover_pub() {
+        let doc = keyword_hover("pub");
+        assert!(doc.is_some());
+        assert!(doc.unwrap().contains("visible"));
+    }
+
+    #[test]
+    fn test_module_declaration_hover() {
+        let source = "mod crypto { pub fn verify() -> Bool { true } }";
+        let info = find_declaration_info(source, "crypto");
+        assert!(info.is_some());
+        let info = info.unwrap();
+        assert!(info.contains("mod crypto"), "info: {info}");
+        assert!(info.contains("inline"), "info: {info}");
+    }
+
+    #[test]
+    fn test_file_module_declaration_hover() {
+        let source = "mod crypto;";
+        let info = find_declaration_info(source, "crypto");
+        assert!(info.is_some());
+        let info = info.unwrap();
+        assert!(info.contains("mod crypto"), "info: {info}");
+        assert!(info.contains("file-based"), "info: {info}");
+    }
+
+    #[test]
+    fn test_module_in_completions() {
+        let source = "mod crypto { pub fn verify() -> Bool { true } }";
+        let items = identifier_completions(source);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"crypto"), "expected 'crypto' in completions: {:?}", labels);
+        let crypto = items.iter().find(|i| i.label == "crypto").unwrap();
+        assert_eq!(crypto.kind, Some(CompletionItemKind::MODULE));
+    }
+
+    #[test]
+    fn test_module_diagnostics_valid() {
+        let source = "mod crypto { pub fn verify() -> Bool { true } }\nfn main() -> Bool { crypto::verify() }";
+        let diags = compile_diagnostics(source);
+        assert_eq!(diags.len(), 0, "expected no diagnostics: {:?}", diags);
+    }
+
+    #[test]
+    fn test_module_diagnostics_private_access() {
+        let source = "mod crypto { fn secret() -> Bool { true } }\nfn main() -> Bool { crypto::secret() }";
+        let diags = compile_diagnostics(source);
+        assert!(!diags.is_empty(), "expected privacy error diagnostic");
+        assert!(diags.iter().any(|d| d.message.contains("private")), "expected 'private' in message: {:?}", diags);
+    }
 }

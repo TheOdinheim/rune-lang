@@ -130,4 +130,57 @@ mod tests {
         assert!(md.contains("# empty"));
         assert!(md.contains("No documented items."));
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Module documentation
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extract_docs_inline_module() {
+        let source = "// Crypto utilities.\nmod crypto {\n    pub fn verify() -> Bool { true }\n}";
+        let items = extract_docs(source);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "crypto");
+        assert_eq!(items[0].kind, DocItemKind::Module);
+        assert_eq!(items[0].doc_comment, Some("Crypto utilities.".to_string()));
+        assert!(items[0].signature.contains("mod crypto"));
+    }
+
+    #[test]
+    fn test_extract_docs_module_children_are_public_only() {
+        let source = "mod crypto {\n    pub fn verify() -> Bool { true }\n    fn secret() -> Bool { false }\n}";
+        let items = extract_docs(source);
+        assert_eq!(items.len(), 1);
+        // Only pub fn verify should be a child.
+        assert_eq!(items[0].children.len(), 1);
+        assert_eq!(items[0].children[0].name, "verify");
+    }
+
+    #[test]
+    fn test_extract_docs_pub_module() {
+        let source = "pub mod crypto {\n    pub fn verify() -> Bool { true }\n}";
+        let items = extract_docs(source);
+        assert_eq!(items.len(), 1);
+        assert!(items[0].signature.contains("pub mod crypto"));
+    }
+
+    #[test]
+    fn test_extract_docs_file_based_module() {
+        let source = "// External module.\nmod external;";
+        let items = extract_docs(source);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "external");
+        assert_eq!(items[0].kind, DocItemKind::Module);
+        assert!(items[0].children.is_empty());
+    }
+
+    #[test]
+    fn test_render_markdown_with_module() {
+        let source = "// Crypto module.\nmod crypto {\n    pub fn verify() -> Bool { true }\n}";
+        let items = extract_docs(source);
+        let md = render_markdown(&items, "test");
+        assert!(md.contains("## crypto"));
+        assert!(md.contains("Module"));
+        assert!(md.contains("mod crypto"));
+    }
 }

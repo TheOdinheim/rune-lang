@@ -1,4 +1,5 @@
 use crate::ast::nodes::*;
+use crate::compiler::edition::Edition;
 use crate::compiler::module_loader::ModuleLoader;
 use crate::lexer::scanner::Lexer;
 use crate::lexer::token::Span;
@@ -68,6 +69,8 @@ pub struct TypeChecker<'ctx> {
     module_loader: Option<*mut ModuleLoader>,
     /// Current file being compiled (for resolving relative module paths).
     current_file: Option<PathBuf>,
+    /// The language edition for this compilation unit.
+    edition: Edition,
 }
 
 impl<'ctx> TypeChecker<'ctx> {
@@ -78,6 +81,7 @@ impl<'ctx> TypeChecker<'ctx> {
             capability_stack: Vec::new(),
             module_loader: None,
             current_file: None,
+            edition: Edition::default(),
         }
     }
 
@@ -92,6 +96,16 @@ impl<'ctx> TypeChecker<'ctx> {
     /// Set the current file path (for resolving relative module paths).
     pub fn set_current_file(&mut self, path: &std::path::Path) {
         self.current_file = Some(path.to_path_buf());
+    }
+
+    /// Set the language edition for this compilation unit.
+    pub fn set_edition(&mut self, edition: Edition) {
+        self.edition = edition;
+    }
+
+    /// Get the current edition.
+    pub fn edition(&self) -> Edition {
+        self.edition
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

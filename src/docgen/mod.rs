@@ -23,6 +23,7 @@ pub enum DocItemKind {
     Type,
     Struct,
     Enum,
+    Module,
 }
 
 impl std::fmt::Display for DocItemKind {
@@ -34,6 +35,7 @@ impl std::fmt::Display for DocItemKind {
             DocItemKind::Type => write!(f, "Type"),
             DocItemKind::Struct => write!(f, "Struct"),
             DocItemKind::Enum => write!(f, "Enum"),
+            DocItemKind::Module => write!(f, "Module"),
         }
     }
 }
@@ -195,6 +197,41 @@ fn extract_item_doc(item: &Item, source_lines: &[&str]) -> Option<DocItem> {
                 doc_comment: comment,
                 signature: format!("type {} = ... where {{ ... }}", tc.name.name),
                 children: Vec::new(),
+                line_number: line,
+            })
+        }
+        ItemKind::Module(m) => {
+            let line = m.span.line;
+            let comment = extract_comment_above(source_lines, line);
+            let vis = if m.visibility == Visibility::Public { "pub " } else { "" };
+            let sig = format!("{}mod {}", vis, m.name.name);
+
+            let children: Vec<DocItem> = if let Some(ref items) = m.items {
+                items
+                    .iter()
+                    .filter(|item| {
+                        match &item.kind {
+                            ItemKind::Function(f) => f.signature.is_pub,
+                            ItemKind::Policy(p) => p.visibility == Visibility::Public,
+                            ItemKind::StructDef(s) => s.visibility == Visibility::Public,
+                            ItemKind::EnumDef(e) => e.visibility == Visibility::Public,
+                            ItemKind::TypeAlias(t) => t.visibility == Visibility::Public,
+                            ItemKind::Module(m) => m.visibility == Visibility::Public,
+                            _ => false,
+                        }
+                    })
+                    .filter_map(|item| extract_item_doc(item, source_lines))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            Some(DocItem {
+                name: m.name.name.clone(),
+                kind: DocItemKind::Module,
+                doc_comment: comment,
+                signature: sig,
+                children,
                 line_number: line,
             })
         }

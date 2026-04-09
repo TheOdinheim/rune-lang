@@ -7,6 +7,7 @@
 // Returns WASM bytes on success, or a list of CompileErrors on failure.
 // ═══════════════════════════════════════════════════════════════════════
 
+pub mod edition;
 pub mod module_loader;
 
 use std::path::Path;
@@ -15,10 +16,12 @@ use crate::codegen::wasm_gen::compile_to_wasm;
 use crate::ir::lower::Lowerer;
 use crate::lexer::scanner::Lexer;
 use crate::lexer::token::Span;
+use crate::manifest::RuneManifest;
 use crate::parser::parser::Parser;
 use crate::types::checker::TypeChecker;
 use crate::types::context::TypeContext;
 
+use self::edition::Edition;
 use self::module_loader::ModuleLoader;
 
 // ── Unified compile error ──────────────────────────────────────────────
@@ -60,6 +63,40 @@ impl std::fmt::Display for CompileError {
 }
 
 impl std::error::Error for CompileError {}
+
+// ── Edition resolution ────────────────────────────────────────────────
+
+/// Try to read the edition from rune.toml in the project root.
+/// Returns Edition2026 (default) if no manifest is found.
+fn resolve_edition(root_file: &Path) -> Result<Edition, Vec<CompileError>> {
+    let dir = root_file.parent().unwrap_or(Path::new("."));
+    let manifest_path = dir.join("rune.toml");
+    if !manifest_path.exists() {
+        return Ok(Edition::default());
+    }
+    let toml_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        vec![CompileError {
+            phase: CompilePhase::Lex,
+            message: format!("cannot read rune.toml: {}", e),
+            span: Span::new(0, 0, 0, 0, 0),
+        }]
+    })?;
+    let manifest = RuneManifest::from_str(&toml_str).map_err(|e| {
+        vec![CompileError {
+            phase: CompilePhase::Lex,
+            message: format!("invalid rune.toml: {}", e),
+            span: Span::new(0, 0, 0, 0, 0),
+        }]
+    })?;
+    let edition_str = manifest.package.edition.as_deref().unwrap_or("2026");
+    Edition::from_str(edition_str).map_err(|e| {
+        vec![CompileError {
+            phase: CompilePhase::Lex,
+            message: e,
+            span: Span::new(0, 0, 0, 0, 0),
+        }]
+    })
+}
 
 // ── Pipeline ───────────────────────────────────────────────────────────
 
@@ -187,6 +224,7 @@ pub fn compile_project(root_file: &Path) -> Result<Vec<u8>, Vec<CompileError>> {
         }]
     })?;
 
+    let edition = resolve_edition(root_file)?;
     let mut errors = Vec::new();
     let mut loader = ModuleLoader::new(root_file, 0);
 
@@ -220,6 +258,7 @@ pub fn compile_project(root_file: &Path) -> Result<Vec<u8>, Vec<CompileError>> {
     let mut ctx = TypeContext::new();
     {
         let mut checker = TypeChecker::new(&mut ctx);
+        checker.set_edition(edition);
         checker.set_module_loader(&mut loader);
         checker.set_current_file(root_file);
         checker.check_source_file(&file);
@@ -258,6 +297,7 @@ pub fn check_project(root_file: &Path) -> Result<(), Vec<CompileError>> {
         }]
     })?;
 
+    let edition = resolve_edition(root_file)?;
     let mut errors = Vec::new();
     let mut loader = ModuleLoader::new(root_file, 0);
 
@@ -291,6 +331,7 @@ pub fn check_project(root_file: &Path) -> Result<(), Vec<CompileError>> {
     let mut ctx = TypeContext::new();
     {
         let mut checker = TypeChecker::new(&mut ctx);
+        checker.set_edition(edition);
         checker.set_module_loader(&mut loader);
         checker.set_current_file(root_file);
         checker.check_source_file(&file);

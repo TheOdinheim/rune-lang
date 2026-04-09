@@ -318,6 +318,12 @@ pub fn keyword_hover(word: &str) -> Option<&'static str> {
         "unsafe_ffi" => "**unsafe_ffi** — Escape hatch for foreign function calls.\n\nPillar: Security Baked In — auditable escape hatch.",
         "attest" => "**attest** — Verify model/artifact trust chain.\n\nPillar: Zero Trust Throughout.",
         "require" => "**require** — Runtime assertion that a value meets refinement predicates.",
+        "mod" => "**mod** — Declares a module.\n\n```rune\nmod name { ... }\nmod name; // file-based\n```\n\nModules organize code into namespaces with visibility control.",
+        "use" => "**use** — Imports names from a module.\n\n```rune\nuse crypto::verify;\nuse crypto::*;\nuse crypto::verify as v;\n```",
+        "as" => "**as** — Renames an import.\n\n```rune\nuse crypto::verify as v;\n```",
+        "self" => "**self** — Refers to the current module.\n\n```rune\nuse self::helper;\nself::helper()\n```",
+        "super" => "**super** — Refers to the parent module.\n\n```rune\nuse super::utils::hash;\nsuper::helper()\n```",
+        "pub" => "**pub** — Makes a declaration visible outside its module.\n\n```rune\npub fn verify() -> Bool { true }\npub mod crypto { ... }\n```",
         "where" => "**where** — Refinement type predicates.\n\n```rune\ntype T = Int where { value >= 0, value <= 100 };\n```",
         "while" => "**while** — Loop while condition is true.\n\n```rune\nwhile condition { body }\n```",
         "for" => "**for** — Iterate over a range or collection.\n\n```rune\nfor x in collection { body }\n```",
@@ -389,6 +395,13 @@ fn find_declaration_info(source: &str, name: &str) -> Option<String> {
             crate::ast::nodes::ItemKind::TypeConstraint(t) => {
                 if t.name.name == name {
                     return Some(format!("**type** `{}` = `{}` where {{...}}", name, type_expr_to_string(&t.base_type)));
+                }
+            }
+            crate::ast::nodes::ItemKind::Module(m) => {
+                if m.name.name == name {
+                    let vis = if m.visibility == crate::ast::nodes::Visibility::Public { "pub " } else { "" };
+                    let kind = if m.items.is_some() { "inline" } else { "file-based" };
+                    return Some(format!("```rune\n{}mod {}\n```\n\n{} module", vis, name, kind));
                 }
             }
             _ => {}
@@ -471,6 +484,12 @@ fn find_definition_location(source: &str, name: &str) -> Option<(u32, u32)> {
             crate::ast::nodes::ItemKind::TypeConstraint(t) => {
                 if t.name.name == name {
                     let span = &t.name.span;
+                    return Some((span.line.saturating_sub(1), span.column.saturating_sub(1)));
+                }
+            }
+            crate::ast::nodes::ItemKind::Module(m) => {
+                if m.name.name == name {
+                    let span = &m.name.span;
                     return Some((span.line.saturating_sub(1), span.column.saturating_sub(1)));
                 }
             }
@@ -575,6 +594,14 @@ pub fn identifier_completions(source: &str) -> Vec<CompletionItem> {
                     label: t.name.name.clone(),
                     kind: Some(CompletionItemKind::STRUCT),
                     detail: Some("type alias".to_string()),
+                    ..Default::default()
+                });
+            }
+            crate::ast::nodes::ItemKind::Module(m) => {
+                items.push(CompletionItem {
+                    label: m.name.name.clone(),
+                    kind: Some(CompletionItemKind::MODULE),
+                    detail: Some("module".to_string()),
                     ..Default::default()
                 });
             }

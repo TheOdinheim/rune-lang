@@ -312,3 +312,108 @@ All 669 pre-existing tests pass unchanged.
 - **Zero Trust Throughout:** File-based modules get their own scope. Cross-file function calls go through the same effect and capability checking as local calls. No implicit trust between files.
 - **Assumed Breach:** Circular dependency detection prevents infinite loops from malicious or accidental circular imports. File load errors produce clear, actionable messages. Type errors in loaded modules are reported with module context.
 - **No Single Points of Failure:** Multi-file projects enable team-scale RUNE development. The `crypto.rune` / `crypto/mod.rune` convention follows Rust's well-understood module layout. Both sibling-file and directory-module patterns are supported.
+
+---
+
+## 2026-04-09 — M7 Layer 4: Edition System, LSP Module Support, End-to-End Integration — M7 COMPLETE
+
+### What was built
+
+Edition system enforcement, LSP module-aware features, docgen module support, and end-to-end integration tests. This completes the M7 module system milestone.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/compiler/edition.rs | Edition enum (Edition2026), from_str, Default, Display | Created in L4 Part 1, 4 unit tests |
+| src/compiler/mod.rs | `pub mod edition`, `resolve_edition()` from rune.toml, edition passed to TypeChecker | +35 lines |
+| src/types/checker.rs | `edition: Edition` field, `set_edition()`, `edition()` methods | +15 lines |
+| src/lsp/mod.rs | Module hover, mod/use/as/self/super/pub keyword hover, module completions, module go-to-definition | +40 lines |
+| src/docgen/mod.rs | `DocItemKind::Module`, `ItemKind::Module` extraction with public-only children | +35 lines |
+| src/compiler/tests.rs | 6 edition integration tests | +90 lines |
+| src/lsp/tests.rs | 11 LSP module tests | +100 lines |
+| src/docgen/tests.rs | 5 docgen module tests | +50 lines |
+| tests/cli_tests.rs | 3 CLI multi-file integration tests | +60 lines |
+
+### Architecture
+
+**Edition system:**
+- `Edition` enum with `Edition2026` variant (binding commitment per RUNE_05 Section 14.5)
+- `resolve_edition(root_file)`: reads `rune.toml` in same directory, parses edition field via `RuneManifest`, falls back to Edition2026 if no manifest
+- `compile_project` and `check_project` resolve edition before type checking, pass to TypeChecker via `set_edition()`
+- Invalid edition in manifest produces clear error before compilation starts
+- TypeChecker carries `edition` field for future feature-gating
+
+**LSP module support:**
+- `keyword_hover`: added `mod`, `use`, `as`, `self`, `super`, `pub` documentation
+- `find_declaration_info`: handles `ItemKind::Module` — shows inline vs file-based, visibility
+- `find_definition_location`: handles `ItemKind::Module` for go-to-definition
+- `identifier_completions`: adds module names with `CompletionItemKind::MODULE`
+- Module-aware diagnostics: existing `compile_diagnostics` already catches module errors (visibility, qualified paths) via `check_source`
+
+**Docgen module support:**
+- `DocItemKind::Module` variant with Display
+- `extract_item_doc` handles `ItemKind::Module`: extracts doc comment, builds children from public items only (functions, policies, structs, enums, types, nested modules)
+- File-based modules (`mod name;`) produce module entry with empty children
+
+### Test results
+
+```
+cargo build: clean, 0 warnings
+cargo test: 717 passed (703 lib + 14 CLI), 0 failed
+All 688 pre-existing tests pass unchanged.
+```
+
+### New tests (29 tests)
+
+**Edition tests (6):**
+
+| Test | What it covers |
+|------|---------------|
+| test_edition_from_str_valid | "2026" → Edition2026 |
+| test_edition_from_str_invalid | "2099" → error with "unknown edition" |
+| test_edition_default_is_2026 | Default edition is Edition2026 |
+| test_compile_project_with_edition_in_manifest | rune.toml with edition = "2026" → compiles |
+| test_compile_project_invalid_edition_in_manifest | rune.toml with edition = "2099" → error |
+| test_compile_project_no_manifest_uses_default_edition | No rune.toml → default edition, compiles |
+
+**LSP module tests (11):**
+
+| Test | What it covers |
+|------|---------------|
+| test_keyword_hover_mod | Hover doc for `mod` keyword |
+| test_keyword_hover_use | Hover doc for `use` keyword |
+| test_keyword_hover_as | Hover doc for `as` keyword |
+| test_keyword_hover_self | Hover doc for `self` keyword |
+| test_keyword_hover_super | Hover doc for `super` keyword |
+| test_keyword_hover_pub | Hover doc for `pub` keyword |
+| test_module_declaration_hover | Inline module hover info |
+| test_file_module_declaration_hover | File-based module hover info |
+| test_module_in_completions | Module names in completion list |
+| test_module_diagnostics_valid | Valid module code → 0 diagnostics |
+| test_module_diagnostics_private_access | Private access → error diagnostic |
+
+**Docgen module tests (5):**
+
+| Test | What it covers |
+|------|---------------|
+| test_extract_docs_inline_module | Inline module with doc comment |
+| test_extract_docs_module_children_are_public_only | Only pub items as children |
+| test_extract_docs_pub_module | `pub mod` in signature |
+| test_extract_docs_file_based_module | File-based module, empty children |
+| test_render_markdown_with_module | Module in rendered markdown |
+
+**CLI multi-file integration tests (3):**
+
+| Test | What it covers |
+|------|---------------|
+| test_cli_build_multifile_project | `rune build` with mod + separate file → WASM |
+| test_cli_check_multifile_project | `rune check` with mod + separate file → success |
+| test_cli_check_multifile_private_error | Private access across files → exit 1 |
+
+### Pillars served
+
+- **Security Baked In:** Edition system ensures governance rules compile under their declared edition forever. LSP module-aware diagnostics catch visibility errors in real time. Docgen only documents public API surfaces.
+- **Zero Trust Throughout:** Edition enforcement at compile time — invalid editions rejected before any code runs. Module visibility errors surfaced immediately in LSP diagnostics.
+- **Assumed Breach:** Clear error messages for invalid editions. LSP module hover distinguishes inline from file-based modules for auditability.
+- **No Single Points of Failure:** Edition backward compatibility guarantee — code written for edition 2026 compiles in 2028 and beyond. Full toolchain support: LSP, docgen, CLI all module-aware.

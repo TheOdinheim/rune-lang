@@ -343,4 +343,112 @@ policy security {
         // Cleanup.
         let _ = fs::remove_dir_all(&dir);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // Edition system
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_edition_from_str_valid() {
+        use crate::compiler::edition::Edition;
+        assert_eq!(Edition::from_str("2026"), Ok(Edition::Edition2026));
+    }
+
+    #[test]
+    fn test_edition_from_str_invalid() {
+        use crate::compiler::edition::Edition;
+        let result = Edition::from_str("2099");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown edition"));
+    }
+
+    #[test]
+    fn test_edition_default_is_2026() {
+        use crate::compiler::edition::Edition;
+        assert_eq!(Edition::default(), Edition::Edition2026);
+    }
+
+    #[test]
+    fn test_compile_project_with_edition_in_manifest() {
+        use std::fs;
+        use crate::compiler::compile_project;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CTR: AtomicU32 = AtomicU32::new(0);
+        let n = CTR.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "rune_edition_{}_{}", std::process::id(), n
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join("rune.toml"), r#"
+[package]
+name = "test"
+version = "0.1.0"
+edition = "2026"
+"#).unwrap();
+        fs::write(dir.join("main.rune"), r#"
+            fn add(a: Int, b: Int) -> Int { a + b }
+            policy access { rule allow() { permit } }
+        "#).unwrap();
+
+        let result = compile_project(&dir.join("main.rune"));
+        assert!(result.is_ok(), "errors: {:?}", result.unwrap_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_compile_project_invalid_edition_in_manifest() {
+        use std::fs;
+        use crate::compiler::compile_project;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CTR: AtomicU32 = AtomicU32::new(0);
+        let n = CTR.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "rune_bad_edition_{}_{}", std::process::id(), n
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(dir.join("rune.toml"), r#"
+[package]
+name = "test"
+version = "0.1.0"
+edition = "2099"
+"#).unwrap();
+        fs::write(dir.join("main.rune"), "fn x() -> Int { 1 }").unwrap();
+
+        let result = compile_project(&dir.join("main.rune"));
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(
+            errors.iter().any(|e| e.message.contains("unknown edition")),
+            "expected edition error: {:?}", errors
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_compile_project_no_manifest_uses_default_edition() {
+        use std::fs;
+        use crate::compiler::compile_project;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CTR: AtomicU32 = AtomicU32::new(0);
+        let n = CTR.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "rune_no_manifest_{}_{}", std::process::id(), n
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // No rune.toml — should use default edition.
+        fs::write(dir.join("main.rune"), "fn x() -> Int { 42 }").unwrap();
+
+        let result = compile_project(&dir.join("main.rune"));
+        assert!(result.is_ok(), "errors: {:?}", result.unwrap_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

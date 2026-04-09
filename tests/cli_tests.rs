@@ -144,6 +144,86 @@ fn test_cli_new_fails_if_exists() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+// ── Multi-file projects ─────────────────────────────────────────────
+
+#[test]
+fn test_cli_build_multifile_project() {
+    let dir = temp_project_dir("multifile_build");
+    fs::create_dir_all(&dir).unwrap();
+
+    fs::write(dir.join("main.rune"), r#"
+        mod helpers;
+        fn add_ten(x: Int) -> Int { helpers::add(x, 10) }
+        policy access { rule allow() { permit } }
+    "#).unwrap();
+    fs::write(dir.join("helpers.rune"), r#"
+        pub fn add(a: Int, b: Int) -> Int { a + b }
+    "#).unwrap();
+
+    let output = rune_bin()
+        .args(["build", dir.join("main.rune").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+
+    let wasm_path = dir.join("main.rune.wasm");
+    assert!(wasm_path.exists(), "expected {}", wasm_path.display());
+    let bytes = fs::read(&wasm_path).unwrap();
+    assert!(!bytes.is_empty());
+    // WASM magic bytes.
+    assert_eq!(&bytes[0..4], &[0x00, 0x61, 0x73, 0x6D]);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_cli_check_multifile_project() {
+    let dir = temp_project_dir("multifile_check");
+    fs::create_dir_all(&dir).unwrap();
+
+    fs::write(dir.join("main.rune"), r#"
+        mod crypto;
+        fn main() -> Bool { crypto::verify() }
+    "#).unwrap();
+    fs::write(dir.join("crypto.rune"), r#"
+        pub fn verify() -> Bool { true }
+    "#).unwrap();
+
+    let output = rune_bin()
+        .args(["check", dir.join("main.rune").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no errors"), "stderr: {stderr}");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_cli_check_multifile_private_error() {
+    let dir = temp_project_dir("multifile_priv");
+    fs::create_dir_all(&dir).unwrap();
+
+    fs::write(dir.join("main.rune"), r#"
+        mod crypto;
+        fn main() -> Bool { crypto::internal() }
+    "#).unwrap();
+    fs::write(dir.join("crypto.rune"), r#"
+        fn internal() -> Bool { false }
+    "#).unwrap();
+
+    let output = rune_bin()
+        .args(["check", dir.join("main.rune").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "stderr: {stderr}");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 // ── rune doc ────────────────────────────────────────────────────────
 
 #[test]
