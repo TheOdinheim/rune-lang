@@ -4,7 +4,7 @@
 
 **M9: LLVM Backend** — Target: Month 30 — **In Progress**
 
-Layer 3 complete: shared libraries, standalone executables, CLI integration. 815 tests passing (+ 64 LLVM tests with `--features llvm`).
+**M9 COMPLETE.** 816 tests passing (+ 91 LLVM-gated tests with `--features llvm`). Cross-backend validation, benchmarks, and native binary output all operational.
 
 ### M8 Deliverables
 
@@ -26,7 +26,7 @@ Layer 3 complete: shared libraries, standalone executables, CLI integration. 815
 | rune-python Python integration package (wasmtime-based WASM execution) | **Done** (M8 L4) |
 | Usage examples (Rust, Python, C) | **Done** (M8 L4) |
 | Integration guide (docs/INTEGRATION_GUIDE.md) | **Done** (M8 L4) |
-| LLVM backend | Planned |
+| LLVM backend (infra, IR translation, native linking, validation) | **Done** (M9 L1-L4) |
 | Standard library | Planned |
 | Formal verification | Planned |
 
@@ -56,7 +56,7 @@ Layer 3 complete: shared libraries, standalone executables, CLI integration. 815
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
-| M9: LLVM Backend | Month 30 | **In Progress** — L1-L3 done: LLVM infra, control flow, shared libs, executables, CLI |
+| M9: LLVM Backend | Month 30 | **Complete** — L1-L4: LLVM infra, IR translation, native linking, cross-backend validation |
 
 ## What's Done
 
@@ -372,7 +372,13 @@ Layer 3 complete: shared libraries, standalone executables, CLI integration. 815
   - rune.h updated with native shared library documentation and dlopen example
   - Pipeline refactored: compile_to_ir() + build_llvm_codegen() shared helpers
 
+- **M9 Layer 4: Cross-backend validation, benchmarking, end-to-end integration — M9 COMPLETE** (91 total LLVM-gated tests)
+  - 16 cross-backend tests: WASM evaluator + native executable produce identical decisions
+  - 8 benchmarks: WASM eval <1ms, native exe <10ms, compilation <30s, timing comparisons
+  - 4 CLI tests: native-shared/native-exe output, deny exit code, unknown target error
+  - Integration guide updated with native compilation section
+
 ## What's Next
 
-- M9 Layer 4+: native audit runtime, control flow optimization, cross-compilation
-- Future: standard library, formal verification, pub(crate) visibility
+- M10: Standard library, native audit runtime
+- Future: formal verification, pub(crate) visibility, cross-compilation

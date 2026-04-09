@@ -226,6 +226,101 @@ fn test_cli_check_multifile_private_error() {
 
 // ── rune doc ────────────────────────────────────────────────────────
 
+// ── Native target tests ────────────────────────────────────────────
+
+#[test]
+fn test_cli_build_unknown_target_errors() {
+    let path = write_temp("target_unknown.rune", "policy a { rule r() { permit } }");
+    let output = rune_bin()
+        .args(["build", "--target", "unknown", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown target"), "stderr: {stderr}");
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_cli_build_native_shared_produces_so() {
+    let path = write_temp(
+        "native_shared.rune",
+        "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }",
+    );
+    let output = rune_bin()
+        .args(["build", "--target", "native-shared", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("'cc'") {
+        eprintln!("skipping: system linker not available");
+        return;
+    }
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, stderr);
+
+    let so_path = path.with_extension("rune.so");
+    assert!(so_path.exists(), "expected {}", so_path.display());
+    let bytes = fs::read(&so_path).unwrap();
+    assert!(!bytes.is_empty());
+    let _ = fs::remove_file(&so_path);
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_cli_build_native_exe_produces_executable() {
+    let path = write_temp(
+        "native_exe.rune",
+        "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }",
+    );
+    let output = rune_bin()
+        .args(["build", "--target", "native-exe", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("'cc'") {
+        eprintln!("skipping: system linker not available");
+        return;
+    }
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, stderr);
+
+    let bin_path = path.with_extension("rune.bin");
+    assert!(bin_path.exists(), "expected {}", bin_path.display());
+
+    // Run the executable — permit policy should exit 0.
+    let run = Command::new(&bin_path).output().unwrap();
+    assert_eq!(run.status.code(), Some(0), "permit should exit 0");
+    let _ = fs::remove_file(&bin_path);
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_cli_build_native_exe_deny_exits_1() {
+    let path = write_temp(
+        "native_exe_deny.rune",
+        "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { deny } }",
+    );
+    let output = rune_bin()
+        .args(["build", "--target", "native-exe", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("'cc'") {
+        eprintln!("skipping: system linker not available");
+        return;
+    }
+    assert!(output.status.success(), "exit: {}, stderr: {}", output.status, stderr);
+
+    let bin_path = path.with_extension("rune.bin");
+    let run = Command::new(&bin_path).output().unwrap();
+    assert_eq!(run.status.code(), Some(1), "deny should exit 1");
+    let _ = fs::remove_file(&bin_path);
+}
+
+// ── rune doc ────────────────────────────────────────────────────────
+
 #[test]
 fn test_cli_doc_generates_markdown() {
     let source = "// An access policy.\npolicy access {\n    rule allow() { permit }\n}\n";

@@ -160,7 +160,55 @@ rune_module_free(module);  // safe with NULL
 | `RUNE_QUARANTINE` | 3 | Quarantined |
 | `RUNE_ERROR` | -1 | Internal error (decision is DENY) |
 
-## 4. Wire Format
+## 4. Native Compilation
+
+RUNE can compile policies to native code via the LLVM backend for bare-metal
+and appliance deployments where sub-millisecond latency is required.
+
+### Prerequisites
+
+Native targets require LLVM 18 and the `llvm` feature:
+
+```bash
+cargo build --features llvm
+```
+
+### Targets
+
+| Flag | Output | Extension | Use Case |
+|------|--------|-----------|----------|
+| `--target wasm` | WASM module | `.rune.wasm` | Default. Sandboxed, portable. |
+| `--target native` | Object file | `.rune.o` | Linkable object for custom builds. |
+| `--target native-shared` | Shared library | `.rune.so` | dlopen, ctypes, cgo integration. |
+| `--target native-exe` | Executable | `.rune.bin` | Standalone policy evaluation. |
+
+### Workflow
+
+```bash
+# Compile to executable
+rune build --target native-exe policy.rune
+./policy.rune.bin    # exit code: 0=Permit, 1=Deny, 2=Escalate, 3=Quarantine
+
+# Compile to shared library
+rune build --target native-shared policy.rune
+# Load via dlopen — exports: evaluate(i64, i64, i64, i64) -> i32
+```
+
+### Loading a Native Shared Library
+
+```c
+#include <dlfcn.h>
+void *lib = dlopen("policy.rune.so", RTLD_NOW);
+int32_t (*evaluate)(int64_t, int64_t, int64_t, int64_t) = dlsym(lib, "evaluate");
+int32_t decision = evaluate(user_id, action, resource, risk);
+// 0=Permit, 1=Deny, 2=Escalate, 3=Quarantine
+dlclose(lib);
+```
+
+The shared library has no external dependencies beyond libc. Individual policy
+rule functions are also exported (e.g., `access_control__evaluate`).
+
+## 5. Wire Format
 
 For high-throughput scenarios (>10k evaluations/second), use the wire format
 API to avoid struct copying overhead.
