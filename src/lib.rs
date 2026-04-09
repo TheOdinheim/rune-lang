@@ -17,3 +17,4 @@ pub mod lsp;
 pub mod manifest;
 pub mod docgen;
 pub mod playground;
+pub mod stdlib;

@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M9: LLVM Backend** — Target: Month 30 — **In Progress**
+**M10: Standard Library** — Target: Month 36 — **In Progress**
 
-**M9 COMPLETE.** 816 tests passing (+ 91 LLVM-gated tests with `--features llvm`). Cross-backend validation, benchmarks, and native binary output all operational.
+Layer 1 complete: rune::crypto PQC-first module (SHA-3, ML-DSA placeholder, HMAC). 856 tests passing (+ 91 LLVM-gated).
 
 ### M8 Deliverables
 
@@ -57,6 +57,7 @@
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
 | M9: LLVM Backend | Month 30 | **Complete** — L1-L4: LLVM infra, IR translation, native linking, cross-backend validation |
+| M10: Standard Library | Month 36 | **In Progress** — L1 done: rune::crypto PQC-first module |
 
 ## What's Done
 
@@ -378,7 +379,14 @@
   - 4 CLI tests: native-shared/native-exe output, deny exit code, unknown target error
   - Integration guide updated with native compilation section
 
+- **M10 Layer 1: rune::crypto — PQC-first cryptographic primitives** (40 new tests)
+  - SHA-3 (FIPS 202): sha3_256, sha3_512, hex variants, generic dispatch
+  - ML-DSA-65 (FIPS 204): placeholder with correct interface, uses HMAC-SHA3-256 internally
+  - HMAC: SHA3-256 (PQC) and SHA-256 (classical), constant-time verification
+  - ML-KEM-768 (FIPS 203): placeholder interface, returns NotImplemented
+  - Backward compatible with M5 audit trail (byte-for-byte verified)
+
 ## What's Next
 
-- M10: Standard library, native audit runtime
+- M10 Layer 2+: rune::collections, rune::io, audit trail PQC swap
 - Future: formal verification, pub(crate) visibility, cross-compilation
