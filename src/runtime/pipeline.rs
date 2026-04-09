@@ -47,6 +47,13 @@ pub struct RuntimePipeline {
 }
 
 impl RuntimePipeline {
+    /// Build a pipeline from a pre-constructed AuditedPolicyEvaluator.
+    ///
+    /// Used by the embedding API to wrap WASM-loaded modules.
+    pub fn from_evaluator(evaluator: AuditedPolicyEvaluator) -> Self {
+        Self { evaluator }
+    }
+
     /// Build a pipeline from RUNE source code.
     ///
     /// Compiles the source through the full compiler pipeline (lex → parse

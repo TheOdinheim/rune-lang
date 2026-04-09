@@ -9,6 +9,8 @@ pub mod compiler;
 pub mod smt;
 #[cfg(feature = "runtime")]
 pub mod runtime;
+#[cfg(feature = "runtime")]
+pub mod embedding;
 pub mod formatter;
 #[cfg(feature = "lsp")]
 pub mod lsp;

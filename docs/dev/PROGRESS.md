@@ -4,7 +4,7 @@
 
 **M8: FFI & Backend** — Target: Month 24 — **In Progress**
 
-Layer 1 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation. 741 tests passing.
+Layers 1-2 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API. 779 tests passing.
 
 ### M8 Deliverables
 
@@ -14,6 +14,10 @@ Layer 1 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instr
 | FFI effect enforcement (auto + transitive) | **Done** (M8 L1) |
 | IR audit instrumentation (FfiCallStart/End) | **Done** (M8 L1) |
 | Toolchain updates (formatter, LSP, docgen, tree-sitter) | **Done** (M8 L1) |
+| C ABI embedding API (fail-closed, opaque handles) | **Done** (M8 L2) |
+| Safe Rust wrapper (RuneEngine) | **Done** (M8 L2) |
+| C header file (tools/rune.h) | **Done** (M8 L2) |
+| cdylib build target | **Done** (M8 L2) |
 | LLVM backend | Planned |
 | Standard library | Planned |
 | Formal verification | Planned |
@@ -43,7 +47,7 @@ Layer 1 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instr
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
-| M8: FFI & Backend | Month 24 | **In Progress** — L1 done: extern blocks, ffi effect enforcement, audit instrumentation |
+| M8: FFI & Backend | Month 24 | **In Progress** — L1-L2 done: extern blocks, ffi effects, C ABI embedding API |
 
 ## What's Done
 
@@ -316,7 +320,15 @@ Layer 1 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instr
   - IR audit marks: FfiCallStart/FfiCallEnd around every extern function call
   - Toolchain: tree-sitter grammar, formatter, LSP hover/completions/go-to-def, docgen
 
+- **M8 Layer 2: C ABI embedding API with fail-closed governance** (24 new tests)
+  - C-compatible types: RunePolicyRequest (#[repr(C)]), RunePolicyDecision, outcome constants
+  - Opaque handle lifecycle: rune_module_load_source, rune_module_load_wasm, rune_evaluate, rune_module_free
+  - Fail-closed: every error → DENY, catch_unwind on all C entry points, null checks
+  - Safe Rust wrapper: RuneEngine with from_source/from_wasm/evaluate/audit_trail_len/export_audit_log
+  - C header file (tools/rune.h) with full documentation
+  - cdylib build target for shared library generation (.so/.dylib/.dll)
+
 ## What's Next
 
-- M8 Layer 2+: LLVM backend, standard library, formal verification
+- M8 Layer 3+: LLVM backend, standard library, formal verification
 - Future module enhancements: pub(crate) visibility, module-level constants
