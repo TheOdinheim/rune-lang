@@ -249,3 +249,58 @@ Three final deliverables completing M10: a unified prelude re-exporting commonly
 - **Fallbacks in runtime module**: hash_sha256() and sign_sha256() kept in the runtime crypto module so pre-swap audit trails can be verified if needed.
 - **Prelude scope**: Re-exports the most commonly used types — not everything. Users can still import specific modules for less common functions.
 - **Integration tests in stdlib/**: Tests live in src/stdlib/integration_tests.rs, registered via `#[cfg(test)] mod integration_tests` in stdlib/mod.rs.
+
+---
+
+## 2026-04-09 — rune-permissions Layer 1: Core Types, Role Hierarchies, RBAC Engine
+
+### What was built
+
+New workspace crate `packages/rune-permissions/` implementing a capability-based permission system for the RUNE governance ecosystem. Provides RBAC with role hierarchies (multiple inheritance, cycle detection), classification levels (Bell-LaPadula), conditional grants with usage tracking, and audit-logged access evaluation.
+
+### Four-pillar alignment
+
+- **Zero Trust Throughout**: Every access requires explicit permission — no default-allow paths. Subjects must have active roles with matching permissions.
+- **Security Baked In**: Classification levels (Public through TopSecret) enforce Bell-LaPadula "no read up". Conditions (MFA, time windows, risk scores) checked at evaluation time.
+- **Assumed Breach**: PermissionStore records every role assignment, grant creation, and access check in an audit log. DetailedAccessDecision includes full evaluation trace.
+- **No Single Points of Failure**: Two evaluation paths (role-based + direct grants). Multiple inheritance with diamond deduplication. Built-in role templates with separation of duties.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-permissions to workspace members | +1 line |
+| packages/rune-permissions/Cargo.toml | Crate manifest | New |
+| packages/rune-permissions/README.md | Crate documentation | New |
+| packages/rune-permissions/src/lib.rs | Crate root, module registration, re-exports | New |
+| packages/rune-permissions/src/types.rs | Permission, Action, Resource, Subject, Classification, Condition | New |
+| packages/rune-permissions/src/role.rs | Role, RoleHierarchy, RoleAssignment, built-in templates | New |
+| packages/rune-permissions/src/rbac.rs | RbacEngine, AccessRequest, access evaluation | New |
+| packages/rune-permissions/src/grant.rs | Grant, GrantStore, usage tracking | New |
+| packages/rune-permissions/src/context.rs | EvalContext builder | New |
+| packages/rune-permissions/src/decision.rs | AccessDecision, NearestMiss, FailedCheck, trace | New |
+| packages/rune-permissions/src/error.rs | PermissionError enum | New |
+| packages/rune-permissions/src/store.rs | PermissionStore, audit logging | New |
+
+### Test summary
+
+97 new tests (all passing), 967 rune-lang tests unaffected:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| types | 24 | PermissionId (new, namespace, action_part, glob matching), Action (from_str, destructive, privileged), ResourcePattern (exact, prefix, all, wildcard), ClassificationLevel (ordering, dominates, from_str), Subject construction, Condition evaluation (time window, risk score, MFA), Pillar display, Permission expiration and matching |
+| role | 20 | Role construction, built-in templates (system_admin, security_officer, viewer, auditor, ai_agent), RoleHierarchy (add, duplicate, nonexistent parent, effective_permissions, diamond dedup, ancestors BFS, descendants, cycle detection, is_ancestor, mutual exclusion, validate, remove) |
+| rbac | 16 | Engine creation, register/get permission, assign role, check_access (allow, deny no role, deny no action, deny clearance, allow clearance, expired, condition failed, multiple roles, inherited, verbose trace), can() convenience, effective_permissions_for_subject, mutual exclusion, max holders |
+| grant | 8 | Grant creation, active_grants, is_granted (valid, expired, condition fails), record_usage with limit, cleanup_expired, revoke |
+| context | 2 | Builder defaults, full builder |
+| decision | 5 | Allow/Deny is_allowed/is_denied, reason(), NearestMiss suggestion, DetailedAccessDecision trace, FailedCheck display |
+| error | 7 | All PermissionError variant Display messages |
+| store | 11 | Store creation, register/get subject, full workflow (allow/deny), direct grant override, audit log, audit_log_since, separation of duties, max holders, subjects_by_type, deactivate_subject, can() |
+
+### Decisions
+
+- **Separate crate, not compiler module**: rune-permissions is a workspace member that depends on rune-lang, not part of the compiler. Keeps the compiler lean and allows independent versioning.
+- **Multiple inheritance with cycle detection**: Roles support multiple parents (like Diamond in the tests). BFS traversal with visited set handles diamond inheritance. DFS with in-stack tracking detects cycles.
+- **Built-in role templates**: system_admin, security_officer, operator, auditor, viewer, ai_agent provide common patterns. security_officer is mutually exclusive with system_admin (separation of duties).
+- **Classification via Ord**: ClassificationLevel derives PartialOrd/Ord, making dominates() a simple comparison. Maps directly to Bell-LaPadula "no read up".
+- **Two evaluation paths**: PermissionStore checks RBAC first, then direct grants. Either path can allow; both must deny for final denial. This prevents single points of failure.

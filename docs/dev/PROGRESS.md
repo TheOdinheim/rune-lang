@@ -404,6 +404,14 @@
   - Classical fallbacks: hash_sha256/sign_sha256 retained for backward compatibility
   - Integration tests: full pipeline, crypto chain verification, effect documentation, prelude completeness
 
+- **rune-permissions Layer 1: Core types, role hierarchies, RBAC engine** (97 new tests)
+  - Workspace crate: packages/rune-permissions/ with types, roles, RBAC, grants, context, decisions, errors, store
+  - Role hierarchies: multiple inheritance, cycle detection, diamond deduplication, mutual exclusion
+  - Classification levels: Bell-LaPadula "no read up" (Public through TopSecret)
+  - Built-in templates: system_admin, security_officer, operator, auditor, viewer, ai_agent
+  - Unified PermissionStore: RBAC + direct grants, audit logging
+
 ## What's Next
 
+- rune-permissions Layer 2+: policy integration, persistence, API
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
