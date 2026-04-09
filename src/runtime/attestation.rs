@@ -6,12 +6,12 @@
 // unattested models. Models that fail attestation are rejected before
 // they can process any input.
 //
-// Current implementation uses placeholder primitives:
-//   - HMAC-SHA256 (stand-in for ML-DSA / FIPS 204)
-//   - SHA-256 (stand-in for SHA-3 / FIPS 202)
+// Cryptographic primitives (M10 Layer 4 PQC swap):
+//   - HMAC-SHA3-256 for signing (ML-DSA placeholder)
+//   - SHA3-256 (FIPS 202) for hashing
 //
-// Uses the same crypto module as audit.rs — swapping to PQC is a
-// single-file change affecting both audit signatures and attestation.
+// Uses the same crypto module as audit.rs — both now use PQC-first
+// implementations from stdlib::crypto.
 //
 // Pillar: Zero Trust Throughout — every model must prove its identity
 // and provenance before the runtime will invoke it.
@@ -33,11 +33,11 @@ use crate::runtime::audit::crypto;
 pub struct ModelAttestation {
     /// Unique identifier for the model.
     pub model_id: String,
-    /// SHA-256 hash of the model artifact.
+    /// Hash of the model artifact (SHA3-256).
     pub model_hash: String,
     /// Identity of who signed the attestation.
     pub signer: String,
-    /// Cryptographic signature (HMAC-SHA256 placeholder for ML-DSA).
+    /// Cryptographic signature (HMAC-SHA3-256, ML-DSA placeholder).
     pub signature: String,
     /// When the attestation was created.
     pub timestamp: SystemTime,
@@ -319,8 +319,8 @@ impl fmt::Debug for AttestationChecker {
 
 /// Create a placeholder signature for a model attestation.
 ///
-/// Currently HMAC-SHA256; will be ML-DSA (FIPS 204) post-M10.
-/// Uses the same crypto module as audit.rs for a single PQC swap point.
+/// Uses HMAC-SHA3-256 (ML-DSA placeholder, FIPS 204 interface).
+/// Uses the same crypto module as audit.rs (PQC-first).
 pub fn sign_attestation(
     key: &[u8],
     model_hash: &str,

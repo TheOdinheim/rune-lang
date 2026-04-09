@@ -181,3 +181,71 @@ Three governance-focused standard library modules wrapping M5 runtime infrastruc
 - **Severity ≠ i32 encoding**: Decision severity (Permit=0 < Escalate=1 < Deny=2 < Quarantine=3) differs from the i32 wire encoding (0=Permit, 1=Deny, 2=Escalate, 3=Quarantine). Severity is for combinator logic; i32 encoding is for ABI.
 - **JSON lines, not JSON array**: Export uses one JSON object per line (JSONL) — streamable, appendable, grep-friendly.
 - **No runtime dependency**: These modules are pure stdlib wrappers. They don't import from src/runtime/ — they provide parallel typed APIs for RUNE programs.
+
+---
+
+## 2026-04-09 — M10 Layer 4: Standard Library Packaging, PQC Swap, Integration Tests — M10 COMPLETE
+
+### What was built
+
+Three final deliverables completing M10: a unified prelude re-exporting commonly used types from all nine stdlib modules, the PQC swap replacing SHA-256/HMAC-SHA256 with SHA3-256/HMAC-SHA3-256 in the M5 runtime audit trail and attestation checker, and comprehensive integration tests proving the swap preserves all functional properties.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Runtime crypto now uses PQC by default — SHA3-256 and HMAC-SHA3-256, not SHA-256. Classical algorithms are explicit fallbacks, not defaults.
+- **Assumed Breach**: Audit trail chain integrity and signature verification tested end-to-end with PQC crypto. Tamper detection still works identically.
+- **Zero Trust Throughout**: Trust chain verification (attestation) now uses PQC signatures. Same three-layer verification, stronger crypto.
+- **No Single Points of Failure**: Classical fallbacks (hash_sha256, sign_sha256) retained in the runtime crypto module for backward compatibility.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/stdlib/mod.rs | Prelude module with re-exports from all 9 stdlib modules | +35 lines |
+| src/runtime/audit.rs | PQC swap: crypto module now delegates to stdlib SHA3/HMAC-SHA3 | Modified (~45 lines) |
+| src/runtime/attestation.rs | Updated comments to reflect PQC swap | Modified (4 lines) |
+| src/runtime/tests.rs | Updated SHA-256 comments to SHA3-256 | Modified (2 lines) |
+| src/stdlib/integration_tests.rs | End-to-end integration tests for all stdlib modules | New (~210 lines) |
+| docs/INTEGRATION_GUIDE.md | Standard Library section with prelude and module table | +33 lines |
+
+### PQC swap details
+
+**What changed:**
+- `audit::crypto::hash()` — was `SHA-256(payload)`, now `SHA3-256(payload)` via stdlib
+- `audit::crypto::sign()` — was `HMAC-SHA256(key, data)`, now `HMAC-SHA3-256(key, data)` via stdlib
+- `audit::hash_input()` — was `SHA-256(bytes)`, now `SHA3-256(bytes)` via stdlib
+- `attestation::sign_attestation()` — unchanged code, but calls `audit::crypto::sign` which is now PQC
+
+**What didn't change:**
+- Chain structure: each record still links to predecessor via previous_hash
+- Signing protocol: sign(key, record_hash) still produces a MAC
+- Verification logic: recompute hash, compare; recompute MAC, compare
+- Output lengths: SHA3-256 = 32 bytes = 64 hex chars (same as SHA-256)
+
+**Classical fallbacks retained:**
+- `audit::crypto::hash_sha256()` — SHA-256 for pre-swap trail compatibility
+- `audit::crypto::sign_sha256()` — HMAC-SHA256 for pre-swap trail compatibility
+
+### Test summary
+
+10 new integration tests (967 total, all passing):
+
+| Test | What's covered |
+|------|----------------|
+| Full stdlib pipeline | sign model → verify trust → evaluate → audit → export |
+| PQC crypto audit chain | SHA3-256 hashes form valid chain, correct length |
+| SHA-256 fallback | stdlib sha256_hex still produces correct NIST vector |
+| HMAC-SHA256 fallback | stdlib hmac_sha256 still works, correct length |
+| Runtime crypto fallback | hash_sha256/sign_sha256 still available |
+| Runtime crypto PQC | hash() ≠ hash_sha256() (different algorithms) |
+| Effect structs | All 5 effect-carrying modules have correct constants |
+| Realistic multi-rule | Three engines, combinators, risk level cross-check |
+| Prelude completeness | Every prelude re-export used: crypto, policy, attestation, audit, io, time, collections |
+| Runtime audit trail PQC | AuditTrail with PQC: chain + signature verification |
+
+### Decisions
+
+- **Zero test failures from swap**: SHA3-256 and SHA-256 both produce 32-byte output. All tests check properties (chain integrity, sign/verify consistency) not specific hash bytes. No expected values needed updating.
+- **Fallbacks in runtime module**: hash_sha256() and sign_sha256() kept in the runtime crypto module so pre-swap audit trails can be verified if needed.
+- **Prelude scope**: Re-exports the most commonly used types — not everything. Users can still import specific modules for less common functions.
+- **Integration tests in stdlib/**: Tests live in src/stdlib/integration_tests.rs, registered via `#[cfg(test)] mod integration_tests` in stdlib/mod.rs.

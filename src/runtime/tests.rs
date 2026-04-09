@@ -695,7 +695,7 @@ policy risk {
         let h3 = hash_input(b"world");
         assert_eq!(h1, h2);
         assert_ne!(h1, h3);
-        assert_eq!(h1.len(), 64); // SHA-256 = 32 bytes = 64 hex chars
+        assert_eq!(h1.len(), 64); // SHA3-256 = 32 bytes = 64 hex chars
     }
 
     // ═════════════════════════════════════════════════════════════════
@@ -1020,7 +1020,7 @@ policy risk {
         let s3 = sign_attestation(&key, "hash2", "signer", ts);
         assert_eq!(s1, s2);
         assert_ne!(s1, s3);
-        assert_eq!(s1.len(), 64); // HMAC-SHA256 = 32 bytes = 64 hex chars
+        assert_eq!(s1.len(), 64); // HMAC-SHA3-256 = 32 bytes = 64 hex chars
     }
 
     // ── AttestationError display ─────────────────────────────────

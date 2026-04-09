@@ -208,7 +208,42 @@ dlclose(lib);
 The shared library has no external dependencies beyond libc. Individual policy
 rule functions are also exported (e.g., `access_control__evaluate`).
 
-## 5. Wire Format
+## 5. Standard Library
+
+RUNE provides a standard library of governance-focused modules accessible via
+the `rune_lang::stdlib` namespace. All modules are PQC-first: cryptographic
+operations default to post-quantum algorithms.
+
+### Prelude
+
+Import commonly used types and functions:
+
+```rust
+use rune_lang::stdlib::prelude::*;
+```
+
+### Modules
+
+| Module | Effect | Purpose |
+|--------|--------|---------|
+| `crypto` | `crypto` | SHA-3 hashing, ML-DSA signing (placeholder), HMAC, KEM |
+| `attestation` | `crypto` | Model trust chain verification, PQC signing |
+| `policy` | none | Decision combinators, risk assessment, request builders |
+| `audit` | `io` (export) | Audit trail views, chain verification, JSON/CSV export |
+| `io` | `io` | File read/write/append, directory operations |
+| `net` | `network` | TCP connections, DNS resolution, URL parsing |
+| `env` | `io` | Environment variables, hostname, working directory |
+| `time` | `io` | Unix timestamps, duration formatting |
+| `collections` | none | Sort, unique, contains, min/max/sum/avg |
+
+### PQC-First Design
+
+- **Default hash**: SHA3-256 (FIPS 202), not SHA-256
+- **Default signature**: ML-DSA-65 (FIPS 204 placeholder), not HMAC-SHA256
+- **Default KEM**: ML-KEM-768 (FIPS 203 placeholder)
+- Classical algorithms available as explicit fallbacks
+
+## 6. Wire Format
 
 For high-throughput scenarios (>10k evaluations/second), use the wire format
 API to avoid struct copying overhead.

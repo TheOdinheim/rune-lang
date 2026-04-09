@@ -4,12 +4,12 @@
 // Every policy decision, capability exercise, and model invocation is
 // recorded in an append-only hash chain with cryptographic signatures.
 //
-// Current implementation uses placeholder primitives:
-//   - SHA-256 (stand-in for SHA-3 / FIPS 202)
-//   - HMAC-SHA256 (stand-in for ML-DSA / FIPS 204)
+// Cryptographic primitives (M10 Layer 4 PQC swap):
+//   - SHA3-256 (FIPS 202) for hashing
+//   - HMAC-SHA3-256 for signing (ML-DSA placeholder)
 //
-// Swapping to real PQC primitives is a single-function change in the
-// `crypto` module at the bottom of this file.
+// Classical fallbacks (SHA-256, HMAC-SHA256) are retained in the
+// crypto module for backward compatibility with pre-swap audit trails.
 //
 // Pillar: Security Baked In — audit instrumentation is compiler-inserted,
 // not optional. Every governance decision is recorded.
@@ -85,7 +85,7 @@ pub struct AuditRecord {
     /// Hash of this record's contents.
     pub record_hash: String,
     /// Cryptographic signature of the record hash.
-    /// Currently HMAC-SHA256; will be ML-DSA (FIPS 204) post-M10.
+    /// HMAC-SHA3-256 (ML-DSA placeholder, FIPS 204 interface).
     pub signature: String,
 }
 
@@ -316,8 +316,8 @@ impl fmt::Debug for AuditTrail {
 
 /// Compute the hash of an audit record's contents.
 ///
-/// Hash = SHA256(record_id || timestamp || event_type || policy_module
-///               || function_name || decision || input_hash || previous_hash)
+/// Hash = SHA3-256(record_id || timestamp || event_type || policy_module
+///                 || function_name || decision || input_hash || previous_hash)
 fn compute_record_hash(record: &AuditRecord) -> String {
     let decision_str = match record.decision {
         Some(d) => d.to_i32().to_string(),
@@ -346,43 +346,43 @@ fn compute_record_hash(record: &AuditRecord) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Cryptographic primitives — placeholder module
+// Cryptographic primitives — PQC module (M10 Layer 4 swap)
 //
-// Currently uses SHA-256 and HMAC-SHA256 as stand-ins for:
-//   - SHA-3 (FIPS 202) for hashing
-//   - ML-DSA (FIPS 204) for signatures
+// Now uses the stdlib PQC-first implementations:
+//   - SHA3-256 (FIPS 202) for hashing (was SHA-256)
+//   - HMAC-SHA3-256 for signing (was HMAC-SHA256)
 //
-// To swap to real PQC primitives, replace the two functions below.
-// No other code in this file needs to change.
+// Classical fallbacks (hash_sha256, sign_sha256) are retained for
+// backward compatibility with pre-swap audit trails.
 // ═══════════════════════════════════════════════════════════════════════
 
 pub(crate) mod crypto {
-    use hmac::{Hmac, Mac};
-    use sha2::{Digest, Sha256};
+    use crate::stdlib::crypto::hash::{sha3_256_hex, sha256_hex};
+    use crate::stdlib::crypto::sign::{hmac_sha3_256, hmac_sha256};
 
-    type HmacSha256 = Hmac<Sha256>;
-
-    /// Hash a string payload. Currently SHA-256; will be SHA-3 post-M10.
+    /// Hash a string payload using SHA3-256 (FIPS 202). PQC default.
     pub fn hash(payload: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(payload.as_bytes());
-        hex::encode(hasher.finalize())
+        sha3_256_hex(payload.as_bytes())
     }
 
-    /// Sign a record hash. Currently HMAC-SHA256; will be ML-DSA post-M10.
+    /// Sign a record hash using HMAC-SHA3-256. PQC default.
     pub fn sign(key: &[u8], record_hash: &str) -> String {
-        let mut mac = HmacSha256::new_from_slice(key)
-            .expect("HMAC accepts any key length");
-        mac.update(record_hash.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
+        hex::encode(hmac_sha3_256(key, record_hash.as_bytes()))
+    }
+
+    /// Hash using SHA-256 (classical fallback for pre-swap compatibility).
+    pub fn hash_sha256(payload: &str) -> String {
+        sha256_hex(payload.as_bytes())
+    }
+
+    /// Sign using HMAC-SHA256 (classical fallback for pre-swap compatibility).
+    pub fn sign_sha256(key: &[u8], record_hash: &str) -> String {
+        hex::encode(hmac_sha256(key, record_hash.as_bytes()))
     }
 }
 
-/// Compute a SHA-256 hash of arbitrary input bytes. Utility for callers
-/// that need to hash evaluation inputs.
+/// Compute a SHA3-256 hash of arbitrary input bytes. Utility for callers
+/// that need to hash evaluation inputs. PQC default (was SHA-256).
 pub fn hash_input(data: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hex::encode(hasher.finalize())
+    crate::stdlib::crypto::hash::sha3_256_hex(data)
 }

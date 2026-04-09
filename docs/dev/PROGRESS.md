@@ -4,7 +4,7 @@
 
 **M10: Standard Library** — Target: Month 36 — **In Progress**
 
-Layer 3 complete: attestation, policy, audit governance modules. 957 tests passing (+ 91 LLVM-gated).
+**M10 COMPLETE.** Layer 4: stdlib packaging, PQC swap, integration tests. 967 tests passing (+ 91 LLVM-gated).
 
 ### M8 Deliverables
 
@@ -27,7 +27,7 @@ Layer 3 complete: attestation, policy, audit governance modules. 957 tests passi
 | Usage examples (Rust, Python, C) | **Done** (M8 L4) |
 | Integration guide (docs/INTEGRATION_GUIDE.md) | **Done** (M8 L4) |
 | LLVM backend (infra, IR translation, native linking, validation) | **Done** (M9 L1-L4) |
-| Standard library | Planned |
+| Standard library (9 modules, PQC-first, prelude) | **Done** (M10 L1-L4) |
 | Formal verification | Planned |
 
 ### M1 Deliverables
@@ -57,7 +57,7 @@ Layer 3 complete: attestation, policy, audit governance modules. 957 tests passi
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
 | M9: LLVM Backend | Month 30 | **Complete** — L1-L4: LLVM infra, IR translation, native linking, cross-backend validation |
-| M10: Standard Library | Month 36 | **In Progress** — L1-L3: crypto, io, net, env, time, collections, attestation, policy, audit |
+| M10: Standard Library | Month 36 | **Complete** — L1-L4: crypto, io, net, env, time, collections, attestation, policy, audit, PQC swap |
 
 ## What's Done
 
@@ -398,7 +398,12 @@ Layer 3 complete: attestation, policy, audit governance modules. 957 tests passi
   - rune::policy: Decision enum with combinators (first_non_permit, most_severe, unanimous), PolicyRequest builder, RiskLevel
   - rune::audit: AuditEntry with SHA3-256 hashes, AuditTrailView with filters, DecisionSummary, chain verification, JSON/CSV export
 
+- **M10 Layer 4: stdlib packaging, PQC swap, integration tests — M10 COMPLETE** (10 new tests)
+  - Prelude: `stdlib::prelude` re-exports from all 9 stdlib modules
+  - PQC swap: runtime audit trail now uses SHA3-256/HMAC-SHA3-256 (was SHA-256/HMAC-SHA256)
+  - Classical fallbacks: hash_sha256/sign_sha256 retained for backward compatibility
+  - Integration tests: full pipeline, crypto chain verification, effect documentation, prelude completeness
+
 ## What's Next
 
-- M10 Layer 4+: stdlib FFI integration, audit trail PQC swap
-- Future: formal verification, pub(crate) visibility, cross-compilation
+- Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
