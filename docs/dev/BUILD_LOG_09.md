@@ -375,3 +375,65 @@ New workspace crate `packages/rune-secrets/` implementing secret lifecycle manag
 - **Reuse ClassificationLevel from rune-permissions**: No duplication — rune-secrets imports ClassificationLevel directly. Single source of truth for the classification hierarchy.
 - **Transit key derivation**: Each transit package derives a unique key from master key + route + timestamp via HKDF. Different routes produce different ciphertexts even for identical plaintext.
 - **Wrong-key behavior**: Envelope encryption with integrity hash detects tampering but not wrong keys (XOR cipher is malleable). Wrong keys produce garbage data, not errors. Real AEAD will fix this in Layer 2.
+
+---
+
+## 2026-04-09 — rune-identity Layer 1: Identity Lifecycle, Authentication, Sessions, Trust Scoring
+
+### What was built
+
+New workspace crate `packages/rune-identity/` implementing identity management for the RUNE governance ecosystem. Provides identity types (User, Service, Device, AiAgent, System), credential storage with secure hashing, multi-method authentication with rate limiting and lockout, session management with trust decay, continuous trust scoring, attestation chains, verifiable claims, federation interfaces (OIDC/SAML), and audit logging.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Password verification via rune-secrets HKDF, API key/token hashing with SHA3-256, constant-time comparison, HMAC-SHA3-256 signatures on attestations and claims, password policy enforcement (length, complexity, history)
+- **Assumed Breach**: Every authentication attempt audit-logged (success and failure), rate limiting with lockout after configurable failed attempts, session trust decays over time, credential compromise tracking
+- **Zero Trust Throughout**: Continuous trust scoring (0.0–1.0) with weighted factors (auth strength, device posture, behavior, network), step-up authentication thresholds, Bell-LaPadula classification via TrustPolicy, MFA requirements per classification level
+- **No Single Points of Failure**: Multiple authentication methods (password, API key, token, certificate, MFA), Shamir attestation chains detect tampering, K-of-N trust factors, session concurrent limits
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-identity to workspace members | +1 line |
+| packages/rune-identity/Cargo.toml | Crate manifest with rune-lang, rune-permissions, rune-secrets, serde, hex | New |
+| packages/rune-identity/src/lib.rs | Crate root, module registration, re-exports | New |
+| packages/rune-identity/src/error.rs | IdentityError enum (21 variants) | New |
+| packages/rune-identity/src/identity_type.rs | IdentityType, PasswordPolicy, DeviceClass, GovernanceLevel, AutonomyLevel | New |
+| packages/rune-identity/src/identity.rs | Identity, IdentityId, IdentityStatus, IdentityStore, IdentityBuilder | New |
+| packages/rune-identity/src/credential.rs | Credential, CredentialId, CredentialType, CredentialStatus, CredentialStore | New |
+| packages/rune-identity/src/authn.rs | Authenticator, AuthnMethod, AuthnRequest, AuthnResult, rate limiting, lockout | New |
+| packages/rune-identity/src/session.rs | Session, SessionManager, SessionConfig, trust decay, idle timeout | New |
+| packages/rune-identity/src/trust.rs | TrustScore, TrustLevel, TrustCalculator, TrustPolicy, TrustEvaluation | New |
+| packages/rune-identity/src/attestation.rs | IdentityAttestation, AttestationChain, SHA3-256 hash chain | New |
+| packages/rune-identity/src/claims.rs | Claim, ClaimType, ClaimSet, HMAC-SHA3-256 signatures | New |
+| packages/rune-identity/src/federation.rs | OidcClaims, SamlAssertion, FederationProtocol, FederationProvider | New |
+| packages/rune-identity/src/audit.rs | IdentityAuditEvent, IdentityEventType, IdentityAuditLog | New |
+
+### Test summary
+
+120 new tests (1315 total across workspace, all passing):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | All 21 variant Display messages |
+| identity_type | 15 | PasswordPolicy (default, strict, validate, violations), DeviceClass, GovernanceLevel ordering, AutonomyLevel (max_action_severity), helper constructors |
+| identity | 20 | IdentityId (namespace, local_part), IdentityStatus transitions, Identity builder, lifecycle (suspend, lock, reactivate, revoke), IdentityStore (register, find_by_email, list_by_type/status/org, deactivate) |
+| credential | 13 | CredentialId, CredentialType (Debug redaction), CredentialStatus, Credential builder, CredentialStore (add, find, revoke, mark_compromised, active_for_identity, cleanup_expired) |
+| authn | 17 | AuthnMethod (Display redaction, Debug redaction), Authenticator full flow (success, identity not found, suspended/locked/revoked, wrong password, expired/revoked credential, IP allowlist, MFA required, rate limit, lockout) |
+| session | 13 | SessionManager (create, validate, touch, revoke, revoke_all, renew, cleanup), idle timeout, max concurrent, trust decay, config presets |
+| trust | 14 | TrustLevel (from_score, ordering, min_score), TrustScore (level, is_sufficient), TrustCalculator (single/multiple factors, decay, auth_strength_score), TrustPolicy (allows, denies, step-up) |
+| attestation | 7 | AttestationChain (add, verify valid/tampered, has_type, of_type), signature verification, empty chain |
+| claims | 7 | Claim (construction, expiry, verify_signature), ClaimSet (add, has_claim, by_type, valid_claims, verify_all), ClaimType display |
+| federation | 6 | OidcClaims (expired, valid_audience), SamlAssertion (valid_time, get_attribute), FederationProvider construction, FederationProtocol display |
+| audit | 7 | IdentityAuditLog (record, events_for_identity, failed_authentications, security_events, since), event type display, audit event display |
+
+### Decisions
+
+- **Separate crate**: rune-identity depends on rune-lang (crypto), rune-permissions (ClassificationLevel), and rune-secrets (password hashing). Independent versioning from compiler.
+- **Password hashing via rune-secrets**: Uses HKDF-based hash_password/verify_password from rune-secrets::derivation. Real Argon2id deferred to rune-secrets Layer 2.
+- **API key/token stored as SHA3-256 hash**: Raw keys never stored. Verification re-hashes and compares with constant-time comparison.
+- **Trust score decay**: Sessions decay trust over time via configurable rate (default 5%/hour). Prevents stale sessions from retaining high trust.
+- **Federation data structures only**: OIDC and SAML types for adapter integration, not full protocol implementations. Real OIDC/SAML flows in Layer 2+.
+- **Attestation hash chains**: Each attestation links to predecessor via SHA3-256 hash. Tampering with any attestation invalidates the chain from that point forward.
+- **AuthnMethod Debug/Display redaction**: Passwords, keys, and tokens show method name only — never raw credential data in logs.

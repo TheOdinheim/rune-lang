@@ -423,8 +423,21 @@
   - Transit encryption with 5-minute expiry, route-specific key derivation
   - Secret audit logging with filtering, export, security metrics
 
+- **rune-identity Layer 1: Identity lifecycle, authentication, sessions, trust scoring** (120 new tests)
+  - Workspace crate: packages/rune-identity/ with 11 modules
+  - Identity types: User, Service, Device, AiAgent, System with type-specific policies
+  - Credential management: password (HKDF), API key (SHA3-256), token, certificate, MFA TOTP/WebAuthn
+  - Authentication: multi-method with rate limiting, lockout, IP allowlist, MFA step-up
+  - Session management: trust decay, idle timeout, concurrent limits, revoke-all
+  - Continuous trust scoring: weighted factors, configurable decay, step-up thresholds
+  - Attestation chains: SHA3-256 hash chain, HMAC-SHA3-256 signatures, tamper detection
+  - Verifiable claims: signed assertions (roles, attributes, memberships, delegations)
+  - Federation interfaces: OIDC and SAML2 data structures for adapter integration
+  - Identity audit logging: 19 event types, security event filtering
+
 ## What's Next
 
 - rune-permissions Layer 2+: policy integration, persistence, API
 - rune-secrets Layer 2+: real AEAD encryption, Argon2id, persistence
+- rune-identity Layer 2+: persistence, real OIDC/SAML, Argon2id passwords, session store
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
