@@ -350,6 +350,146 @@ pub fn check_project(root_file: &Path) -> Result<(), Vec<CompileError>> {
     Ok(())
 }
 
+// ── LLVM native compilation (feature-gated) ─────────────────────────
+
+/// Compile RUNE source code to native object code via LLVM.
+///
+/// Returns the native object file bytes on success, or compile errors.
+/// Requires the `llvm` feature to be enabled.
+#[cfg(feature = "llvm")]
+pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    // Phase 1: Lex.
+    let (tokens, lex_errors) = Lexer::new(source, file_id).tokenize();
+    for e in &lex_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Lex,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !lex_errors.is_empty() {
+        return Err(errors);
+    }
+
+    // Phase 2: Parse.
+    let (file, parse_errors) = Parser::new(tokens).parse();
+    for e in &parse_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Parse,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !parse_errors.is_empty() {
+        return Err(errors);
+    }
+
+    // Phase 3: Type check.
+    let mut ctx = TypeContext::new();
+    let mut checker = TypeChecker::new(&mut ctx);
+    checker.check_source_file(&file);
+    if !ctx.errors.is_empty() {
+        for e in &ctx.errors {
+            errors.push(CompileError {
+                phase: CompilePhase::Type,
+                message: e.message.clone(),
+                span: e.span.clone(),
+            });
+        }
+        return Err(errors);
+    }
+
+    // Phase 4: Lower to IR.
+    let mut lowerer = Lowerer::new();
+    let ir_module = lowerer.lower_source_file(&file);
+
+    // Phase 5: Compile to native via LLVM.
+    let llvm_context = inkwell::context::Context::create();
+    let mut codegen = crate::codegen::llvm_gen::LlvmCodegen::new(&llvm_context, "rune_module");
+    codegen.compile_module(&ir_module);
+
+    codegen.verify().map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM verification failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])?;
+
+    codegen.emit_object_bytes().map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM object emission failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])
+}
+
+/// Compile RUNE source code to a native object file on disk.
+#[cfg(feature = "llvm")]
+pub fn compile_to_native_file(
+    source: &str,
+    file_id: u32,
+    output: &Path,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    let (tokens, lex_errors) = Lexer::new(source, file_id).tokenize();
+    for e in &lex_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Lex,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !lex_errors.is_empty() {
+        return Err(errors);
+    }
+
+    let (file, parse_errors) = Parser::new(tokens).parse();
+    for e in &parse_errors {
+        errors.push(CompileError {
+            phase: CompilePhase::Parse,
+            message: e.message.clone(),
+            span: e.span.clone(),
+        });
+    }
+    if !parse_errors.is_empty() {
+        return Err(errors);
+    }
+
+    let mut ctx = TypeContext::new();
+    let mut checker = TypeChecker::new(&mut ctx);
+    checker.check_source_file(&file);
+    if !ctx.errors.is_empty() {
+        for e in &ctx.errors {
+            errors.push(CompileError {
+                phase: CompilePhase::Type,
+                message: e.message.clone(),
+                span: e.span.clone(),
+            });
+        }
+        return Err(errors);
+    }
+
+    let mut lowerer = Lowerer::new();
+    let ir_module = lowerer.lower_source_file(&file);
+
+    let llvm_context = inkwell::context::Context::create();
+    let mut codegen = crate::codegen::llvm_gen::LlvmCodegen::new(&llvm_context, "rune_module");
+    codegen.compile_module(&ir_module);
+
+    codegen.verify().map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM verification failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])?;
+
+    codegen.emit_object_file(output).map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM object emission failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])
+}
+
 #[cfg(test)]
 mod tests;
 

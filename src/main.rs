@@ -36,10 +36,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Compile a .rune file to WASM bytecode
+    /// Compile a .rune file to WASM bytecode (or native object with --target native)
     Build {
         /// Path to the .rune source file (defaults to src/main.rune if rune.toml exists)
         file: Option<PathBuf>,
+        /// Compilation target: "wasm" (default) or "native" (requires --features llvm)
+        #[arg(long, default_value = "wasm")]
+        target: String,
     },
     /// Type-check a .rune file without generating WASM
     Check {
@@ -92,9 +95,9 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Build { file } => {
+        Commands::Build { file, target } => {
             let file = resolve_source_file(file);
-            cmd_build(&file);
+            cmd_build(&file, &target);
         }
         Commands::Check { file } => {
             let file = resolve_source_file(file);
@@ -111,29 +114,72 @@ fn main() {
 
 // ── Subcommands ──────────────────────────────────────────────────────
 
-fn cmd_build(path: &PathBuf) {
+fn cmd_build(path: &PathBuf, target: &str) {
     let source = read_source(path);
 
-    match compile_project(path) {
-        Ok(wasm_bytes) => {
-            let output_path = path.with_extension("rune.wasm");
-            if let Err(e) = fs::write(&output_path, &wasm_bytes) {
-                eprintln!("{}error:{} failed to write {}: {e}", RED, RESET, output_path.display());
-                process::exit(EXIT_COMPILE_ERROR);
+    match target {
+        "wasm" => {
+            match compile_project(path) {
+                Ok(wasm_bytes) => {
+                    let output_path = path.with_extension("rune.wasm");
+                    if let Err(e) = fs::write(&output_path, &wasm_bytes) {
+                        eprintln!("{}error:{} failed to write {}: {e}", RED, RESET, output_path.display());
+                        process::exit(EXIT_COMPILE_ERROR);
+                    }
+                    eprintln!(
+                        "{}ok:{} {} -> {} ({} bytes)",
+                        GREEN, RESET,
+                        path.display(),
+                        output_path.display(),
+                        wasm_bytes.len()
+                    );
+                }
+                Err(errors) => {
+                    report_errors(path, &source, &errors);
+                    process::exit(EXIT_COMPILE_ERROR);
+                }
             }
+        }
+        "native" => {
+            cmd_build_native(path, &source);
+        }
+        other => {
+            eprintln!("{}error:{} unknown target '{}'. Supported: wasm, native", RED, RESET, other);
+            process::exit(EXIT_USAGE_ERROR);
+        }
+    }
+}
+
+#[cfg(feature = "llvm")]
+fn cmd_build_native(path: &PathBuf, source: &str) {
+    use rune_lang::compiler::compile_to_native_file;
+
+    let output_path = path.with_extension("rune.o");
+    match compile_to_native_file(source, 0, &output_path) {
+        Ok(()) => {
+            let size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
             eprintln!(
                 "{}ok:{} {} -> {} ({} bytes)",
                 GREEN, RESET,
                 path.display(),
                 output_path.display(),
-                wasm_bytes.len()
+                size
             );
         }
         Err(errors) => {
-            report_errors(path, &source, &errors);
+            report_errors(path, source, &errors);
             process::exit(EXIT_COMPILE_ERROR);
         }
     }
+}
+
+#[cfg(not(feature = "llvm"))]
+fn cmd_build_native(_path: &PathBuf, _source: &str) {
+    eprintln!(
+        "{}error:{} native target requires the 'llvm' feature — rebuild with: cargo build --features llvm",
+        RED, RESET
+    );
+    process::exit(EXIT_USAGE_ERROR);
 }
 
 fn cmd_check(path: &PathBuf) {

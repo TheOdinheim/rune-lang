@@ -2,9 +2,9 @@
 
 ## Current Milestone
 
-**M8: FFI & Backend** — Target: Month 24 — **In Progress**
+**M9: LLVM Backend** — Target: Month 30 — **In Progress**
 
-**COMPLETE.** Layers 1-4: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API, wire format serialization, language integration packages (rune-rs, rune-python). 815 tests passing.
+Layer 1 complete: LLVM infrastructure, feature gating, basic IR-to-LLVM translation. 815 tests passing (+ 27 LLVM tests with `--features llvm`).
 
 ### M8 Deliverables
 
@@ -56,6 +56,7 @@
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
+| M9: LLVM Backend | Month 30 | **In Progress** — L1 done: LLVM infrastructure, feature gating, IR-to-LLVM translation |
 
 ## What's Done
 
@@ -350,7 +351,14 @@
   - Usage examples: Rust, Python, C integration patterns
   - Integration guide: docs/INTEGRATION_GUIDE.md covering all three language paths
 
+- **M9 Layer 1: LLVM backend infrastructure, feature gating, basic IR-to-LLVM translation** (27 new LLVM-gated tests)
+  - LlvmCodegen: all IR instruction kinds translated to LLVM IR via inkwell
+  - Feature-gated: `llvm = ["inkwell"]`, not in default features
+  - compile_to_native() and compile_to_native_file() pipeline functions
+  - CLI: `--target native` flag on Build subcommand
+  - Full pipeline: RUNE source → native ELF object file (.o)
+
 ## What's Next
 
-- M9+: LLVM backend, standard library, formal verification
-- Future module enhancements: pub(crate) visibility, module-level constants
+- M9 Layer 2+: native audit runtime, control flow optimization, cross-compilation
+- Future: standard library, formal verification, pub(crate) visibility
