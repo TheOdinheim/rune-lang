@@ -118,3 +118,66 @@ Five standard library modules providing system interaction with effect enforceme
 - **IoError From<std::io::Error>**: Maps io::ErrorKind to specific variants for clear error messages.
 - **TcpConnection audit tracking**: connection_id, bytes_sent, bytes_received — ready for governance audit.
 - **tcp_connect timeout marked #[ignore]**: 5-second TCP timeout test is slow. Runs in CI but not by default.
+
+---
+
+## 2026-04-09 — M10 Layer 3: rune::attestation, rune::policy, rune::audit — Governance Standard Library
+
+### What was built
+
+Three governance-focused standard library modules wrapping M5 runtime infrastructure with typed, composable APIs. Model attestation (`attestation`) for trust chain verification with PQC signing, policy evaluation utilities (`policy`) with decision combinators and risk assessment, and audit trail access (`audit`) with chain verification, filtering, summaries, and export formats.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Model attestation uses PQC-default signing (ML-DSA-65 placeholder via crypto::default_sign). Policy decisions fail-closed (unknown i32 → Deny).
+- **Assumed Breach**: Audit trail chain verification detects tampering via SHA3-256 record hashes. Decision summaries surface anomalous permit rates.
+- **Zero Trust Throughout**: TrustPolicy tiers (permissive, strict, defense) enforce graduated trust requirements — SLSA levels, signer allowlists, freshness checks.
+- **No Single Points of Failure**: Multiple decision combinators (first_non_permit, most_severe, unanimous) — no single evaluation strategy.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/stdlib/attestation/mod.rs | ModelCard builder, TrustPolicy tiers, TrustVerifier, PQC signing | New (~470 lines) |
+| src/stdlib/policy/mod.rs | Decision enum, combinators, PolicyRequest builder, RiskLevel, PolicyInfo | New (~380 lines) |
+| src/stdlib/audit/mod.rs | AuditEntry, AuditTrailView, DecisionSummary, chain verification, JSON/CSV export | New (~370 lines) |
+| src/stdlib/mod.rs | Register attestation, policy, audit modules | +3 lines |
+
+### Architecture
+
+**Attestation module:**
+- ModelCard builder with model_id, model_hash, signer, framework, architecture, slsa_level, training_data_hash, policy_requirements
+- TrustPolicy presets: permissive (sig only), strict (SLSA 3+, training data, 24h freshness), defense (SLSA 4, 1h freshness)
+- TrustVerifier checks: required signers, SLSA level, framework allowlist, training data, attestation age
+- sign_model/verify_signed_model using crypto::default_sign/verify (PQC-first)
+
+**Policy module:**
+- Decision enum: Permit=0, Deny=1, Escalate=2, Quarantine=3 with i32 encoding matching WASM/native backends
+- Severity ordering: Permit < Escalate < Deny < Quarantine (distinct from i32 encoding)
+- Combinators: first_non_permit, most_severe, all_permit, any_deny, unanimous
+- RiskLevel: Low (0-25), Medium (26-50), High (51-75), Critical (76-100)
+
+**Audit module:**
+- AuditEntry with SHA3-256 input_hash and record_hash for chain integrity
+- AuditTrailView: len, is_empty, get, latest, decisions, by_module, by_function, since
+- DecisionSummary: total, permits, denies, escalations, quarantines, permit_rate
+- verify_chain/verify_integrity: recompute record hashes, detect tampering
+- Export: to_json (JSON lines), to_csv, write_to_file with ExportFormat enum
+
+### Test summary
+
+55 new tests (957 total, all passing):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| attestation | 14 | ModelCard builder (all/optional fields), TrustPolicy presets (permissive/strict/defense), builder, verifier passes/rejects (training data, wrong signer), sign/verify (correct/wrong key), TrustResult display |
+| policy | 22 | Decision is_* methods, is_allowed/blocked, severity ordering, request builder (full/defaults), first_non_permit (all/mixed/first wins/empty), most_severe (deny/quarantine/empty), all_permit, any_deny, unanimous (same/mixed), risk_level boundaries, risk_level as_str, PolicyInfo constructible |
+| audit | 19 | AuditEntry construction/with_decision, event kind display, trail view (len/empty, get/latest, decisions filter, by_module, by_function, since), decision summary (full/display/empty), verify_chain (valid/empty/tampered), verify_integrity (ok/empty), JSON/CSV export, write_to_file, error display |
+
+### Decisions
+
+- **SHA3-256 for record hashes**: Consistent with PQC-first design. Audit hashes use same algorithm as crypto module default.
+- **Hex-encoded hash strings**: Record and input hashes stored as hex strings for human readability in exports and logs.
+- **Severity ≠ i32 encoding**: Decision severity (Permit=0 < Escalate=1 < Deny=2 < Quarantine=3) differs from the i32 wire encoding (0=Permit, 1=Deny, 2=Escalate, 3=Quarantine). Severity is for combinator logic; i32 encoding is for ABI.
+- **JSON lines, not JSON array**: Export uses one JSON object per line (JSONL) — streamable, appendable, grep-friendly.
+- **No runtime dependency**: These modules are pure stdlib wrappers. They don't import from src/runtime/ — they provide parallel typed APIs for RUNE programs.

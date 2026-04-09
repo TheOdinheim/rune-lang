@@ -4,7 +4,7 @@
 
 **M10: Standard Library** — Target: Month 36 — **In Progress**
 
-Layer 2 complete: io, net, env, time, collections modules with effect enforcement. 902 tests passing (+ 91 LLVM-gated).
+Layer 3 complete: attestation, policy, audit governance modules. 957 tests passing (+ 91 LLVM-gated).
 
 ### M8 Deliverables
 
@@ -57,7 +57,7 @@ Layer 2 complete: io, net, env, time, collections modules with effect enforcemen
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
 | M9: LLVM Backend | Month 30 | **Complete** — L1-L4: LLVM infra, IR translation, native linking, cross-backend validation |
-| M10: Standard Library | Month 36 | **In Progress** — L1-L2: crypto, io, net, env, time, collections |
+| M10: Standard Library | Month 36 | **In Progress** — L1-L3: crypto, io, net, env, time, collections, attestation, policy, audit |
 
 ## What's Done
 
@@ -393,7 +393,12 @@ Layer 2 complete: io, net, env, time, collections modules with effect enforcemen
   - rune::time: Unix timestamps, duration formatting, constants
   - rune::collections: sort, unique, contains, min/max/sum/avg (pure, no effects)
 
+- **M10 Layer 3: rune::attestation, rune::policy, rune::audit — governance standard library** (55 new tests)
+  - rune::attestation: ModelCard builder, TrustPolicy tiers (permissive/strict/defense), TrustVerifier, PQC signing
+  - rune::policy: Decision enum with combinators (first_non_permit, most_severe, unanimous), PolicyRequest builder, RiskLevel
+  - rune::audit: AuditEntry with SHA3-256 hashes, AuditTrailView with filters, DecisionSummary, chain verification, JSON/CSV export
+
 ## What's Next
 
-- M10 Layer 3+: audit trail PQC swap, stdlib integration
+- M10 Layer 4+: stdlib FFI integration, audit trail PQC swap
 - Future: formal verification, pub(crate) visibility, cross-compilation
