@@ -304,3 +304,74 @@ New workspace crate `packages/rune-permissions/` implementing a capability-based
 - **Built-in role templates**: system_admin, security_officer, operator, auditor, viewer, ai_agent provide common patterns. security_officer is mutually exclusive with system_admin (separation of duties).
 - **Classification via Ord**: ClassificationLevel derives PartialOrd/Ord, making dominates() a simple comparison. Maps directly to Bell-LaPadula "no read up".
 - **Two evaluation paths**: PermissionStore checks RBAC first, then direct grants. Either path can allow; both must deny for final denial. This prevents single points of failure.
+
+---
+
+## 2026-04-09 — rune-secrets Layer 1: Secret Lifecycle Management
+
+### What was built
+
+New workspace crate `packages/rune-secrets/` implementing secret lifecycle management for the RUNE governance ecosystem. Provides secure storage with zeroization, envelope encryption (DEK/KEK pattern), HKDF key derivation, Shamir's Secret Sharing, versioned rotation, classification-based handling rules, transit encryption, and comprehensive audit logging.
+
+### Four-pillar alignment
+
+- **Security Baked In**: SecretValue zeroes memory on Drop (write_volatile), constant-time comparison prevents timing attacks, envelope encryption separates data keys from master keys, PQC-first HKDF using HMAC-SHA3-256
+- **Assumed Breach**: Every vault access is audit-logged (create, read, rotate, destroy, deny), integrity hashes on all encrypted data, Shamir sharing enables key escrow without single custodian
+- **Zero Trust Throughout**: Bell-LaPadula clearance checks on every retrieval, transit packages expire in 5 minutes, usage limits prevent runaway access, classification-driven handling rules
+- **No Single Points of Failure**: DEK/KEK separation allows master key rotation without re-encrypting data, K-of-N secret sharing, versioned rotation with configurable retention
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-secrets to workspace members | +1 line |
+| packages/rune-secrets/Cargo.toml | Crate manifest with rune-lang, rune-permissions, serde, hex | New |
+| packages/rune-secrets/README.md | Crate documentation | New |
+| packages/rune-secrets/src/lib.rs | Crate root, module registration, re-exports | New |
+| packages/rune-secrets/src/secret.rs | SecretValue (zeroized), SecretId, SecretMetadata, SecretEntry, VersionedSecret | New |
+| packages/rune-secrets/src/vault.rs | SecretVault, VaultAccessPolicy, VaultHealth, access control | New |
+| packages/rune-secrets/src/envelope.rs | DEK/KEK envelope encryption, HMAC-SHA3-256 XOR cipher | New |
+| packages/rune-secrets/src/derivation.rs | HKDF extract/expand, derive_key, derive_subkeys, password hashing | New |
+| packages/rune-secrets/src/rotation.rs | RotationPolicy presets, RotationStatus, status checking | New |
+| packages/rune-secrets/src/sharing.rs | Shamir's Secret Sharing, GF(256) arithmetic, split/reconstruct | New |
+| packages/rune-secrets/src/classification.rs | HandlingRules per ClassificationLevel, validate_handling | New |
+| packages/rune-secrets/src/transit.rs | TransitPackage, 5-minute expiry, route-specific key derivation | New |
+| packages/rune-secrets/src/audit.rs | SecretAuditLog, SecretEvent, SecretEventType, filtering/export | New |
+| packages/rune-secrets/src/error.rs | SecretError enum (17 variants) | New |
+
+### Architecture
+
+**Zeroization**: SecretValue overwrites memory with zeros on Drop using `write_volatile` to prevent compiler elision. Custom Debug shows `[REDACTED N bytes]`. Constant-time equality comparison using XOR-accumulate.
+
+**Envelope encryption**: Each secret encrypted with unique DEK (data-encryption key). DEK encrypted with master KEK (key-encryption key). Re-encryption changes only the DEK wrapper — ciphertext untouched. Placeholder HMAC-SHA3-256 XOR stream cipher; swap to AES-256-GCM when aes-gcm crate added.
+
+**Key derivation**: HKDF (RFC 5869) using HMAC-SHA3-256. Extract phase: PRK = HMAC(salt, IKM). Expand phase: iterative HMAC with counter bytes. derive_subkeys generates multiple keys from same IKM with different info labels.
+
+**Shamir's Secret Sharing**: GF(256) arithmetic with Russian peasant multiplication and Fermat's little theorem for division. Each byte of secret split independently using random polynomial of degree K-1. Lagrange interpolation for reconstruction.
+
+**Vault access control**: Bell-LaPadula "no read up" — subject clearance must dominate secret classification. Usage limits, expiration, and state checks (compromised/destroyed secrets inaccessible).
+
+### Test summary
+
+131 new tests (1179 total across workspace, all passing):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| secret | 26 | SecretId, SecretValue (new, from_str, expose, debug redacted, constant-time eq, clone, empty, zeroize), SecretType (cryptographic, rotation days, display), SecretState (usable, display), SecretMetadata (builders, expiry, usage), SecretEntry (new, accessible, expired, destroyed), VersionedSecret (new, add, lookup, trim) |
+| vault | 14 | Store/retrieve, duplicate, not found, clearance denied, remove, mark compromised, rotate, rotation status, health, audit log tracking, expired, usage limit, Bell-LaPadula |
+| envelope | 10 | Generate DEK, XOR cipher roundtrip, encrypt/decrypt roundtrip, empty fails, wrong KEK integrity, tamper detection, re-encrypt with new KEK, old KEK wrong data, different nonces, large plaintext |
+| derivation | 17 | HKDF extract (deterministic, different salts, empty salt), expand (32/64 bytes, different info, too long), derive_key (full, deterministic), derive_subkeys, hash_password, verify_password (correct/wrong/wrong salt), constant_time_eq |
+| rotation | 12 | Policy presets (aggressive/standard/relaxed/token), for_secret_type, display, status (current/due_soon/overdue/never_rotated), display, result fields |
+| sharing | 20 | GF(256) add/mul/div (identity, zero, roundtrip, div by zero), split 2-of-3, reconstruct 2-of-3 (all combos), 3-of-5, all shares, threshold too low, n<k, empty, single share, duplicate x, data differs, single byte, large secret |
+| classification | 12 | Rules per level (public/internal/confidential/restricted/top_secret), validate no violations, missing encryption, multiple violations, public no requirements, key length, severity ordering, display |
+| transit | 7 | Package/unpackage roundtrip, expired, just before expiry, tampered integrity, wrong key wrong data, is_expired, different routes |
+| audit | 12 | Event type display, event display, log empty/record, for_secret, by_type, since, by_actor, denied_count, compromise_count, to_json_lines, all |
+| error | 1 | All 17 variant Display messages |
+
+### Decisions
+
+- **Placeholder cipher, not stub**: HMAC-SHA3-256 XOR stream cipher produces real ciphertext with integrity. When AES-256-GCM arrives, swap xor_cipher() bodies only — all tests and callers unchanged.
+- **GF(256) without lookup tables**: Russian peasant multiplication + Fermat inverse avoids table construction bugs. Slightly slower but correct and compact. Good enough for key escrow use case.
+- **Reuse ClassificationLevel from rune-permissions**: No duplication — rune-secrets imports ClassificationLevel directly. Single source of truth for the classification hierarchy.
+- **Transit key derivation**: Each transit package derives a unique key from master key + route + timestamp via HKDF. Different routes produce different ciphertexts even for identical plaintext.
+- **Wrong-key behavior**: Envelope encryption with integrity hash detects tampering but not wrong keys (XOR cipher is malleable). Wrong keys produce garbage data, not errors. Real AEAD will fix this in Layer 2.

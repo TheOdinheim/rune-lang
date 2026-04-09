@@ -411,7 +411,20 @@
   - Built-in templates: system_admin, security_officer, operator, auditor, viewer, ai_agent
   - Unified PermissionStore: RBAC + direct grants, audit logging
 
+- **rune-secrets Layer 1: Secret lifecycle management** (131 new tests)
+  - Workspace crate: packages/rune-secrets/ with 10 modules
+  - SecretValue with zeroization on Drop, constant-time comparison, [REDACTED] debug
+  - SecretVault: in-memory store with Bell-LaPadula clearance checks, usage limits, expiration
+  - Envelope encryption: DEK/KEK pattern using HMAC-SHA3-256 XOR stream cipher
+  - HKDF key derivation (RFC 5869) using HMAC-SHA3-256, password hashing placeholder
+  - Shamir's Secret Sharing: GF(256) arithmetic, K-of-N split/reconstruct
+  - Rotation policies: aggressive/standard/relaxed/token presets, status tracking
+  - Classification handling rules per level, violation detection
+  - Transit encryption with 5-minute expiry, route-specific key derivation
+  - Secret audit logging with filtering, export, security metrics
+
 ## What's Next
 
 - rune-permissions Layer 2+: policy integration, persistence, API
+- rune-secrets Layer 2+: real AEAD encryption, Argon2id, persistence
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
