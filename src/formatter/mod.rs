@@ -197,6 +197,7 @@ impl Formatter {
             ItemKind::Const(c) => self.format_const(c),
             ItemKind::Module(m) => self.format_module(m),
             ItemKind::Use(u) => self.format_use(u),
+            ItemKind::Extern(e) => self.format_extern_block(e),
         }
     }
 
@@ -549,6 +550,60 @@ impl Formatter {
         }
         self.push(";");
         self.newline();
+    }
+
+    fn format_extern_block(&mut self, block: &ExternBlock) {
+        self.indent();
+        if block.visibility == Visibility::Public {
+            self.push("pub ");
+        }
+        self.push("extern ");
+        if let Some(ref abi) = block.abi {
+            self.push(&format!("\"{}\" ", abi));
+        }
+        if block.functions.len() == 1 && block.abi.is_none() {
+            // Standalone extern fn sugar.
+            let f = &block.functions[0];
+            self.push(&format!("fn {}(", f.name.name));
+            for (i, param) in f.params.iter().enumerate() {
+                if i > 0 {
+                    self.push(", ");
+                }
+                self.push(&format!("{}: ", param.name.name));
+                self.format_type_expr(&param.ty);
+            }
+            self.push(")");
+            if let Some(ref ret) = f.return_type {
+                self.push(" -> ");
+                self.format_type_expr(ret);
+            }
+            self.push(";");
+            self.newline();
+        } else {
+            self.push("{");
+            self.newline();
+            self.indent_level += 1;
+            for f in &block.functions {
+                self.indent();
+                self.push(&format!("fn {}(", f.name.name));
+                for (i, param) in f.params.iter().enumerate() {
+                    if i > 0 {
+                        self.push(", ");
+                    }
+                    self.push(&format!("{}: ", param.name.name));
+                    self.format_type_expr(&param.ty);
+                }
+                self.push(")");
+                if let Some(ref ret) = f.return_type {
+                    self.push(" -> ");
+                    self.format_type_expr(ret);
+                }
+                self.push(";");
+                self.newline();
+            }
+            self.indent_level -= 1;
+            self.push_line("}");
+        }
     }
 
     // ── Type expressions ─────────────────────────────────────────

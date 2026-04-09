@@ -420,4 +420,121 @@ mod tests {
             fn main() -> Int { 42 }
         "#);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern blocks and FFI effect enforcement
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_fn_registered_and_callable() {
+        check_ok(r#"
+            extern { fn sha256(data: Int) -> Int; }
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_fn_standalone_callable() {
+        check_ok(r#"
+            extern fn sha256(data: Int) -> Int;
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_fn_without_ffi_effect_error() {
+        check_err(
+            r#"
+            extern { fn sha256(data: Int) -> Int; }
+            fn hash(x: Int) -> Int { sha256(x) }
+            "#,
+            "effect",
+        );
+    }
+
+    #[test]
+    fn test_extern_fn_ffi_effect_transitive() {
+        // Calling a function that calls extern requires ffi effect too.
+        check_err(
+            r#"
+            extern fn sha256(data: Int) -> Int;
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+            fn wrapper(x: Int) -> Int { hash(x) }
+            "#,
+            "effect",
+        );
+    }
+
+    #[test]
+    fn test_extern_fn_ffi_effect_transitive_allowed() {
+        check_ok(r#"
+            extern fn sha256(data: Int) -> Int;
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+            fn wrapper(x: Int) -> Int with effects { ffi } { hash(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_fn_no_return_type() {
+        check_ok(r#"
+            extern fn log_msg(msg: String);
+            fn do_log(s: String) with effects { ffi } { log_msg(s) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_block_multiple_fns() {
+        check_ok(r#"
+            extern {
+                fn sha256(data: Int) -> Int;
+                fn sha512(data: Int) -> Int;
+            }
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+            fn hash2(x: Int) -> Int with effects { ffi } { sha512(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_with_abi_callable() {
+        check_ok(r#"
+            extern "C" fn sha256(data: Int) -> Int;
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_pub_extern_visibility() {
+        check_ok(r#"
+            pub extern { fn sha256(data: Int) -> Int; }
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_fn_in_module() {
+        check_ok(r#"
+            mod crypto {
+                pub extern fn sha256(data: Int) -> Int;
+                pub fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+            }
+            fn main() -> Int with effects { ffi } { crypto::hash(42) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_fn_multiple_params() {
+        check_ok(r#"
+            extern fn hmac(key: Int, data: Int) -> Int;
+            fn sign(k: Int, d: Int) -> Int with effects { ffi } { hmac(k, d) }
+        "#);
+    }
+
+    #[test]
+    fn test_extern_alongside_regular_fns() {
+        check_ok(r#"
+            extern fn sha256(data: Int) -> Int;
+            fn pure_add(a: Int, b: Int) -> Int { a + b }
+            fn hash_and_add(x: Int) -> Int with effects { ffi } { sha256(x) + pure_add(1, 2) }
+        "#);
+    }
 }

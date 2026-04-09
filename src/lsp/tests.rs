@@ -319,4 +319,35 @@ mod tests {
         assert!(!diags.is_empty(), "expected privacy error diagnostic");
         assert!(diags.iter().any(|d| d.message.contains("private")), "expected 'private' in message: {:?}", diags);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern / FFI LSP support
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_keyword_hover() {
+        let hover = keyword_hover("extern");
+        assert!(hover.is_some(), "expected hover for 'extern'");
+        let text = hover.unwrap();
+        assert!(text.contains("extern") || text.contains("FFI") || text.contains("foreign"),
+            "hover should mention extern/FFI: {text}");
+    }
+
+    #[test]
+    fn test_extern_fn_completions() {
+        let source = "extern fn sha256(data: Int) -> Int;\nfn main() -> Int with effects { ffi } { sha256(1) }";
+        let items = identifier_completions(source);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"sha256"), "expected 'sha256' in completions: {:?}", labels);
+    }
+
+    #[test]
+    fn test_extern_fn_hover_info() {
+        let source = "extern fn sha256(data: Int) -> Int;";
+        let info = find_declaration_info(source, "sha256");
+        assert!(info.is_some(), "expected declaration info for sha256");
+        let hover_text = info.unwrap();
+        assert!(hover_text.contains("extern") || hover_text.contains("ffi"),
+            "hover should mention extern or ffi: {hover_text}");
+    }
 }

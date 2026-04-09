@@ -337,4 +337,41 @@ policy eu_ai_act{rule risk_assessment(risk_score:Int){if risk_score>90{quarantin
             "pub mod crypto {\n    fn verify() -> Bool {\n        true\n    }\n}\n",
         );
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern block formatting
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_standalone_fn_formatting() {
+        assert_formats_to(
+            "extern   fn   sha256( data: Int )  ->  Int ;",
+            "extern fn sha256(data: Int) -> Int;\n",
+        );
+    }
+
+    #[test]
+    fn test_extern_block_formatting() {
+        let input = "extern { fn sha256(data: Int) -> Int; fn md5(data: Int) -> Int; }";
+        let result = format_source(input).expect("format failed");
+        assert!(result.contains("extern {"));
+        assert!(result.contains("fn sha256(data: Int) -> Int;"));
+        assert!(result.contains("fn md5(data: Int) -> Int;"));
+        assert!(result.contains("}"));
+    }
+
+    #[test]
+    fn test_extern_with_abi_formatting() {
+        // With ABI string, formatter always uses block form.
+        let input = r#"extern  "C"  fn  sha256( data:  Int ) -> Int ;"#;
+        let result = format_source(input).expect("format failed");
+        assert!(result.contains("extern \"C\" {"));
+        assert!(result.contains("fn sha256(data: Int) -> Int;"));
+    }
+
+    #[test]
+    fn test_extern_formatting_idempotent() {
+        assert_idempotent("extern fn sha256(data: Int) -> Int;");
+        assert_idempotent("extern { fn sha256(data: Int) -> Int; }");
+    }
 }

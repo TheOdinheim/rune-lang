@@ -34,6 +34,7 @@ module.exports = grammar({
       $.const_declaration,
       $.mod_declaration,
       $.use_declaration,
+      $.extern_block,
     ),
 
     // ── Policy declarations ──────────────────────────────────────
@@ -215,6 +216,26 @@ module.exports = grammar({
         ";",
         seq("{", repeat($._item), "}"),
       ),
+    ),
+
+    extern_block: $ => seq(
+      optional("pub"),
+      "extern",
+      optional(field("abi", $.string_literal)),
+      choice(
+        // Block form: extern { fn sha256(data: Int) -> Int; }
+        seq("{", repeat($.extern_fn_declaration), "}"),
+        // Standalone: extern fn sha256(data: Int) -> Int;
+        $.extern_fn_declaration,
+      ),
+    ),
+
+    extern_fn_declaration: $ => seq(
+      "fn",
+      field("name", $.identifier),
+      $.parameter_list,
+      optional($.return_type),
+      ";",
     ),
 
     use_declaration: $ => seq(

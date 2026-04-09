@@ -62,6 +62,9 @@ pub enum ItemKind {
     Module(ModuleDecl),
     Use(UseDecl),
 
+    // ── FFI ──────────────────────────────────────────────────────────
+    Extern(ExternBlock),
+
     // ── Constants ────────────────────────────────────────────────────
     Const(ConstDecl),
 
@@ -326,6 +329,35 @@ pub enum UseKind {
     Glob,
     /// `use crypto;` — imports the module itself.
     Module,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FFI — extern blocks
+// ═══════════════════════════════════════════════════════════════════════
+
+/// `[pub] extern ["C"] { fn sha256(data: Int) -> Int; ... }`
+///
+/// Declares foreign functions that are implemented outside RUNE.
+/// All extern functions implicitly carry the `ffi` effect.
+///
+/// Pillar: Security Baked In — the ffi effect must be declared by any
+/// caller, creating an auditable boundary at every foreign call site.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternBlock {
+    pub visibility: Visibility,
+    pub abi: Option<String>,
+    pub functions: Vec<ExternFnDecl>,
+    pub span: Span,
+}
+
+/// A single foreign function declaration inside an extern block.
+/// Has no body — the implementation is provided by foreign code at link time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternFnDecl {
+    pub name: Ident,
+    pub params: Vec<Param>,
+    pub return_type: Option<TypeExpr>,
+    pub span: Span,
 }
 
 // ═══════════════════════════════════════════════════════════════════════

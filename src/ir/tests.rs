@@ -482,4 +482,47 @@ policy access {
         assert_eq!(format!("{}", BlockId(0)), "bb0");
         assert_eq!(format!("{}", BlockId(3)), "bb3");
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: FFI audit instrumentation
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_fn_audit_marks() {
+        let module = lower(r#"
+            extern fn sha256(data: Int) -> Int;
+            fn hash(x: Int) -> Int with effects { ffi } { sha256(x) }
+        "#);
+        // Find the hash function.
+        let hash_fn = module.functions.iter().find(|f| f.name == "hash").expect("expected hash function");
+        let all_insts: Vec<&InstKind> = hash_fn.blocks.iter()
+            .flat_map(|b| b.instructions.iter().map(|i| &i.kind))
+            .collect();
+
+        let has_ffi_start = all_insts.iter().any(|k| matches!(k, InstKind::AuditMark(AuditKind::FfiCallStart { function_name }) if function_name == "sha256"));
+        let has_ffi_end = all_insts.iter().any(|k| matches!(k, InstKind::AuditMark(AuditKind::FfiCallEnd { function_name }) if function_name == "sha256"));
+        assert!(has_ffi_start, "expected FfiCallStart audit mark for sha256");
+        assert!(has_ffi_end, "expected FfiCallEnd audit mark for sha256");
+    }
+
+    #[test]
+    fn test_non_extern_fn_no_ffi_audit_marks() {
+        let module = lower(r#"
+            fn add(a: Int, b: Int) -> Int { a + b }
+            fn caller() -> Int { add(1, 2) }
+        "#);
+        let caller_fn = module.functions.iter().find(|f| f.name == "caller").expect("expected caller function");
+        let has_ffi_mark = caller_fn.blocks.iter()
+            .flat_map(|b| b.instructions.iter())
+            .any(|i| matches!(&i.kind, InstKind::AuditMark(AuditKind::FfiCallStart { .. }) | InstKind::AuditMark(AuditKind::FfiCallEnd { .. })));
+        assert!(!has_ffi_mark, "non-extern call should not have FFI audit marks");
+    }
+
+    #[test]
+    fn test_ffi_audit_display() {
+        let start = AuditKind::FfiCallStart { function_name: "sha256".to_string() };
+        let end = AuditKind::FfiCallEnd { function_name: "sha256".to_string() };
+        assert!(format!("{}", start).contains("sha256"));
+        assert!(format!("{}", end).contains("sha256"));
+    }
 }

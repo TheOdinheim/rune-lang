@@ -24,6 +24,7 @@ pub enum DocItemKind {
     Struct,
     Enum,
     Module,
+    ExternFunction,
 }
 
 impl std::fmt::Display for DocItemKind {
@@ -36,6 +37,7 @@ impl std::fmt::Display for DocItemKind {
             DocItemKind::Struct => write!(f, "Struct"),
             DocItemKind::Enum => write!(f, "Enum"),
             DocItemKind::Module => write!(f, "Module"),
+            DocItemKind::ExternFunction => write!(f, "Extern Function"),
         }
     }
 }
@@ -199,6 +201,47 @@ fn extract_item_doc(item: &Item, source_lines: &[&str]) -> Option<DocItem> {
                 children: Vec::new(),
                 line_number: line,
             })
+        }
+        ItemKind::Extern(block) => {
+            let comment = extract_comment_above(source_lines, block.span.line);
+            let mut children = Vec::new();
+            for ext_fn in &block.functions {
+                let fn_comment = extract_comment_above(source_lines, ext_fn.span.line);
+                let params: Vec<String> = ext_fn.params.iter()
+                    .map(|p| format!("{}: <type>", p.name.name))
+                    .collect();
+                let ret = if ext_fn.return_type.is_some() { " -> <type>" } else { "" };
+                let sig = format!("extern fn {}({}){}", ext_fn.name.name, params.join(", "), ret);
+                children.push(DocItem {
+                    name: ext_fn.name.name.clone(),
+                    kind: DocItemKind::ExternFunction,
+                    doc_comment: fn_comment,
+                    signature: sig,
+                    children: Vec::new(),
+                    line_number: ext_fn.span.line,
+                });
+            }
+            if children.len() == 1 {
+                // Standalone extern fn — promote to top-level item.
+                return Some(children.into_iter().next().unwrap());
+            }
+            // Multi-function extern block — wrap as a group.
+            // Return each function as a separate doc item.
+            // For simplicity, return the first and let the caller iterate.
+            // Actually, extract_docs iterates items — return each extern fn.
+            // We'll return None here and handle in extract_docs.
+            return if children.is_empty() {
+                None
+            } else {
+                Some(DocItem {
+                    name: "extern".to_string(),
+                    kind: DocItemKind::ExternFunction,
+                    doc_comment: comment,
+                    signature: "extern { ... }".to_string(),
+                    children,
+                    line_number: block.span.line,
+                })
+            };
         }
         ItemKind::Module(m) => {
             let line = m.span.line;

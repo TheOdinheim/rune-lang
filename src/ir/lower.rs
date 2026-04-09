@@ -12,7 +12,7 @@
 // - Audit instrumentation → AuditMark at function entry/exit and decisions
 // ═══════════════════════════════════════════════════════════════════════
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::nodes::*;
 use crate::ir::nodes::*;
@@ -41,6 +41,8 @@ pub struct Lowerer {
     block_terminated: bool,
     /// Stack of loop contexts for break/continue. Each entry is (header_block, exit_block, result_ptr).
     loop_stack: Vec<LoopContext>,
+    /// Set of extern function names for FFI audit instrumentation.
+    extern_functions: HashSet<String>,
 }
 
 /// Context for a loop being lowered, enabling break/continue.
@@ -67,6 +69,7 @@ impl Lowerer {
             current_fn_name: String::new(),
             block_terminated: false,
             loop_stack: Vec::new(),
+            extern_functions: HashSet::new(),
         }
     }
 
@@ -90,6 +93,15 @@ impl Lowerer {
                 ItemKind::Module(decl) => {
                     if let Some(items) = &decl.items {
                         self.pre_collect_module_return_types(items, &decl.name.name);
+                    }
+                }
+                ItemKind::Extern(block) => {
+                    for ext_fn in &block.functions {
+                        let ret_ty = ext_fn.return_type.as_ref()
+                            .map(|t| self.map_type_expr(t))
+                            .unwrap_or(IrType::Unit);
+                        self.function_return_types.insert(ext_fn.name.name.clone(), ret_ty);
+                        self.extern_functions.insert(ext_fn.name.name.clone());
                     }
                 }
                 _ => {}
@@ -538,10 +550,32 @@ impl Lowerer {
                 let ret_ty = self.function_return_types.get(&func_name)
                     .cloned()
                     .unwrap_or(IrType::Unit);
-                self.emit(
-                    InstKind::Call { func: func_name, args: arg_vals, ret_ty: ret_ty.clone() },
-                    ret_ty,
-                )
+
+                let is_extern = self.extern_functions.contains(&func_name);
+                if is_extern {
+                    self.emit(
+                        InstKind::AuditMark(AuditKind::FfiCallStart {
+                            function_name: func_name.clone(),
+                        }),
+                        IrType::Unit,
+                    );
+                }
+
+                let result = self.emit(
+                    InstKind::Call { func: func_name.clone(), args: arg_vals, ret_ty: ret_ty.clone() },
+                    ret_ty.clone(),
+                );
+
+                if is_extern {
+                    self.emit(
+                        InstKind::AuditMark(AuditKind::FfiCallEnd {
+                            function_name: func_name,
+                        }),
+                        IrType::Unit,
+                    );
+                }
+
+                result
             }
 
             // ── If/else ─────────────────────────────────────────────

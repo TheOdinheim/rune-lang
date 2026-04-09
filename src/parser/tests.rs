@@ -1606,4 +1606,94 @@ policy compliance {
             assert_eq!(p.visibility, Visibility::Private);
         }
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern blocks and FFI syntax
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_block_single_fn() {
+        let item = parse_single_item("extern { fn sha256(data: Int) -> Int; }");
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.functions.len(), 1);
+        assert_eq!(block.functions[0].name.name, "sha256");
+        assert_eq!(block.functions[0].params.len(), 1);
+        assert_eq!(block.functions[0].params[0].name.name, "data");
+        assert!(block.functions[0].return_type.is_some());
+        assert!(block.abi.is_none());
+    }
+
+    #[test]
+    fn test_extern_block_multiple_fns() {
+        let item = parse_single_item(r#"
+            extern {
+                fn sha256(data: Int) -> Int;
+                fn sha512(data: Int) -> Int;
+                fn md5(data: Int) -> Int;
+            }
+        "#);
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.functions.len(), 3);
+        assert_eq!(block.functions[0].name.name, "sha256");
+        assert_eq!(block.functions[1].name.name, "sha512");
+        assert_eq!(block.functions[2].name.name, "md5");
+    }
+
+    #[test]
+    fn test_extern_standalone_fn() {
+        let item = parse_single_item("extern fn sha256(data: Int) -> Int;");
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.functions.len(), 1);
+        assert_eq!(block.functions[0].name.name, "sha256");
+    }
+
+    #[test]
+    fn test_extern_with_abi_string() {
+        let item = parse_single_item(r#"extern "C" { fn sha256(data: Int) -> Int; }"#);
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.abi, Some("C".to_string()));
+        assert_eq!(block.functions.len(), 1);
+    }
+
+    #[test]
+    fn test_extern_standalone_with_abi() {
+        let item = parse_single_item(r#"extern "C" fn sha256(data: Int) -> Int;"#);
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.abi, Some("C".to_string()));
+        assert_eq!(block.functions.len(), 1);
+    }
+
+    #[test]
+    fn test_extern_fn_no_return_type() {
+        let item = parse_single_item("extern fn log(msg: String);");
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert!(block.functions[0].return_type.is_none());
+    }
+
+    #[test]
+    fn test_extern_fn_no_params() {
+        let item = parse_single_item("extern fn get_time() -> Int;");
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert!(block.functions[0].params.is_empty());
+        assert!(block.functions[0].return_type.is_some());
+    }
+
+    #[test]
+    fn test_pub_extern_block() {
+        let item = parse_single_item("pub extern { fn sha256(data: Int) -> Int; }");
+        let ItemKind::Extern(block) = item else { panic!("expected extern block") };
+        assert_eq!(block.visibility, Visibility::Public);
+    }
+
+    #[test]
+    fn test_extern_unsupported_abi_error() {
+        let errors = parse_errors(r#"extern "Rust" fn sha256(data: Int) -> Int;"#);
+        assert!(errors.iter().any(|e| e.contains("unsupported ABI")));
+    }
+
+    #[test]
+    fn test_extern_fn_with_body_error() {
+        let errors = parse_errors("extern fn sha256(data: Int) -> Int { 42 }");
+        assert!(errors.iter().any(|e| e.contains("body") || e.contains("semicolon") || e.contains(";")));
+    }
 }

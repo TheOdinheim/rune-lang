@@ -1439,6 +1439,7 @@ impl<'ctx> TypeChecker<'ctx> {
             ItemKind::ImplBlock(_) => {} // impl blocks checked in pass 2
             ItemKind::Module(decl) => self.register_module(decl),
             ItemKind::Use(decl) => self.register_use(decl),
+            ItemKind::Extern(block) => self.register_extern_block(block),
         }
     }
 
@@ -1499,6 +1500,44 @@ impl<'ctx> TypeChecker<'ctx> {
                     &format!("parameter '{}'", param.name.name),
                     where_clause.span,
                 );
+            }
+        }
+    }
+
+    fn register_extern_block(&mut self, block: &ExternBlock) {
+        for ext_fn in &block.functions {
+            let param_types: Vec<TypeId> = ext_fn.params.iter().map(|p| {
+                self.ctx.resolve_type_expr(&p.ty)
+            }).collect();
+            let return_type = ext_fn.return_type.as_ref()
+                .map(|t| self.ctx.resolve_type_expr(t))
+                .unwrap_or_else(|| self.unit_type());
+
+            // All extern functions implicitly carry the "ffi" effect.
+            let effects = vec!["ffi".to_string()];
+
+            let param_refinements: Vec<Vec<RefinementPredicate>> = ext_fn.params.iter().map(|p| {
+                if let TypeExprKind::Refined { where_clause, .. } = &p.ty.kind {
+                    where_clause.predicates.clone()
+                } else {
+                    Vec::new()
+                }
+            }).collect();
+
+            let result = self.ctx.define(
+                &ext_fn.name.name,
+                Symbol::Function {
+                    params: param_types,
+                    return_type,
+                    effects,
+                    required_capabilities: Vec::new(),
+                    param_refinements,
+                    span: ext_fn.name.span,
+                },
+                ext_fn.name.span,
+            );
+            if let Err(e) = result {
+                self.error(e.message, e.span);
             }
         }
     }
@@ -1835,6 +1874,12 @@ impl<'ctx> TypeChecker<'ctx> {
                     }
                 }
                 ItemKind::ImplBlock(_) => {} // impl blocks don't introduce names
+                ItemKind::Extern(block) => {
+                    let vis = block.visibility;
+                    for f in &block.functions {
+                        vis_map.insert(f.name.name.clone(), vis);
+                    }
+                }
             }
         }
         vis_map
@@ -2044,7 +2089,8 @@ impl<'ctx> TypeChecker<'ctx> {
             | ItemKind::Capability(_)
             | ItemKind::Effect(_)
             | ItemKind::Module(_)
-            | ItemKind::Use(_) => {} // registration handles everything
+            | ItemKind::Use(_)
+            | ItemKind::Extern(_) => {} // registration handles everything
         }
     }
 

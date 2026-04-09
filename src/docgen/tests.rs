@@ -183,4 +183,30 @@ mod tests {
         assert!(md.contains("Module"));
         assert!(md.contains("mod crypto"));
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern function documentation
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extract_docs_extern_fn() {
+        let source = "// SHA-256 hash function.\nextern fn sha256(data: Int) -> Int;";
+        let items = extract_docs(source);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "sha256");
+        assert_eq!(items[0].kind, DocItemKind::ExternFunction);
+        assert_eq!(items[0].doc_comment, Some("SHA-256 hash function.".to_string()));
+        assert!(items[0].signature.contains("extern fn sha256"));
+    }
+
+    #[test]
+    fn test_render_markdown_extern_fn() {
+        let source = "// Hash function.\nextern fn sha256(data: Int) -> Int;";
+        let items = extract_docs(source);
+        let md = render_markdown(&items, "ffi_module");
+        assert!(md.contains("## sha256"));
+        assert!(md.contains("Extern Function"));
+        assert!(md.contains("extern fn sha256"));
+        assert!(md.contains("Hash function."));
+    }
 }

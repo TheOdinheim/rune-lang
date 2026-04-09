@@ -178,6 +178,7 @@ impl Parser {
                     | TokenKind::Type
                     | TokenKind::Impl
                     | TokenKind::Trait
+                    | TokenKind::Extern
                     | TokenKind::Mod
                     | TokenKind::Use
                     | TokenKind::Const
@@ -248,6 +249,10 @@ impl Parser {
             TokenKind::Use => {
                 self.advance();
                 ItemKind::Use(self.parse_use_decl(visibility, start_span)?)
+            }
+            TokenKind::Extern => {
+                self.advance();
+                ItemKind::Extern(self.parse_extern_block(visibility, start_span)?)
             }
             TokenKind::Const => {
                 self.advance();
@@ -756,6 +761,81 @@ impl Parser {
         })
     }
 
+    // ── Extern blocks ────────────────────────────────────────────────
+
+    fn parse_extern_block(&mut self, visibility: Visibility, start_span: Span) -> Result<ExternBlock, ParseError> {
+        // Parse optional ABI string: extern "C" { ... }
+        let abi = if let TokenKind::StringLiteral(s) = self.current_kind().clone() {
+            let abi_str = s.clone();
+            if abi_str != "C" {
+                return Err(self.error_at_current(&format!(
+                    "unsupported ABI '{}' — only \"C\" is currently supported", abi_str
+                )));
+            }
+            self.advance();
+            Some(abi_str)
+        } else {
+            None
+        };
+
+        // Standalone extern fn: `extern fn sha256(data: Int) -> Int;`
+        if self.check(&TokenKind::Fn) {
+            self.advance();
+            let fn_decl = self.parse_extern_fn_decl(start_span)?;
+            let end = self.previous_span();
+            return Ok(ExternBlock {
+                visibility,
+                abi,
+                functions: vec![fn_decl],
+                span: self.merge_spans(start_span, end),
+            });
+        }
+
+        // Block form: extern { fn sha256(...) -> Int; fn hmac(...) -> Int; }
+        self.expect(&TokenKind::LeftBrace)?;
+        let mut functions = Vec::new();
+        while !self.check(&TokenKind::RightBrace) && !self.at_eof() {
+            self.expect(&TokenKind::Fn)?;
+            functions.push(self.parse_extern_fn_decl(self.previous_span())?);
+        }
+        self.expect(&TokenKind::RightBrace)?;
+
+        let end = self.previous_span();
+        Ok(ExternBlock {
+            visibility,
+            abi,
+            functions,
+            span: self.merge_spans(start_span, end),
+        })
+    }
+
+    fn parse_extern_fn_decl(&mut self, start_span: Span) -> Result<ExternFnDecl, ParseError> {
+        let name = self.expect_identifier()?;
+        let params = self.parse_param_list()?;
+
+        let return_type = if self.eat(&TokenKind::Arrow) {
+            Some(self.parse_type_expr()?)
+        } else {
+            None
+        };
+
+        // Extern fns must end with `;` — no body allowed.
+        if self.check(&TokenKind::LeftBrace) {
+            return Err(self.error_at_current(
+                "extern functions cannot have a body — they are implemented in foreign code"
+            ));
+        }
+        self.expect_semicolon()?;
+
+        let end = self.previous_span();
+        Ok(ExternFnDecl {
+            name,
+            params,
+            return_type,
+            span: self.merge_spans(start_span, end),
+        })
+    }
+
     // ── Module declarations ──────────────────────────────────────────
 
     fn parse_module_decl(&mut self, visibility: Visibility, start_span: Span) -> Result<ModuleDecl, ParseError> {
@@ -1034,7 +1114,8 @@ impl Parser {
             | TokenKind::Effect
             | TokenKind::Mod
             | TokenKind::Use
-            | TokenKind::Const => true,
+            | TokenKind::Const
+            | TokenKind::Extern => true,
             TokenKind::Pub => {
                 // Look ahead: pub followed by fn, struct, etc.
                 if self.pos + 1 < self.tokens.len() {
@@ -1047,6 +1128,7 @@ impl Parser {
                             | TokenKind::Impl
                             | TokenKind::Trait
                             | TokenKind::Const
+                            | TokenKind::Extern
                     )
                 } else {
                     false

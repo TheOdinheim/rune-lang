@@ -670,4 +670,45 @@ policy access_control {
             ]
         );
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8: Extern keyword
+    // ═════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_extern_keyword() {
+        assert_eq!(kinds("extern"), vec![TokenKind::Extern]);
+    }
+
+    #[test]
+    fn test_extern_fn_tokens() {
+        assert_eq!(
+            kinds("extern fn sha256();"),
+            vec![
+                TokenKind::Extern,
+                TokenKind::Fn,
+                TokenKind::Identifier("sha256".into()),
+                TokenKind::LeftParen,
+                TokenKind::RightParen,
+                TokenKind::Semicolon,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extern_block_tokens() {
+        let k = kinds("extern { fn hash(); }");
+        assert!(k.contains(&TokenKind::Extern));
+        assert!(k.contains(&TokenKind::LeftBrace));
+        assert!(k.contains(&TokenKind::Fn));
+        assert!(k.contains(&TokenKind::RightBrace));
+    }
+
+    #[test]
+    fn test_extern_with_abi_string() {
+        let k = kinds(r#"extern "C" fn hash();"#);
+        assert_eq!(k[0], TokenKind::Extern);
+        assert!(matches!(k[1], TokenKind::StringLiteral(ref s) if s == "C"));
+        assert_eq!(k[2], TokenKind::Fn);
+    }
 }

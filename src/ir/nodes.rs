@@ -114,6 +114,10 @@ pub enum AuditKind {
     FunctionExit { name: String },
     /// A governance decision was made — records the decision.
     Decision { rule_name: String },
+    /// FFI boundary crossing start — records the extern function name.
+    FfiCallStart { function_name: String },
+    /// FFI boundary crossing end — records the extern function name.
+    FfiCallEnd { function_name: String },
 }
 
 impl fmt::Display for AuditKind {
@@ -122,6 +126,8 @@ impl fmt::Display for AuditKind {
             AuditKind::FunctionEntry { name } => write!(f, "fn_entry \"{}\"", name),
             AuditKind::FunctionExit { name } => write!(f, "fn_exit \"{}\"", name),
             AuditKind::Decision { rule_name } => write!(f, "decision \"{}\"", rule_name),
+            AuditKind::FfiCallStart { function_name } => write!(f, "ffi_call_start \"{}\"", function_name),
+            AuditKind::FfiCallEnd { function_name } => write!(f, "ffi_call_end \"{}\"", function_name),
         }
     }
 }

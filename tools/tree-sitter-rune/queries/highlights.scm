@@ -18,6 +18,7 @@
 "impl" @keyword
 "trait" @keyword
 "pub" @keyword
+"extern" @keyword
 "mod" @keyword
 "use" @keyword
 "as" @keyword
@@ -64,6 +65,7 @@
 (type_alias name: (identifier) @type.definition)
 (type_constraint name: (identifier) @type.definition)
 (const_declaration name: (identifier) @constant)
+(extern_fn_declaration name: (identifier) @function)
 
 ; ── Type annotations ─────────────────────────────────────────────────
 (type_identifier) @type

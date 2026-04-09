@@ -2,9 +2,21 @@
 
 ## Current Milestone
 
-**M7: Module System** — Target: Month 21 — **Complete**
+**M8: FFI & Backend** — Target: Month 24 — **In Progress**
 
-Module system fully implemented across 4 layers: parser/AST (L1), name resolution/type checking (L2), multi-file compilation (L3), edition system + LSP + docgen + end-to-end integration (L4). 717 tests passing.
+Layer 1 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation. 741 tests passing.
+
+### M8 Deliverables
+
+| Deliverable | Status |
+|-------------|--------|
+| Extern block syntax (block + standalone + ABI) | **Done** (M8 L1) |
+| FFI effect enforcement (auto + transitive) | **Done** (M8 L1) |
+| IR audit instrumentation (FfiCallStart/End) | **Done** (M8 L1) |
+| Toolchain updates (formatter, LSP, docgen, tree-sitter) | **Done** (M8 L1) |
+| LLVM backend | Planned |
+| Standard library | Planned |
+| Formal verification | Planned |
 
 ### M1 Deliverables
 
@@ -31,6 +43,7 @@ Module system fully implemented across 4 layers: parser/AST (L1), name resolutio
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
+| M8: FFI & Backend | Month 24 | **In Progress** — L1 done: extern blocks, ffi effect enforcement, audit instrumentation |
 
 ## What's Done
 
@@ -296,7 +309,14 @@ Module system fully implemented across 4 layers: parser/AST (L1), name resolutio
   - CLI: multi-file build/check integration tests
   - Invalid edition detection with clear error messages
 
+- **M8 Layer 1: FFI syntax, extern blocks, ffi effect enforcement, audit instrumentation** (24 new tests)
+  - Extern block syntax: block form `extern { fn ...; }`, standalone `extern fn ...;`, ABI string `extern "C"`
+  - ExternBlock and ExternFnDecl AST nodes, ItemKind::Extern variant
+  - All extern functions carry automatic `ffi` effect, enforced transitively via existing M2 infrastructure
+  - IR audit marks: FfiCallStart/FfiCallEnd around every extern function call
+  - Toolchain: tree-sitter grammar, formatter, LSP hover/completions/go-to-def, docgen
+
 ## What's Next
 
-- M8+: FFI, LLVM backend, standard library, formal verification
+- M8 Layer 2+: LLVM backend, standard library, formal verification
 - Future module enhancements: pub(crate) visibility, module-level constants

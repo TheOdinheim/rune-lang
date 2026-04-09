@@ -324,6 +324,7 @@ pub fn keyword_hover(word: &str) -> Option<&'static str> {
         "self" => "**self** — Refers to the current module.\n\n```rune\nuse self::helper;\nself::helper()\n```",
         "super" => "**super** — Refers to the parent module.\n\n```rune\nuse super::utils::hash;\nsuper::helper()\n```",
         "pub" => "**pub** — Makes a declaration visible outside its module.\n\n```rune\npub fn verify() -> Bool { true }\npub mod crypto { ... }\n```",
+        "extern" => "**extern** — Declares foreign functions implemented outside RUNE.\n\n```rune\nextern { fn sha256(data: Int) -> Int; }\nextern fn log(msg: Int);\n```\n\nCalling extern functions requires the `ffi` effect.\n\nPillar: Security Baked In — every FFI boundary crossing is audited.",
         "where" => "**where** — Refinement type predicates.\n\n```rune\ntype T = Int where { value >= 0, value <= 100 };\n```",
         "while" => "**while** — Loop while condition is true.\n\n```rune\nwhile condition { body }\n```",
         "for" => "**for** — Iterate over a range or collection.\n\n```rune\nfor x in collection { body }\n```",
@@ -402,6 +403,19 @@ fn find_declaration_info(source: &str, name: &str) -> Option<String> {
                     let vis = if m.visibility == crate::ast::nodes::Visibility::Public { "pub " } else { "" };
                     let kind = if m.items.is_some() { "inline" } else { "file-based" };
                     return Some(format!("```rune\n{}mod {}\n```\n\n{} module", vis, name, kind));
+                }
+            }
+            crate::ast::nodes::ItemKind::Extern(block) => {
+                for ext_fn in &block.functions {
+                    if ext_fn.name.name == name {
+                        let params: Vec<String> = ext_fn.params.iter().map(|p| {
+                            format!("{}: {}", p.name.name, type_expr_to_string(&p.ty))
+                        }).collect();
+                        let ret = ext_fn.return_type.as_ref()
+                            .map(|t| format!(" -> {}", type_expr_to_string(t)))
+                            .unwrap_or_default();
+                        return Some(format!("```rune\nextern fn {}({}){}\n```\n\nForeign function (requires `ffi` effect)", name, params.join(", "), ret));
+                    }
                 }
             }
             _ => {}
@@ -491,6 +505,14 @@ fn find_definition_location(source: &str, name: &str) -> Option<(u32, u32)> {
                 if m.name.name == name {
                     let span = &m.name.span;
                     return Some((span.line.saturating_sub(1), span.column.saturating_sub(1)));
+                }
+            }
+            crate::ast::nodes::ItemKind::Extern(block) => {
+                for ext_fn in &block.functions {
+                    if ext_fn.name.name == name {
+                        let span = &ext_fn.name.span;
+                        return Some((span.line.saturating_sub(1), span.column.saturating_sub(1)));
+                    }
                 }
             }
             _ => {}
@@ -604,6 +626,16 @@ pub fn identifier_completions(source: &str) -> Vec<CompletionItem> {
                     detail: Some("module".to_string()),
                     ..Default::default()
                 });
+            }
+            crate::ast::nodes::ItemKind::Extern(block) => {
+                for ext_fn in &block.functions {
+                    items.push(CompletionItem {
+                        label: ext_fn.name.name.clone(),
+                        kind: Some(CompletionItemKind::FUNCTION),
+                        detail: Some("extern function".to_string()),
+                        ..Default::default()
+                    });
+                }
             }
             _ => {}
         }

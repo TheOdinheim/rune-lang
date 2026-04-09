@@ -103,6 +103,7 @@ pub enum TokenKind {
     Pub,
     As,
     Super,
+    Extern,
 
     // ── Governance modifiers ─────────────────────────────────────────
     Attest,
@@ -248,6 +249,7 @@ impl TokenKind {
             "pub"   => Some(TokenKind::Pub),
             "as"    => Some(TokenKind::As),
             "super" => Some(TokenKind::Super),
+            "extern" => Some(TokenKind::Extern),
 
             // Governance modifiers
             "attest"      => Some(TokenKind::Attest),
