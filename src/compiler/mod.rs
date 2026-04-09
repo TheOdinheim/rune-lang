@@ -352,15 +352,17 @@ pub fn check_project(root_file: &Path) -> Result<(), Vec<CompileError>> {
 
 // ── LLVM native compilation (feature-gated) ─────────────────────────
 
-/// Compile RUNE source code to native object code via LLVM.
-///
-/// Returns the native object file bytes on success, or compile errors.
-/// Requires the `llvm` feature to be enabled.
+// ── LLVM native compilation helpers (feature-gated) ────────────────────
+
+/// Run the front-end pipeline (lex → parse → type check → lower to IR).
+/// Shared by all LLVM compilation paths.
 #[cfg(feature = "llvm")]
-pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<CompileError>> {
+fn compile_to_ir(
+    source: &str,
+    file_id: u32,
+) -> Result<crate::ir::nodes::IrModule, Vec<CompileError>> {
     let mut errors = Vec::new();
 
-    // Phase 1: Lex.
     let (tokens, lex_errors) = Lexer::new(source, file_id).tokenize();
     for e in &lex_errors {
         errors.push(CompileError {
@@ -373,7 +375,6 @@ pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<Comp
         return Err(errors);
     }
 
-    // Phase 2: Parse.
     let (file, parse_errors) = Parser::new(tokens).parse();
     for e in &parse_errors {
         errors.push(CompileError {
@@ -386,7 +387,6 @@ pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<Comp
         return Err(errors);
     }
 
-    // Phase 3: Type check.
     let mut ctx = TypeContext::new();
     let mut checker = TypeChecker::new(&mut ctx);
     checker.check_source_file(&file);
@@ -401,20 +401,37 @@ pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<Comp
         return Err(errors);
     }
 
-    // Phase 4: Lower to IR.
     let mut lowerer = Lowerer::new();
-    let ir_module = lowerer.lower_source_file(&file);
+    Ok(lowerer.lower_source_file(&file))
+}
 
-    // Phase 5: Compile to native via LLVM.
-    let llvm_context = inkwell::context::Context::create();
-    let mut codegen = crate::codegen::llvm_gen::LlvmCodegen::new(&llvm_context, "rune_module");
-    codegen.compile_module(&ir_module);
+/// Create an LlvmCodegen, compile the IR module, and verify.
+#[cfg(feature = "llvm")]
+fn build_llvm_codegen<'ctx>(
+    llvm_context: &'ctx inkwell::context::Context,
+    ir_module: &crate::ir::nodes::IrModule,
+) -> Result<crate::codegen::llvm_gen::LlvmCodegen<'ctx>, Vec<CompileError>> {
+    let mut codegen = crate::codegen::llvm_gen::LlvmCodegen::new(llvm_context, "rune_module");
+    codegen.compile_module(ir_module);
 
     codegen.verify().map_err(|e| vec![CompileError {
         phase: CompilePhase::Type,
         message: format!("LLVM verification failed: {e}"),
         span: Span::new(0, 0, 0, 0, 0),
     }])?;
+
+    Ok(codegen)
+}
+
+/// Compile RUNE source code to native object code via LLVM.
+///
+/// Returns the native object file bytes on success, or compile errors.
+/// Requires the `llvm` feature to be enabled.
+#[cfg(feature = "llvm")]
+pub fn compile_to_native(source: &str, file_id: u32) -> Result<Vec<u8>, Vec<CompileError>> {
+    let ir_module = compile_to_ir(source, file_id)?;
+    let llvm_context = inkwell::context::Context::create();
+    let codegen = build_llvm_codegen(&llvm_context, &ir_module)?;
 
     codegen.emit_object_bytes().map_err(|e| vec![CompileError {
         phase: CompilePhase::Type,
@@ -430,64 +447,148 @@ pub fn compile_to_native_file(
     file_id: u32,
     output: &Path,
 ) -> Result<(), Vec<CompileError>> {
-    let mut errors = Vec::new();
-
-    let (tokens, lex_errors) = Lexer::new(source, file_id).tokenize();
-    for e in &lex_errors {
-        errors.push(CompileError {
-            phase: CompilePhase::Lex,
-            message: e.message.clone(),
-            span: e.span.clone(),
-        });
-    }
-    if !lex_errors.is_empty() {
-        return Err(errors);
-    }
-
-    let (file, parse_errors) = Parser::new(tokens).parse();
-    for e in &parse_errors {
-        errors.push(CompileError {
-            phase: CompilePhase::Parse,
-            message: e.message.clone(),
-            span: e.span.clone(),
-        });
-    }
-    if !parse_errors.is_empty() {
-        return Err(errors);
-    }
-
-    let mut ctx = TypeContext::new();
-    let mut checker = TypeChecker::new(&mut ctx);
-    checker.check_source_file(&file);
-    if !ctx.errors.is_empty() {
-        for e in &ctx.errors {
-            errors.push(CompileError {
-                phase: CompilePhase::Type,
-                message: e.message.clone(),
-                span: e.span.clone(),
-            });
-        }
-        return Err(errors);
-    }
-
-    let mut lowerer = Lowerer::new();
-    let ir_module = lowerer.lower_source_file(&file);
-
+    let ir_module = compile_to_ir(source, file_id)?;
     let llvm_context = inkwell::context::Context::create();
-    let mut codegen = crate::codegen::llvm_gen::LlvmCodegen::new(&llvm_context, "rune_module");
-    codegen.compile_module(&ir_module);
-
-    codegen.verify().map_err(|e| vec![CompileError {
-        phase: CompilePhase::Type,
-        message: format!("LLVM verification failed: {e}"),
-        span: Span::new(0, 0, 0, 0, 0),
-    }])?;
+    let codegen = build_llvm_codegen(&llvm_context, &ir_module)?;
 
     codegen.emit_object_file(output).map_err(|e| vec![CompileError {
         phase: CompilePhase::Type,
         message: format!("LLVM object emission failed: {e}"),
         span: Span::new(0, 0, 0, 0, 0),
     }])
+}
+
+/// Compile RUNE source code to a shared library (.so on Linux, .dylib on macOS).
+///
+/// Produces a shared library exporting `evaluate(i64, i64, i64, i64) -> i32`
+/// and all policy rule functions. Uses the system linker (`cc -shared`) for
+/// final linking.
+#[cfg(feature = "llvm")]
+pub fn compile_to_shared_library(
+    source: &str,
+    file_id: u32,
+    output: &Path,
+) -> Result<(), Vec<CompileError>> {
+    let ir_module = compile_to_ir(source, file_id)?;
+    let llvm_context = inkwell::context::Context::create();
+    let codegen = build_llvm_codegen(&llvm_context, &ir_module)?;
+
+    // Emit PIC object file to a temp location.
+    let tmp_obj = output.with_extension("tmp.o");
+    codegen.emit_object_file_pic(&tmp_obj).map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM PIC object emission failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])?;
+
+    // Link into shared library using the system linker.
+    let link_result = std::process::Command::new("cc")
+        .arg("-shared")
+        .arg("-o")
+        .arg(output)
+        .arg(&tmp_obj)
+        .arg("-nostdlib")
+        .output();
+
+    // Clean up temp file regardless of link result.
+    let _ = std::fs::remove_file(&tmp_obj);
+
+    match link_result {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: format!("linker failed: {stderr}"),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: "linking requires 'cc' — install build-essential (Ubuntu) or equivalent"
+                    .to_string(),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+        Err(e) => {
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: format!("failed to invoke linker: {e}"),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+    }
+}
+
+/// Compile RUNE source code to a standalone native executable.
+///
+/// Generates a minimal main() that calls evaluate(0, 0, 0, 0) and returns
+/// the decision as the exit code. Uses the system linker (`cc`) for final
+/// linking.
+#[cfg(feature = "llvm")]
+pub fn compile_to_executable(
+    source: &str,
+    file_id: u32,
+    output: &Path,
+) -> Result<(), Vec<CompileError>> {
+    let ir_module = compile_to_ir(source, file_id)?;
+    let llvm_context = inkwell::context::Context::create();
+    let mut codegen = build_llvm_codegen(&llvm_context, &ir_module)?;
+
+    // Add main() wrapper that calls evaluate(0, 0, 0, 0).
+    codegen.compile_main_wrapper();
+
+    codegen.verify().map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM verification failed after adding main(): {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])?;
+
+    // Emit object file to a temp location.
+    let tmp_obj = output.with_extension("tmp.o");
+    codegen.emit_object_file(&tmp_obj).map_err(|e| vec![CompileError {
+        phase: CompilePhase::Type,
+        message: format!("LLVM object emission failed: {e}"),
+        span: Span::new(0, 0, 0, 0, 0),
+    }])?;
+
+    // Link into executable using the system linker.
+    let link_result = std::process::Command::new("cc")
+        .arg("-o")
+        .arg(output)
+        .arg(&tmp_obj)
+        .output();
+
+    // Clean up temp file regardless of link result.
+    let _ = std::fs::remove_file(&tmp_obj);
+
+    match link_result {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: format!("linker failed: {stderr}"),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: "linking requires 'cc' — install build-essential (Ubuntu) or equivalent"
+                    .to_string(),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+        Err(e) => {
+            Err(vec![CompileError {
+                phase: CompilePhase::Type,
+                message: format!("failed to invoke linker: {e}"),
+                span: Span::new(0, 0, 0, 0, 0),
+            }])
+        }
+    }
 }
 
 #[cfg(test)]

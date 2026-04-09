@@ -36,11 +36,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Compile a .rune file to WASM bytecode (or native object with --target native)
+    /// Compile a .rune file to WASM bytecode or native binary (--target native/native-shared/native-exe)
     Build {
         /// Path to the .rune source file (defaults to src/main.rune if rune.toml exists)
         file: Option<PathBuf>,
-        /// Compilation target: "wasm" (default) or "native" (requires --features llvm)
+        /// Compilation target: "wasm" (default), "native" (.o), "native-shared" (.so), "native-exe" (executable)
         #[arg(long, default_value = "wasm")]
         target: String,
     },
@@ -140,22 +140,28 @@ fn cmd_build(path: &PathBuf, target: &str) {
                 }
             }
         }
-        "native" => {
-            cmd_build_native(path, &source);
+        "native" | "native-shared" | "native-exe" => {
+            cmd_build_native(path, &source, target);
         }
         other => {
-            eprintln!("{}error:{} unknown target '{}'. Supported: wasm, native", RED, RESET, other);
+            eprintln!("{}error:{} unknown target '{}'. Supported: wasm, native, native-shared, native-exe", RED, RESET, other);
             process::exit(EXIT_USAGE_ERROR);
         }
     }
 }
 
 #[cfg(feature = "llvm")]
-fn cmd_build_native(path: &PathBuf, source: &str) {
-    use rune_lang::compiler::compile_to_native_file;
+fn cmd_build_native(path: &PathBuf, source: &str, target: &str) {
+    use rune_lang::compiler::{compile_to_native_file, compile_to_shared_library, compile_to_executable};
 
-    let output_path = path.with_extension("rune.o");
-    match compile_to_native_file(source, 0, &output_path) {
+    let (output_path, compile_fn): (PathBuf, Box<dyn FnOnce(&str, u32, &Path) -> Result<(), Vec<CompileError>>>) = match target {
+        "native" => (path.with_extension("rune.o"), Box::new(|s, f, o| compile_to_native_file(s, f, o))),
+        "native-shared" => (path.with_extension("rune.so"), Box::new(|s, f, o| compile_to_shared_library(s, f, o))),
+        "native-exe" => (path.with_extension("rune.bin"), Box::new(|s, f, o| compile_to_executable(s, f, o))),
+        _ => unreachable!(),
+    };
+
+    match compile_fn(source, 0, &output_path) {
         Ok(()) => {
             let size = fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0);
             eprintln!(
@@ -174,9 +180,9 @@ fn cmd_build_native(path: &PathBuf, source: &str) {
 }
 
 #[cfg(not(feature = "llvm"))]
-fn cmd_build_native(_path: &PathBuf, _source: &str) {
+fn cmd_build_native(_path: &PathBuf, _source: &str, _target: &str) {
     eprintln!(
-        "{}error:{} native target requires the 'llvm' feature — rebuild with: cargo build --features llvm",
+        "{}error:{} native targets require the 'llvm' feature — rebuild with: cargo build --features llvm",
         RED, RESET
     );
     process::exit(EXIT_USAGE_ERROR);

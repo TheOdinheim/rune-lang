@@ -189,6 +189,35 @@ uint64_t rune_audit_trail_len(RuneModule *module);
  */
 const char *rune_last_error(RuneModule *module);
 
+/* ── Native shared library interface ────────────────────────────── */
+/*
+ * When compiled with `rune build --target native-shared`, RUNE produces
+ * a shared library (.so on Linux, .dylib on macOS) that exports:
+ *
+ *   int32_t evaluate(int64_t subject_id,
+ *                    int64_t action,
+ *                    int64_t resource_id,
+ *                    int64_t risk_score);
+ *
+ * Return values match the outcome constants above:
+ *   0 = PERMIT, 1 = DENY, 2 = ESCALATE, 3 = QUARANTINE
+ *
+ * Individual policy rule functions are also exported with
+ * double-underscore separators (e.g., access_control__evaluate).
+ *
+ * The shared library has no external dependencies beyond libc.
+ *
+ * Loading from C:
+ *   void *lib = dlopen("policy.rune.so", RTLD_NOW);
+ *   int32_t (*evaluate)(int64_t, int64_t, int64_t, int64_t) =
+ *       dlsym(lib, "evaluate");
+ *   int32_t decision = evaluate(user_id, action, resource, risk);
+ *   dlclose(lib);
+ *
+ * Native shared library loading via the embedding API
+ * (rune_module_load_native) is planned for a future release.
+ */
+
 #ifdef __cplusplus
 }
 #endif

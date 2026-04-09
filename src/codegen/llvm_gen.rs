@@ -166,6 +166,39 @@ impl<'ctx> LlvmCodegen<'ctx> {
         self.builder.build_return(Some(&i32_ty.const_zero())).unwrap();
     }
 
+    /// Generate a minimal main() that calls evaluate(0, 0, 0, 0) and returns the result.
+    /// Used for standalone executable output.
+    pub fn compile_main_wrapper(&mut self) {
+        let i64_ty = self.context.i64_type();
+        let i32_ty = self.context.i32_type();
+
+        // main() -> i32
+        let fn_type = i32_ty.fn_type(&[], false);
+        let main_fn = self.module.add_function("main", fn_type, Some(Linkage::External));
+
+        let entry_bb = self.context.append_basic_block(main_fn, "entry");
+        self.builder.position_at_end(entry_bb);
+
+        // Call evaluate(0, 0, 0, 0).
+        let evaluate_fn = match self.module.get_function("evaluate") {
+            Some(f) => f,
+            None => {
+                // No evaluate function — return 1 (Deny) as fail-closed.
+                self.builder.build_return(Some(&i32_ty.const_int(1, false))).unwrap();
+                return;
+            }
+        };
+
+        let zero = i64_ty.const_zero();
+        let args: [BasicMetadataValueEnum<'ctx>; 4] = [
+            zero.into(), zero.into(), zero.into(), zero.into(),
+        ];
+        let call = self.builder.build_call(evaluate_fn, &args, "result").unwrap();
+        let result = call.try_as_basic_value().left().unwrap();
+
+        self.builder.build_return(Some(&result)).unwrap();
+    }
+
     pub fn verify(&self) -> Result<(), String> {
         self.module
             .verify()
@@ -550,6 +583,34 @@ impl<'ctx> LlvmCodegen<'ctx> {
         target_machine
             .write_to_file(&self.module, FileType::Object, path)
             .map_err(|e| format!("failed to write object file: {e}"))
+    }
+
+    /// Emit a position-independent object file (for shared library linking).
+    pub fn emit_object_file_pic(&self, path: &Path) -> Result<(), String> {
+        Target::initialize_native(&InitializationConfig::default())
+            .map_err(|e| format!("failed to initialize native target: {e}"))?;
+
+        let triple = TargetMachine::get_default_triple();
+        let target = Target::from_triple(&triple)
+            .map_err(|e| format!("failed to get target from triple: {e}"))?;
+
+        let cpu = TargetMachine::get_host_cpu_name();
+        let features = TargetMachine::get_host_cpu_features();
+
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                cpu.to_str().unwrap_or("generic"),
+                features.to_str().unwrap_or(""),
+                OptimizationLevel::Default,
+                RelocMode::PIC,
+                CodeModel::Default,
+            )
+            .ok_or_else(|| "failed to create target machine".to_string())?;
+
+        target_machine
+            .write_to_file(&self.module, FileType::Object, path)
+            .map_err(|e| format!("failed to write PIC object file: {e}"))
     }
 
     pub fn emit_object_bytes(&self) -> Result<Vec<u8>, String> {

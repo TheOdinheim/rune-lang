@@ -891,4 +891,377 @@ mod tests {
         assert!(result.is_ok(), "policy pipeline should succeed: {:?}", result.err());
         assert_eq!(&result.unwrap()[..4], &[0x7f, 0x45, 0x4c, 0x46]);
     }
+
+    // ── Main wrapper tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_main_wrapper_in_llvm_ir() {
+        let source = r#"
+            policy access {
+                rule allow(subject: Int, action: Int, resource: Int, risk: Int) {
+                    permit
+                }
+            }
+        "#;
+        let ir = compile_source_to_llvm_ir_with_main(source);
+        assert!(ir.contains("define i32 @main()"), "should contain main function");
+        assert!(ir.contains("call i32 @evaluate"), "main should call evaluate");
+    }
+
+    #[test]
+    fn test_main_wrapper_without_evaluate() {
+        // A module with no policy rules gets no evaluate, so main returns 1 (Deny).
+        let ir_module = IrModule {
+            functions: vec![make_simple_function("standalone", IrType::Int)],
+        };
+
+        let context = Context::create();
+        let mut codegen = LlvmCodegen::new(&context, "test");
+        codegen.compile_module(&ir_module);
+        codegen.compile_main_wrapper();
+        codegen.verify().expect("main without evaluate should verify");
+
+        let ir = codegen.emit_llvm_ir();
+        assert!(ir.contains("define i32 @main()"));
+        // Should return 1 (Deny) as fail-closed.
+        assert!(ir.contains("ret i32 1"));
+    }
+
+    fn compile_source_to_llvm_ir_with_main(source: &str) -> String {
+        use crate::ir::lower::Lowerer;
+        use crate::lexer::scanner::Lexer;
+        use crate::parser::parser::Parser;
+        use crate::types::checker::TypeChecker;
+        use crate::types::context::TypeContext;
+
+        let (tokens, lex_errors) = Lexer::new(source, 0).tokenize();
+        assert!(lex_errors.is_empty(), "lex errors: {:?}", lex_errors);
+        let (file, parse_errors) = Parser::new(tokens).parse();
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let mut ctx = TypeContext::new();
+        let mut checker = TypeChecker::new(&mut ctx);
+        checker.check_source_file(&file);
+        assert!(ctx.errors.is_empty(), "type errors: {:?}", ctx.errors);
+        let mut lowerer = Lowerer::new();
+        let ir_module = lowerer.lower_source_file(&file);
+
+        let context = Context::create();
+        let mut codegen = LlvmCodegen::new(&context, "test");
+        codegen.compile_module(&ir_module);
+        codegen.compile_main_wrapper();
+        codegen.verify().expect("LLVM module with main should verify");
+        codegen.emit_llvm_ir()
+    }
+
+    // ── Shared library tests ────────────────────────────────────────
+
+    #[test]
+    fn test_shared_library_produces_file() {
+        use crate::compiler::compile_to_shared_library;
+        let source = r#"
+            policy access {
+                rule allow(subject: Int, action: Int, resource: Int, risk: Int) {
+                    permit
+                }
+            }
+        "#;
+        let dir = std::env::temp_dir().join("rune_test_shared_lib");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test_policy.so");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_shared_library(source, 0, &output);
+        if let Err(ref errors) = result {
+            // If cc is not available, skip the test gracefully.
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "shared lib should compile: {:?}", result.err());
+        assert!(output.exists(), "output file should exist");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_shared_library_is_elf_shared_object() {
+        use crate::compiler::compile_to_shared_library;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_shared_elf");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.so");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_shared_library(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let bytes = std::fs::read(&output).unwrap();
+        // ELF magic bytes
+        assert_eq!(&bytes[..4], &[0x7f, 0x45, 0x4c, 0x46], "should be ELF");
+        // ELF type at offset 16: ET_DYN (3) for shared objects
+        let elf_type = u16::from_le_bytes([bytes[16], bytes[17]]);
+        assert_eq!(elf_type, 3, "ELF type should be ET_DYN (shared object)");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_shared_library_contains_evaluate_symbol() {
+        use crate::compiler::compile_to_shared_library;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_shared_sym");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.so");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_shared_library(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        // Use nm to check for the evaluate symbol.
+        let nm_output = std::process::Command::new("nm")
+            .arg("-D")
+            .arg(&output)
+            .output();
+        if let Ok(out) = nm_output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(stdout.contains("evaluate"), "should export evaluate symbol: {stdout}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_shared_library_invalid_source_returns_errors() {
+        use crate::compiler::compile_to_shared_library;
+        let dir = std::env::temp_dir().join("rune_test_shared_err");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("bad.so");
+
+        let result = compile_to_shared_library("this is not valid {{{", 0, &output);
+        assert!(result.is_err(), "invalid source should produce errors");
+        assert!(!output.exists(), "no file should be written on error");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_shared_library_risk_policy() {
+        use crate::compiler::compile_to_shared_library;
+        let source = r#"
+            policy risk_based {
+                rule check(subject: Int, action: Int, resource: Int, risk: Int) {
+                    if risk > 50 { deny } else { permit }
+                }
+            }
+        "#;
+        let dir = std::env::temp_dir().join("rune_test_shared_risk");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("risk.so");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_shared_library(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+        let meta = std::fs::metadata(&output).unwrap();
+        assert!(meta.len() > 0, "shared library should not be empty");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Executable tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_executable_produces_file() {
+        use crate::compiler::compile_to_executable;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_exe_file");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.bin");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_executable(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+        assert!(output.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_executable_is_elf_executable() {
+        use crate::compiler::compile_to_executable;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_exe_elf");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.bin");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_executable(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(&bytes[..4], &[0x7f, 0x45, 0x4c, 0x46], "should be ELF");
+        // ELF type: ET_EXEC (2) or ET_DYN (3, for PIE executables)
+        let elf_type = u16::from_le_bytes([bytes[16], bytes[17]]);
+        assert!(elf_type == 2 || elf_type == 3, "ELF type should be ET_EXEC or ET_DYN (PIE), got {elf_type}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_executable_is_executable_permission() {
+        use crate::compiler::compile_to_executable;
+        use std::os::unix::fs::PermissionsExt;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_exe_perm");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.bin");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_executable(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let perms = std::fs::metadata(&output).unwrap().permissions();
+        assert!(perms.mode() & 0o111 != 0, "file should be executable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_executable_permit_policy_exits_zero() {
+        use crate::compiler::compile_to_executable;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { permit } }";
+        let dir = std::env::temp_dir().join("rune_test_exe_permit");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("permit.bin");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_executable(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let run = std::process::Command::new(&output).output().unwrap();
+        assert_eq!(run.status.code(), Some(0), "permit policy should exit 0");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_executable_deny_policy_exits_one() {
+        use crate::compiler::compile_to_executable;
+        let source = "policy a { rule r(s: Int, a: Int, r: Int, k: Int) { deny } }";
+        let dir = std::env::temp_dir().join("rune_test_exe_deny");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("deny.bin");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_executable(source, 0, &output);
+        if let Err(ref errors) = result {
+            if errors.iter().any(|e| e.message.contains("'cc'")) {
+                eprintln!("skipping: system linker not available");
+                return;
+            }
+        }
+        assert!(result.is_ok(), "{:?}", result.err());
+
+        let run = std::process::Command::new(&output).output().unwrap();
+        assert_eq!(run.status.code(), Some(1), "deny policy should exit 1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_executable_invalid_source_returns_errors() {
+        use crate::compiler::compile_to_executable;
+        let dir = std::env::temp_dir().join("rune_test_exe_err");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("bad.bin");
+
+        let result = compile_to_executable("this is not valid {{{", 0, &output);
+        assert!(result.is_err());
+        assert!(!output.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Object file backward-compat tests ───────────────────────────
+
+    #[test]
+    fn test_native_file_still_produces_object() {
+        use crate::compiler::compile_to_native_file;
+        let source = "fn id(x: Int) -> Int { x }";
+        let dir = std::env::temp_dir().join("rune_test_obj_compat");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.o");
+        let _ = std::fs::remove_file(&output);
+
+        let result = compile_to_native_file(source, 0, &output);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(&bytes[..4], &[0x7f, 0x45, 0x4c, 0x46], "should be ELF");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_native_bytes_still_produces_object() {
+        use crate::compiler::compile_to_native;
+        let source = "fn id(x: Int) -> Int { x }";
+        let result = compile_to_native(source, 0);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let bytes = result.unwrap();
+        assert!(!bytes.is_empty());
+        assert_eq!(&bytes[..4], &[0x7f, 0x45, 0x4c, 0x46]);
+    }
+
+    // ── PIC object file test ────────────────────────────────────────
+
+    #[test]
+    fn test_pic_object_file_emission() {
+        let ir_module = IrModule {
+            functions: vec![make_simple_function("test_fn", IrType::Int)],
+        };
+
+        let context = Context::create();
+        let mut codegen = LlvmCodegen::new(&context, "test");
+        codegen.compile_module(&ir_module);
+        codegen.verify().unwrap();
+
+        let dir = std::env::temp_dir().join("rune_test_pic");
+        let _ = std::fs::create_dir_all(&dir);
+        let output = dir.join("test.o");
+        let result = codegen.emit_object_file_pic(&output);
+        assert!(result.is_ok(), "{:?}", result.err());
+        let bytes = std::fs::read(&output).unwrap();
+        assert_eq!(&bytes[..4], &[0x7f, 0x45, 0x4c, 0x46]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

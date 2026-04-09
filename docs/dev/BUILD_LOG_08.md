@@ -153,3 +153,70 @@ Complete IR-to-LLVM translation covering control flow (if/else, while loops), al
 - **Cross-backend structural equivalence**: Since LLVM native code can't easily be JIT-executed in tests, we verify IR structure matches expected patterns while WASM tests verify actual execution.
 - **First-non-permit-wins**: Evaluate wrapper matches WASM backend exactly. If any rule returns non-Permit, that decision is returned immediately. Default is Permit (0).
 - **48 total tests**: 21 new tests added to Layer 1's 27, with 12 Layer 1 tests rewritten to use parameters.
+
+---
+
+## 2026-04-09 — M9 Layer 3: Native Binary Linking — Shared Libraries, Executables, CLI Integration
+
+### What was built
+
+Native binary linking that turns LLVM object files into usable artifacts: shared libraries (.so) via `cc -shared`, standalone executables with a generated main() wrapper, and CLI integration with `--target native-shared` and `--target native-exe`. Updated C header (rune.h) with native shared library documentation. AuditMark instructions remain nops in native code — the host application handles audit via the existing embedding API.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Standalone executables use fail-closed main() — if no evaluate function exists, returns 1 (Deny)
+- **Assumed Breach**: Shared libraries export the same evaluate ABI as WASM — host audit recording via RuntimePipeline works identically
+- **Zero Trust Throughout**: PIC object emission for shared libraries, no external dependencies beyond libc
+- **No Single Points of Failure**: Three native output formats (.o, .so, .bin) plus WASM — operators choose per deployment
+
+### Files modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/codegen/llvm_gen.rs | compile_main_wrapper(), emit_object_file_pic() | +55 lines |
+| src/compiler/mod.rs | compile_to_ir() helper, compile_to_shared_library(), compile_to_executable() | Refactored + ~130 new lines |
+| src/main.rs | CLI: native-shared, native-exe targets; updated cmd_build_native dispatch | ~20 lines modified |
+| tools/rune.h | Native shared library documentation, dlopen usage example | +25 lines |
+| src/codegen/llvm_tests.rs | 16 new tests: main wrapper, shared lib, executable, PIC, backward compat | +250 lines |
+
+### Architecture
+
+**Shared library pipeline:**
+1. Source → lex → parse → type check → IR → LLVM codegen
+2. emit_object_file_pic() — PIC (Position Independent Code) object via RelocMode::PIC
+3. `cc -shared -nostdlib -o output.so temp.o` — system linker produces .so
+4. Exports: evaluate(i64, i64, i64, i64) → i32, plus all policy rule functions
+5. Loadable via dlopen/ctypes/cgo — no external dependencies beyond libc
+
+**Executable pipeline:**
+1. Source → lex → parse → type check → IR → LLVM codegen
+2. compile_main_wrapper() — generates main() in LLVM IR calling evaluate(0,0,0,0)
+3. emit_object_file() — standard object file
+4. `cc -o output.bin temp.o` — system linker produces executable
+5. Exit code = policy decision (0=Permit, 1=Deny, 2=Escalate, 3=Quarantine)
+
+**Audit strategy:**
+- AuditMark instructions remain nops in native code
+- Host applications use the C ABI embedding API (RuntimePipeline) for audit recording
+- Same approach as WASM: the policy code returns decisions, the host records the audit trail
+- Full native audit runtime deferred to M10 (standard library)
+
+### Test summary
+
+16 new tests (64 total LLVM-gated with `cargo test --features llvm`):
+
+| Area | Tests | What's covered |
+|------|-------|----------------|
+| Main wrapper | 2 | IR contains main+evaluate call, fail-closed without evaluate |
+| Shared library | 5 | file produced, ELF shared object, evaluate symbol, invalid source, risk policy |
+| Executable | 6 | file produced, ELF executable, permissions, permit→exit 0, deny→exit 1, invalid source |
+| Object file compat | 2 | compile_to_native_file and compile_to_native still work |
+| PIC emission | 1 | emit_object_file_pic produces valid ELF |
+
+### Decisions
+
+- **System linker (cc)**: Same approach as clang — shell out to `cc` for final linking. Clear error if cc not found.
+- **-nostdlib for shared libraries**: Policy code is self-contained, no C runtime needed.
+- **No embedded audit runtime**: Host handles audit via embedding API. Avoids duplicate audit trails.
+- **Fail-closed main()**: If no evaluate function, executable returns 1 (Deny). Matches governance constraint.
+- **Graceful linker-absent tests**: Tests skip with a message if cc is not available, rather than failing.

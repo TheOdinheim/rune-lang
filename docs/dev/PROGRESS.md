@@ -4,7 +4,7 @@
 
 **M9: LLVM Backend** — Target: Month 30 — **In Progress**
 
-Layer 2 complete: control flow, policy decisions, evaluate entry point, cross-backend equivalence. 815 tests passing (+ 48 LLVM tests with `--features llvm`).
+Layer 3 complete: shared libraries, standalone executables, CLI integration. 815 tests passing (+ 64 LLVM tests with `--features llvm`).
 
 ### M8 Deliverables
 
@@ -56,7 +56,7 @@ Layer 2 complete: control flow, policy decisions, evaluate entry point, cross-ba
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
-| M9: LLVM Backend | Month 30 | **In Progress** — L1-L2 done: LLVM infrastructure, control flow, policy decisions, cross-backend equivalence |
+| M9: LLVM Backend | Month 30 | **In Progress** — L1-L3 done: LLVM infra, control flow, shared libs, executables, CLI |
 
 ## What's Done
 
@@ -365,7 +365,14 @@ Layer 2 complete: control flow, policy decisions, evaluate entry point, cross-ba
   - Cross-backend equivalence: 6 tests verifying WASM execution and LLVM IR structure agree
   - Fixed Layer 1 constant folding: param-based test helpers prevent LLVM from folding constants
 
+- **M9 Layer 3: Native binary linking — shared libraries, executables, CLI integration** (64 total LLVM-gated tests)
+  - Shared library output: compile_to_shared_library() → .so via cc -shared with PIC
+  - Executable output: compile_to_executable() → standalone binary with generated main()
+  - CLI: `--target native-shared` (.rune.so) and `--target native-exe` (.rune.bin)
+  - rune.h updated with native shared library documentation and dlopen example
+  - Pipeline refactored: compile_to_ir() + build_llvm_codegen() shared helpers
+
 ## What's Next
 
-- M9 Layer 3+: native audit runtime, control flow optimization, cross-compilation
+- M9 Layer 4+: native audit runtime, control flow optimization, cross-compilation
 - Future: standard library, formal verification, pub(crate) visibility
