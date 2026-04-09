@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "packages/rune-rs"]
+
 [package]
 name = "rune-lang"
 version = "0.1.0"

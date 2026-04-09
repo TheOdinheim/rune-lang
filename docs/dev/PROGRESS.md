@@ -4,7 +4,7 @@
 
 **M8: FFI & Backend** — Target: Month 24 — **In Progress**
 
-Layers 1-3 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API, wire format serialization. 799 tests passing.
+**COMPLETE.** Layers 1-4: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API, wire format serialization, language integration packages (rune-rs, rune-python). 815 tests passing.
 
 ### M8 Deliverables
 
@@ -22,6 +22,10 @@ Layers 1-3 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
 | Wire format C ABI (rune_evaluate_wire) | **Done** (M8 L3) |
 | Safe Rust wire API (evaluate_wire, evaluate_wire_bytes) | **Done** (M8 L3) |
 | FlatBuffers schema contract (schemas/policy.fbs) | **Done** (M8 L3) |
+| rune-rs Rust integration crate (PolicyEngine, Request builder, JSON eval) | **Done** (M8 L4) |
+| rune-python Python integration package (wasmtime-based WASM execution) | **Done** (M8 L4) |
+| Usage examples (Rust, Python, C) | **Done** (M8 L4) |
+| Integration guide (docs/INTEGRATION_GUIDE.md) | **Done** (M8 L4) |
 | LLVM backend | Planned |
 | Standard library | Planned |
 | Formal verification | Planned |
@@ -51,7 +55,7 @@ Layers 1-3 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
-| M8: FFI & Backend | Month 24 | **In Progress** — L1-L3 done: extern blocks, ffi effects, C ABI embedding API, wire format |
+| M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
 
 ## What's Done
 
@@ -340,7 +344,13 @@ Layers 1-3 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
   - FlatBuffers schema (schemas/policy.fbs) as contract definition
   - Forward-compatible: unknown field IDs safely skipped during deserialization
 
+- **M8 Layer 4: Language integration packages — M8 COMPLETE** (16 new Rust tests)
+  - rune-rs Rust crate: PolicyEngine, Request builder, Outcome, Decision, AuditEntry, evaluate_json
+  - rune-python Python package: PolicyEngine (wasmtime WASM execution), Decision, load()
+  - Usage examples: Rust, Python, C integration patterns
+  - Integration guide: docs/INTEGRATION_GUIDE.md covering all three language paths
+
 ## What's Next
 
-- M8 Layer 4+: LLVM backend, standard library, formal verification
+- M9+: LLVM backend, standard library, formal verification
 - Future module enhancements: pub(crate) visibility, module-level constants

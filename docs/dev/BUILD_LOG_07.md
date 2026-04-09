@@ -217,3 +217,76 @@ Custom binary wire format for cross-language policy evaluation at sub-millisecon
 - **Custom binary format instead of FlatBuffers runtime**: The `flatbuffers` crate is an optional dependency; the actual encoding uses a simpler tagged field format. The FlatBuffers schema (`schemas/policy.fbs`) serves as the contract definition and documentation.
 - **Rich wire types vs flat i64 fields**: WireRequest supports nested Subject/Action/Resource/Context/Attestation structures, enabling richer policy evaluation than the basic 4-field PolicyRequest.
 - **Unknown field skip**: Deserializer skips unrecognized field IDs, enabling forward-compatible schema evolution without breaking existing clients.
+
+---
+
+## 2026-04-09 — M8 Layer 4: Language Integration Packages — M8 COMPLETE
+
+### What was built
+
+First-class integration packages for Rust and Python that wrap the C ABI embedding API and wire format, so developers work with native data structures instead of raw pointers or bytes. A Rust crate (`rune-rs`) with builder pattern, JSON evaluation, and audit trail access. A Python package (`rune-python`) with wasmtime-based WASM execution and dictionary evaluation. Usage examples for Rust, Python, and C. A comprehensive integration guide.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Both packages inherit fail-closed semantics — errors always produce Deny
+- **Assumed Breach**: Audit trail is accessible through both Rust and Python APIs
+- **Zero Trust Throughout**: Packages wrap opaque handles — no internal access exposed
+- **No Single Points of Failure**: Three integration paths (Rust, Python, C) with identical governance guarantees
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Added workspace declaration | +3 lines |
+| packages/rune-rs/Cargo.toml | Rust crate package manifest | New (~12 lines) |
+| packages/rune-rs/src/lib.rs | PolicyEngine, Request, Decision, Outcome, AuditEntry + 16 tests | New (~430 lines) |
+| packages/rune-python/pyproject.toml | Python package manifest | New (~15 lines) |
+| packages/rune-python/rune/__init__.py | PolicyEngine, Decision, RuneError, load() | New (~220 lines) |
+| packages/rune-python/rune/py.typed | PEP 561 type marker | New (empty) |
+| packages/rune-python/tests/test_rune.py | Python tests (Decision, RuneError, validation) | New (~80 lines) |
+| packages/rune-python/README.md | Python package documentation | New (~70 lines) |
+| examples/rust_integration.rs.example | Rust usage example | New (~60 lines) |
+| examples/python_integration.py | Python usage example | New (~55 lines) |
+| examples/c_integration.c | C API usage example | New (~80 lines) |
+| docs/INTEGRATION_GUIDE.md | Comprehensive multi-language integration guide | New (~165 lines) |
+
+### Architecture
+
+**rune-rs crate:**
+- `PolicyEngine`: wraps `RuneEngine` from the embedding safe API
+- `Request`: builder pattern (`Request::new().subject(1).risk(85)`) + `Default` + serde
+- `Outcome`: Permit/Deny/Escalate/Quarantine with `is_permit()`/`is_deny()` helpers
+- `Decision`: outcome, matched_rule, evaluation_time, error, audit_id
+- `AuditEntry`: simplified view of `AuditRecord` with `From` conversion
+- `evaluate_json()`: deserialize JSON → Request → evaluate (for REST handlers)
+
+**rune-python package:**
+- `PolicyEngine`: loads WASM via wasmtime, calls `evaluate` export directly
+- `Decision`: outcome string, `permitted`/`denied` properties
+- `evaluate_dict()`: evaluate from Python dict (for REST handlers)
+- Source compilation via `rune-lang` CLI subprocess
+- `load()` shorthand for `PolicyEngine(wasm_path=...)`
+
+### Test summary
+
+16 new Rust tests added (815 total: 785 rune-lang lib + 14 integration + 16 rune-rs):
+
+| Area | Tests | What's covered |
+|------|-------|----------------|
+| Engine lifecycle | 2 | from_source valid, from_source invalid |
+| All outcomes | 4 | permit, deny, escalate, quarantine |
+| Risk-based policy | 1 | different scores produce different outcomes |
+| Request builder | 2 | builder pattern, default values |
+| Outcome helpers | 2 | Display formatting, is_permit/is_deny |
+| Audit trail | 2 | trail grows, entries have event types |
+| JSON evaluation | 2 | valid JSON, invalid JSON error |
+| Error display | 1 | RuneError Display formatting |
+
+Python tests (not run from cargo): Decision, RuneError, PolicyEngine validation, wasmtime integration.
+
+### Decisions
+
+- **Workspace member**: rune-rs is a Cargo workspace member, not a standalone repo. Simplifies development and testing before M13 publish.
+- **Default signing key**: `PolicyEngine::from_source()` uses a default key for convenience; `from_source_with_key()` available for production.
+- **Python uses wasmtime directly**: Rather than FFI into the C ABI (which would require building the shared library), the Python package loads compiled WASM bytes through wasmtime-py. Same execution path, simpler distribution.
+- **Example files use .rs.example extension**: Prevents Cargo from trying to compile examples that depend on rune-rs as part of the rune-lang build.

@@ -1,0 +1,63 @@
+// Example: Using rune-rs from a Rust application
+//
+// This demonstrates the complete workflow for evaluating RUNE governance
+// policies from Rust. Add `rune-rs` to your Cargo.toml:
+//
+//   [dependencies]
+//   rune-rs = "0.1"
+//
+// Note: This is a documentation example, not a runnable binary target.
+
+use rune_rs::{Decision, Outcome, PolicyEngine, Request, RuneError};
+
+fn main() -> Result<(), RuneError> {
+    // ── 1. Define a RUNE policy ──────────────────────────────────
+    let source = r#"
+        policy AccessControl {
+            rule check_risk(subject_id: Int, action: Int, resource_id: Int, risk_score: Int) -> PolicyDecision {
+                if risk_score > 80 {
+                    deny
+                } else {
+                    permit
+                }
+            }
+        }
+    "#;
+
+    // ── 2. Load the policy engine ────────────────────────────────
+    let mut engine = PolicyEngine::from_source(source)?;
+
+    // ── 3. Build a request using the builder pattern ─────────────
+    let request = Request::new()
+        .subject(42)
+        .action(1)
+        .resource(100)
+        .risk(85);
+
+    // ── 4. Evaluate — always returns a Decision (fail-closed) ────
+    let decision = engine.evaluate(&request);
+
+    match decision.outcome {
+        Outcome::Permit => println!("Access granted"),
+        Outcome::Deny => println!("Access denied"),
+        Outcome::Escalate => println!("Needs human review"),
+        Outcome::Quarantine => println!("Quarantined for investigation"),
+    }
+
+    // ── 5. Check audit trail ─────────────────────────────────────
+    println!("Audit records: {}", engine.audit_count());
+    for entry in engine.audit_trail() {
+        println!("  [{}] {} — {:?}", entry.id, entry.event_type, entry.decision);
+    }
+
+    // ── 6. Evaluate from JSON (useful for REST handlers) ─────────
+    let json = r#"{"subject_id": 1, "action": 2, "resource_id": 3, "risk_score": 50}"#;
+    let decision = engine.evaluate_json(json)?;
+    assert!(decision.outcome.is_permit());
+
+    // ── 7. Use struct defaults for simple cases ──────────────────
+    let decision = engine.evaluate(&Request { risk_score: 90, ..Default::default() });
+    assert!(decision.outcome.is_deny());
+
+    Ok(())
+}
