@@ -4,7 +4,7 @@
 
 **M9: LLVM Backend** — Target: Month 30 — **In Progress**
 
-Layer 1 complete: LLVM infrastructure, feature gating, basic IR-to-LLVM translation. 815 tests passing (+ 27 LLVM tests with `--features llvm`).
+Layer 2 complete: control flow, policy decisions, evaluate entry point, cross-backend equivalence. 815 tests passing (+ 48 LLVM tests with `--features llvm`).
 
 ### M8 Deliverables
 
@@ -56,7 +56,7 @@ Layer 1 complete: LLVM infrastructure, feature gating, basic IR-to-LLVM translat
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
 | M8: FFI & Backend | Month 24 | **Complete** — L1-L4: extern blocks, ffi effects, C ABI embedding, wire format, rune-rs, rune-python |
-| M9: LLVM Backend | Month 30 | **In Progress** — L1 done: LLVM infrastructure, feature gating, IR-to-LLVM translation |
+| M9: LLVM Backend | Month 30 | **In Progress** — L1-L2 done: LLVM infrastructure, control flow, policy decisions, cross-backend equivalence |
 
 ## What's Done
 
@@ -358,7 +358,14 @@ Layer 1 complete: LLVM infrastructure, feature gating, basic IR-to-LLVM translat
   - CLI: `--target native` flag on Build subcommand
   - Full pipeline: RUNE source → native ELF object file (.o)
 
+- **M9 Layer 2: Complete IR-to-LLVM translation — control flow, policy decisions, cross-backend equivalence** (48 total LLVM-gated tests)
+  - Control flow: if/else (CondBranch → LLVM conditional branch + phi), while loops (header/body/exit)
+  - Policy decisions: all four governance decisions compile to correct i32 constants
+  - Evaluate entry point: `evaluate(i64,i64,i64,i64)->i32` with first-non-permit-wins, matching WASM
+  - Cross-backend equivalence: 6 tests verifying WASM execution and LLVM IR structure agree
+  - Fixed Layer 1 constant folding: param-based test helpers prevent LLVM from folding constants
+
 ## What's Next
 
-- M9 Layer 2+: native audit runtime, control flow optimization, cross-compilation
+- M9 Layer 3+: native audit runtime, control flow optimization, cross-compilation
 - Future: standard library, formal verification, pub(crate) visibility

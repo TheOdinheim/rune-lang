@@ -18,11 +18,11 @@ use inkwell::module::Module;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
+use inkwell::module::Linkage;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
-use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::IntPredicate;
 use inkwell::OptimizationLevel;
-use inkwell::FloatPredicate;
 
 use crate::ir::nodes::*;
 
@@ -92,6 +92,78 @@ impl<'ctx> LlvmCodegen<'ctx> {
         for func in &ir_module.functions {
             self.compile_function(func);
         }
+
+        // Third pass: generate evaluate entry point if policy rules exist.
+        let policy_rules: Vec<&IrFunction> = ir_module
+            .functions
+            .iter()
+            .filter(|f| f.return_type == IrType::PolicyDecision && f.name.contains("::"))
+            .collect();
+
+        if !policy_rules.is_empty() {
+            self.compile_evaluate_wrapper(&policy_rules);
+        }
+    }
+
+    // ── Evaluate entry point ─────────────────────────────────────
+
+    fn compile_evaluate_wrapper(&mut self, policy_rules: &[&IrFunction]) {
+        let i64_ty = self.context.i64_type();
+        let i32_ty = self.context.i32_type();
+
+        // evaluate(subject_id: i64, action: i64, resource_id: i64, risk_score: i64) -> i32
+        let fn_type = i32_ty.fn_type(
+            &[i64_ty.into(), i64_ty.into(), i64_ty.into(), i64_ty.into()],
+            false,
+        );
+        let eval_fn = self.module.add_function("evaluate", fn_type, Some(Linkage::External));
+        self.function_map.insert("evaluate".to_string(), eval_fn);
+
+        let entry_bb = self.context.append_basic_block(eval_fn, "entry");
+        self.builder.position_at_end(entry_bb);
+
+        // For each policy rule: call it, check if result != Permit (0),
+        // if so return the result immediately (first-non-permit-wins).
+        for rule in policy_rules {
+            let callee_name = rule.name.replace("::", "__");
+            let callee = match self.module.get_function(&callee_name) {
+                Some(f) => f,
+                None => continue,
+            };
+
+            // Build args: pass evaluate's params to the rule, matching by position.
+            let rule_param_count = rule.params.len().min(4);
+            let mut args: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
+            for i in 0..rule_param_count {
+                let eval_param = eval_fn.get_nth_param(i as u32).unwrap();
+                // Rule params may be i64 (Int) — evaluate params are always i64.
+                args.push(eval_param.into());
+            }
+
+            let call_result = self.builder.build_call(callee, &args, "rule_result").unwrap();
+            let decision = call_result.try_as_basic_value().left().unwrap().into_int_value();
+
+            // if decision != 0 (Permit), return it
+            let is_not_permit = self.builder.build_int_compare(
+                IntPredicate::NE,
+                decision,
+                i32_ty.const_zero(),
+                "is_not_permit",
+            ).unwrap();
+
+            let then_bb = self.context.append_basic_block(eval_fn, "return_decision");
+            let cont_bb = self.context.append_basic_block(eval_fn, "next_rule");
+
+            self.builder.build_conditional_branch(is_not_permit, then_bb, cont_bb).unwrap();
+
+            self.builder.position_at_end(then_bb);
+            self.builder.build_return(Some(&decision)).unwrap();
+
+            self.builder.position_at_end(cont_bb);
+        }
+
+        // All rules returned Permit — return Permit (0).
+        self.builder.build_return(Some(&i32_ty.const_zero())).unwrap();
     }
 
     pub fn verify(&self) -> Result<(), String> {
