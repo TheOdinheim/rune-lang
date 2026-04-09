@@ -145,3 +145,75 @@ C-compatible embedding API for host applications to load and evaluate RUNE polic
 - **RuntimePipeline::from_evaluator()**: Single new method to support WASM-loaded modules through the embedding API
 - **catch_unwind on all C entry points**: Panics produce DENY, never crash the host process
 - **Fixed-size buffers in RunePolicyDecision**: [c_char; 256] for rule name, [c_char; 512] for error message — simple C-compatible layout without heap allocation in the output struct
+
+---
+
+## 2026-04-09 — M8 Layer 3: FlatBuffers Wire Format with Zero-Copy Serialization
+
+### What was built
+
+Custom binary wire format for cross-language policy evaluation at sub-millisecond latency. Tagged field encoding for PolicyRequest and PolicyDecision serialization/deserialization, C ABI wire evaluation function, safe Rust wire API methods, and FlatBuffers schema as the contract definition. The wire format supports rich nested structures (Subject, Action, Resource, Context, Attestation) beyond the basic i64 fields.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Deserialization failure produces DENY — no implicit PERMIT from malformed input
+- **Assumed Breach**: Wire evaluations feed through the same cryptographic audit trail as struct-based calls
+- **Zero Trust Throughout**: Every field validated during deserialization; unknown tags safely skipped
+- **No Single Points of Failure**: Buffer-too-small returns -2 with required size, never truncates decisions
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| src/embedding/wire.rs | Wire types, binary serialization/deserialization | New (~430 lines) |
+| src/embedding/mod.rs | Added `rune_evaluate_wire()` C ABI function | +100 lines |
+| src/embedding/safe_api.rs | Added `evaluate_wire()` and `evaluate_wire_bytes()` | +40 lines |
+| src/embedding/tests.rs | 20 new wire format tests | +270 lines |
+| schemas/policy.fbs | FlatBuffers schema (contract definition) | New (~50 lines) |
+| tools/rune.h | Added `rune_evaluate_wire` prototype | +20 lines |
+| Cargo.toml | Added flatbuffers dependency (optional, runtime feature) | +1 line |
+
+### Architecture
+
+**Wire types:**
+- `WireRequest`: subject (WireSubject), action (WireAction), resource (WireResource), context (WireContext), attestation (WireAttestation) — rich nested structure
+- `WireDecision`: outcome (PolicyDecision), matched_rule, evaluation_duration_us, explanation, audit (WireAuditInfo)
+- All types derive Default for fail-closed construction
+
+**Binary tagged field encoding:**
+- Format: `[u32 total_len][u8 tag][field_id:u8][field_len:u32][data...]`
+- Tag byte identifies type: 0x01=i32, 0x02=i64, 0x03=u64, 0x04=string, 0x05=bytes, 0x06=string_list, 0x07=key_value
+- Field IDs: FIELD_SUBJECT_ID=1, FIELD_ACTION=2, FIELD_RESOURCE_ID=3, etc.
+- Unknown field IDs safely skipped (forward compatibility)
+- Zero-alloc read path for primitive fields
+
+**Conversions:**
+- `From<&WireRequest> for PolicyRequest` — maps to the standard evaluate() signature
+- `From<&PolicyResult> for WireDecision` — wraps evaluation results
+- WireError enum: MalformedBuffer, MissingRequiredField, InvalidOutcome
+
+**C ABI (`rune_evaluate_wire`):**
+- Takes serialized request bytes, evaluates, writes serialized decision to output buffer
+- Returns 0 (success), -1 (error), -2 (buffer too small, writes required size)
+- Deserialization failure → serialized DENY decision (fail-closed)
+
+**Safe Rust API:**
+- `evaluate_wire(&WireRequest) -> WireDecision` — typed wire evaluation
+- `evaluate_wire_bytes(&[u8]) -> Result<Vec<u8>, WireError>` — bytes-in/bytes-out path
+
+### Test summary
+
+20 new tests added (785 lib + 14 integration = 799 total, up from 779):
+
+| Area | Tests | What's covered |
+|------|-------|----------------|
+| Serialization round-trips | 9 | minimal/full request, decision, empty fields, all outcomes, large payload, unknown fields |
+| Conversion | 3 | WireRequest→PolicyRequest, PolicyResult→WireDecision, error→Deny |
+| Wire embedding API | 4 | safe API wire eval, wire bytes eval, deserialization error→Deny, C ABI wire eval |
+| Benchmarks | 4 | request serialization, decision serialization, round-trip, deserialization |
+
+### Decisions
+
+- **Custom binary format instead of FlatBuffers runtime**: The `flatbuffers` crate is an optional dependency; the actual encoding uses a simpler tagged field format. The FlatBuffers schema (`schemas/policy.fbs`) serves as the contract definition and documentation.
+- **Rich wire types vs flat i64 fields**: WireRequest supports nested Subject/Action/Resource/Context/Attestation structures, enabling richer policy evaluation than the basic 4-field PolicyRequest.
+- **Unknown field skip**: Deserializer skips unrecognized field IDs, enabling forward-compatible schema evolution without breaking existing clients.

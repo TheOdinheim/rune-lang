@@ -1,0 +1,87 @@
+// ═══════════════════════════════════════════════════════════════════════
+// RUNE Policy Wire Format — FlatBuffers Schema
+//
+// Canonical contract between RUNE and every host language. Ships with
+// the RUNE toolchain and generates bindings for all supported languages.
+//
+// Designed for zero-copy deserialization: the receiver reads fields
+// directly from the serialized buffer without parsing or allocating
+// intermediate objects. Target: serialize PolicyRequest with 10-15
+// fields in under 500 nanoseconds.
+// ═══════════════════════════════════════════════════════════════════════
+
+namespace rune.wire;
+
+enum Outcome : int32 {
+    Permit = 0,
+    Deny = 1,
+    Escalate = 2,
+    Quarantine = 3
+}
+
+table Subject {
+    id: int64;
+    roles: [string];
+    clearance_level: int32;
+    authentication_method: string;
+}
+
+table Action {
+    action_type: string;
+    target_resource: string;
+    requested_permissions: [string];
+}
+
+table Resource {
+    resource_type: string;
+    classification_level: int32;
+    resource_id: int64;
+    metadata: [KeyValue];
+}
+
+table KeyValue {
+    key: string;
+    value: string;
+}
+
+table Context {
+    timestamp_ms: int64;
+    source_ip: string;
+    risk_score: int64;
+    session_id: string;
+    custom: [KeyValue];
+}
+
+table Attestation {
+    signer_identity: string;
+    signature_bytes: [uint8];
+    slsa_level: int32;
+    architecture_hash: string;
+    model_id: string;
+}
+
+table PolicyRequest {
+    subject: Subject;
+    action: Action;
+    resource: Resource;
+    context: Context;
+    attestation: Attestation;
+}
+
+table AuditInfo {
+    record_id: uint64;
+    policy_version: string;
+    input_hash: string;
+    previous_hash: string;
+    signature: string;
+}
+
+table PolicyDecision {
+    outcome: Outcome;
+    matched_rule: string;
+    evaluation_duration_us: uint64;
+    explanation: string;
+    audit: AuditInfo;
+}
+
+root_type PolicyRequest;

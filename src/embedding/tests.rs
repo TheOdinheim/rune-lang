@@ -391,4 +391,374 @@ mod tests {
 
         rune_module_free(module);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // M8 Layer 3: Wire format serialization tests
+    // ═════════════════════════════════════════════════════════════════
+
+    use crate::embedding::wire::*;
+
+    fn minimal_wire_request() -> WireRequest {
+        WireRequest {
+            subject: WireSubject { id: 42, ..Default::default() },
+            context: WireContext { risk_score: 10, ..Default::default() },
+            ..Default::default()
+        }
+    }
+
+    fn full_wire_request() -> WireRequest {
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert("env".to_string(), "production".to_string());
+        metadata.insert("region".to_string(), "us-east-1".to_string());
+
+        let mut custom = std::collections::HashMap::new();
+        custom.insert("trace_id".to_string(), "abc-123".to_string());
+
+        WireRequest {
+            subject: WireSubject {
+                id: 100,
+                roles: vec!["admin".to_string(), "auditor".to_string()],
+                clearance_level: 5,
+                authentication_method: "mTLS".to_string(),
+            },
+            action: WireAction {
+                action_type: "read".to_string(),
+                target_resource: "model/gpt-4".to_string(),
+                requested_permissions: vec!["inference".to_string(), "inspect".to_string()],
+            },
+            resource: WireResource {
+                resource_type: "ai_model".to_string(),
+                classification_level: 3,
+                resource_id: 999,
+                metadata,
+            },
+            context: WireContext {
+                timestamp_ms: 1700000000000,
+                source_ip: "10.0.0.1".to_string(),
+                risk_score: 45,
+                session_id: "sess-xyz".to_string(),
+                custom,
+            },
+            attestation: Some(WireAttestation {
+                signer_identity: "signer@example.com".to_string(),
+                signature_bytes: vec![0xDE, 0xAD, 0xBE, 0xEF],
+                slsa_level: 3,
+                architecture_hash: "sha256:abc123".to_string(),
+                model_id: "model-001".to_string(),
+            }),
+        }
+    }
+
+    // ── Schema/serialization round-trip tests ───────────────────────
+
+    #[test]
+    fn test_wire_request_minimal_roundtrip() {
+        let req = minimal_wire_request();
+        let bytes = serialize_request(&req);
+        let decoded = deserialize_request(&bytes).unwrap();
+        assert_eq!(decoded.subject.id, 42);
+        assert_eq!(decoded.context.risk_score, 10);
+    }
+
+    #[test]
+    fn test_wire_request_full_roundtrip() {
+        let req = full_wire_request();
+        let bytes = serialize_request(&req);
+        let decoded = deserialize_request(&bytes).unwrap();
+
+        assert_eq!(decoded.subject.id, 100);
+        assert_eq!(decoded.subject.roles, vec!["admin", "auditor"]);
+        assert_eq!(decoded.subject.clearance_level, 5);
+        assert_eq!(decoded.subject.authentication_method, "mTLS");
+        assert_eq!(decoded.action.action_type, "read");
+        assert_eq!(decoded.action.target_resource, "model/gpt-4");
+        assert_eq!(decoded.action.requested_permissions, vec!["inference", "inspect"]);
+        assert_eq!(decoded.resource.resource_type, "ai_model");
+        assert_eq!(decoded.resource.classification_level, 3);
+        assert_eq!(decoded.resource.resource_id, 999);
+        assert_eq!(decoded.context.timestamp_ms, 1700000000000);
+        assert_eq!(decoded.context.source_ip, "10.0.0.1");
+        assert_eq!(decoded.context.risk_score, 45);
+        assert_eq!(decoded.context.session_id, "sess-xyz");
+    }
+
+    #[test]
+    fn test_wire_decision_all_outcomes_roundtrip() {
+        for outcome in [PolicyDecision::Permit, PolicyDecision::Deny, PolicyDecision::Escalate, PolicyDecision::Quarantine] {
+            let dec = WireDecision {
+                outcome,
+                matched_rule: "test_rule".to_string(),
+                evaluation_duration_us: 42,
+                explanation: "because".to_string(),
+                audit: None,
+            };
+            let bytes = serialize_decision(&dec);
+            let decoded = deserialize_decision(&bytes).unwrap();
+            assert_eq!(decoded.outcome, outcome);
+            assert_eq!(decoded.matched_rule, "test_rule");
+            assert_eq!(decoded.evaluation_duration_us, 42);
+            assert_eq!(decoded.explanation, "because");
+        }
+    }
+
+    #[test]
+    fn test_wire_deserialize_malformed_bytes() {
+        let result = deserialize_request(&[0xFF, 0xFF]);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), WireError::MalformedBuffer(_)));
+    }
+
+    #[test]
+    fn test_wire_deserialize_empty_bytes() {
+        let result = deserialize_request(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_wire_request_attestation_present_roundtrip() {
+        let req = full_wire_request();
+        let bytes = serialize_request(&req);
+        let decoded = deserialize_request(&bytes).unwrap();
+        let att = decoded.attestation.as_ref().unwrap();
+        assert_eq!(att.signer_identity, "signer@example.com");
+        assert_eq!(att.signature_bytes, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(att.slsa_level, 3);
+        assert_eq!(att.architecture_hash, "sha256:abc123");
+        assert_eq!(att.model_id, "model-001");
+    }
+
+    #[test]
+    fn test_wire_request_attestation_absent_roundtrip() {
+        let req = minimal_wire_request();
+        let bytes = serialize_request(&req);
+        let decoded = deserialize_request(&bytes).unwrap();
+        assert!(decoded.attestation.is_none());
+    }
+
+    #[test]
+    fn test_wire_kv_metadata_roundtrip() {
+        let req = full_wire_request();
+        let bytes = serialize_request(&req);
+        let decoded = deserialize_request(&bytes).unwrap();
+        assert_eq!(decoded.resource.metadata.get("env").unwrap(), "production");
+        assert_eq!(decoded.resource.metadata.get("region").unwrap(), "us-east-1");
+        assert_eq!(decoded.context.custom.get("trace_id").unwrap(), "abc-123");
+    }
+
+    #[test]
+    fn test_wire_decision_with_audit_roundtrip() {
+        let dec = WireDecision {
+            outcome: PolicyDecision::Permit,
+            matched_rule: "allow_admin".to_string(),
+            evaluation_duration_us: 150,
+            explanation: "admin role".to_string(),
+            audit: Some(WireAuditInfo {
+                record_id: 7,
+                policy_version: "v1.2".to_string(),
+                input_hash: "abc123".to_string(),
+                previous_hash: "def456".to_string(),
+                signature: "sig789".to_string(),
+            }),
+        };
+        let bytes = serialize_decision(&dec);
+        let decoded = deserialize_decision(&bytes).unwrap();
+        assert_eq!(decoded.outcome, PolicyDecision::Permit);
+        let audit = decoded.audit.unwrap();
+        assert_eq!(audit.record_id, 7);
+        assert_eq!(audit.policy_version, "v1.2");
+        assert_eq!(audit.input_hash, "abc123");
+        assert_eq!(audit.previous_hash, "def456");
+        assert_eq!(audit.signature, "sig789");
+    }
+
+    // ── Conversion tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_wire_request_to_policy_request() {
+        let wire = WireRequest {
+            subject: WireSubject { id: 42, ..Default::default() },
+            resource: WireResource { resource_id: 99, ..Default::default() },
+            context: WireContext { risk_score: 75, ..Default::default() },
+            ..Default::default()
+        };
+        let pr: crate::runtime::evaluator::PolicyRequest = (&wire).into();
+        assert_eq!(pr.subject_id, 42);
+        assert_eq!(pr.resource_id, 99);
+        assert_eq!(pr.risk_score, 75);
+    }
+
+    #[test]
+    fn test_policy_result_to_wire_decision() {
+        let result = crate::runtime::evaluator::PolicyResult {
+            decision: PolicyDecision::Escalate,
+            evaluation_duration: std::time::Duration::from_micros(123),
+        };
+        let dec: WireDecision = (&result).into();
+        assert_eq!(dec.outcome, PolicyDecision::Escalate);
+        assert_eq!(dec.evaluation_duration_us, 123);
+        assert_eq!(dec.matched_rule, "evaluate");
+    }
+
+    #[test]
+    fn test_wire_request_zero_values_convert() {
+        let wire = WireRequest::default();
+        let pr: crate::runtime::evaluator::PolicyRequest = (&wire).into();
+        assert_eq!(pr.subject_id, 0);
+        assert_eq!(pr.action, 0);
+        assert_eq!(pr.resource_id, 0);
+        assert_eq!(pr.risk_score, 0);
+    }
+
+    // ── Wire format embedding API tests ─────────────────────────────
+
+    #[test]
+    fn test_engine_evaluate_wire() {
+        let mut engine = RuneEngine::from_source(permit_source(), TEST_KEY, "wire_test").unwrap();
+        let req = WireRequest {
+            subject: WireSubject { id: 1, ..Default::default() },
+            context: WireContext { risk_score: 10, ..Default::default() },
+            ..Default::default()
+        };
+        let dec = engine.evaluate_wire(&req);
+        assert_eq!(dec.outcome, PolicyDecision::Permit);
+        assert!(dec.audit.is_some());
+    }
+
+    #[test]
+    fn test_engine_evaluate_wire_bytes() {
+        let mut engine = RuneEngine::from_source(permit_source(), TEST_KEY, "wire_bytes").unwrap();
+        let req = minimal_wire_request();
+        let req_bytes = serialize_request(&req);
+        let dec_bytes = engine.evaluate_wire_bytes(&req_bytes).unwrap();
+        let dec = deserialize_decision(&dec_bytes).unwrap();
+        assert_eq!(dec.outcome, PolicyDecision::Permit);
+    }
+
+    #[test]
+    fn test_engine_evaluate_wire_bytes_invalid_input() {
+        let mut engine = RuneEngine::from_source(permit_source(), TEST_KEY, "wire_err").unwrap();
+        let result = engine.evaluate_wire_bytes(&[0xFF, 0xFF]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_c_api_evaluate_wire() {
+        let source = permit_source().as_bytes();
+        let key = TEST_KEY;
+        let name = b"wire_c_test";
+
+        let module = rune_module_load_source(
+            source.as_ptr() as *const c_char,
+            source.len(),
+            key.as_ptr(),
+            key.len(),
+            name.as_ptr() as *const c_char,
+            name.len(),
+        );
+        assert!(!module.is_null());
+
+        let req = minimal_wire_request();
+        let req_bytes = serialize_request(&req);
+        let mut dec_buf = vec![0u8; 4096];
+        let mut written: usize = 0;
+
+        let ret = rune_evaluate_wire(
+            module,
+            req_bytes.as_ptr(),
+            req_bytes.len(),
+            dec_buf.as_mut_ptr(),
+            dec_buf.len(),
+            &mut written,
+        );
+        assert_eq!(ret, 0);
+        assert!(written > 0);
+
+        let dec = deserialize_decision(&dec_buf[..written]).unwrap();
+        assert_eq!(dec.outcome, PolicyDecision::Permit);
+
+        rune_module_free(module);
+    }
+
+    // ── Benchmark tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_bench_serialize_request() {
+        let req = full_wire_request();
+        let iterations = 1000;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let _ = serialize_request(&req);
+        }
+        let elapsed = start.elapsed();
+        let avg_us = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
+
+        println!("  serialize_request: {:.2} us avg ({} iterations)", avg_us, iterations);
+        // Generous upper bound for CI: under 10 us per serialization.
+        assert!(avg_us < 10.0, "serialization too slow: {:.2} us", avg_us);
+    }
+
+    #[test]
+    fn test_bench_deserialize_request() {
+        let req = full_wire_request();
+        let bytes = serialize_request(&req);
+        let iterations = 1000;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let _ = deserialize_request(&bytes).unwrap();
+        }
+        let elapsed = start.elapsed();
+        let avg_us = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
+
+        println!("  deserialize_request: {:.2} us avg ({} iterations)", avg_us, iterations);
+        assert!(avg_us < 10.0, "deserialization too slow: {:.2} us", avg_us);
+    }
+
+    #[test]
+    fn test_bench_serialize_decision() {
+        let dec = WireDecision {
+            outcome: PolicyDecision::Permit,
+            matched_rule: "allow_admin".to_string(),
+            evaluation_duration_us: 150,
+            explanation: "admin role verified".to_string(),
+            audit: Some(WireAuditInfo {
+                record_id: 7,
+                policy_version: "v1.2".to_string(),
+                input_hash: "abc123def456".to_string(),
+                previous_hash: "000111222333".to_string(),
+                signature: "sig_bytes_here".to_string(),
+            }),
+        };
+        let iterations = 1000;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let _ = serialize_decision(&dec);
+        }
+        let elapsed = start.elapsed();
+        let avg_us = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
+
+        println!("  serialize_decision: {:.2} us avg ({} iterations)", avg_us, iterations);
+        assert!(avg_us < 10.0, "decision serialization too slow: {:.2} us", avg_us);
+    }
+
+    #[test]
+    fn test_bench_full_round_trip() {
+        let mut engine = RuneEngine::from_source(permit_source(), TEST_KEY, "bench").unwrap();
+        let req = full_wire_request();
+        let req_bytes = serialize_request(&req);
+        let iterations = 100;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let _ = engine.evaluate_wire_bytes(&req_bytes).unwrap();
+        }
+        let elapsed = start.elapsed();
+        let avg_ms = elapsed.as_secs_f64() * 1000.0 / iterations as f64;
+
+        println!("  full round-trip (ser+deser+eval+ser): {:.2} ms avg ({} iterations)", avg_ms, iterations);
+        // Generous upper bound for CI: under 5 ms per full round-trip.
+        assert!(avg_ms < 5.0, "full round-trip too slow: {:.2} ms", avg_ms);
+    }
 }

@@ -15,6 +15,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 pub mod safe_api;
+pub mod wire;
 
 #[cfg(test)]
 mod tests;
@@ -350,6 +351,109 @@ pub extern "C" fn rune_last_error(module: *mut RuneModule) -> *const c_char {
     match &module_ref.last_error {
         Some(err) => err.as_ptr() as *const c_char,
         None => std::ptr::null(),
+    }
+}
+
+// ── Wire format evaluation (C ABI) ────────────────────────────────
+
+/// Evaluate a policy request using the FlatBuffers wire format.
+///
+/// Takes serialized request bytes, evaluates, and writes the serialized
+/// decision to the output buffer.
+///
+/// Returns 0 on success, -1 on error, -2 if the output buffer is too small
+/// (in which case decision_written contains the required size).
+///
+/// FAIL-CLOSED: deserialization failure produces a serialized DENY decision.
+#[unsafe(no_mangle)]
+pub extern "C" fn rune_evaluate_wire(
+    module: *mut RuneModule,
+    request_bytes: *const u8,
+    request_len: usize,
+    decision_buf: *mut u8,
+    decision_buf_len: usize,
+    decision_written: *mut usize,
+) -> i32 {
+    let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if module.is_null() || request_bytes.is_null() || decision_buf.is_null() || decision_written.is_null() {
+            return RUNE_ERROR;
+        }
+
+        let request_data = unsafe { std::slice::from_raw_parts(request_bytes, request_len) };
+        let module_ref = unsafe { &mut *module };
+
+        // Deserialize request — fail-closed on error.
+        let wire_request = match wire::deserialize_request(request_data) {
+            Ok(req) => req,
+            Err(_) => {
+                // Fail-closed: write a DENY decision.
+                let deny = wire::WireDecision {
+                    outcome: PolicyDecision::Deny,
+                    matched_rule: String::new(),
+                    evaluation_duration_us: 0,
+                    explanation: "failed to deserialize request".to_string(),
+                    audit: None,
+                };
+                let deny_bytes = wire::serialize_decision(&deny);
+                if deny_bytes.len() > decision_buf_len {
+                    unsafe { *decision_written = deny_bytes.len(); }
+                    return -2;
+                }
+                unsafe {
+                    std::ptr::copy_nonoverlapping(deny_bytes.as_ptr(), decision_buf, deny_bytes.len());
+                    *decision_written = deny_bytes.len();
+                }
+                return RUNE_ERROR;
+            }
+        };
+
+        // Convert and evaluate.
+        let policy_request: PolicyRequest = (&wire_request).into();
+        let eval_result = module_ref.pipeline.evaluate(&policy_request);
+
+        let wire_decision = match eval_result {
+            Ok(result) => {
+                let audit_len = module_ref.pipeline.audit_trail().len() as u64;
+                wire::WireDecision {
+                    outcome: result.decision,
+                    matched_rule: "evaluate".to_string(),
+                    evaluation_duration_us: result.evaluation_duration.as_micros() as u64,
+                    explanation: String::new(),
+                    audit: Some(wire::WireAuditInfo {
+                        record_id: audit_len,
+                        ..Default::default()
+                    }),
+                }
+            }
+            Err(err) => {
+                // Fail-closed: error → DENY.
+                wire::WireDecision {
+                    outcome: PolicyDecision::Deny,
+                    matched_rule: String::new(),
+                    evaluation_duration_us: 0,
+                    explanation: err.to_string(),
+                    audit: None,
+                }
+            }
+        };
+
+        let decision_bytes = wire::serialize_decision(&wire_decision);
+        if decision_bytes.len() > decision_buf_len {
+            unsafe { *decision_written = decision_bytes.len(); }
+            return -2;
+        }
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(decision_bytes.as_ptr(), decision_buf, decision_bytes.len());
+            *decision_written = decision_bytes.len();
+        }
+
+        0
+    }));
+
+    match result {
+        Ok(code) => code,
+        Err(_) => RUNE_ERROR,
     }
 }
 

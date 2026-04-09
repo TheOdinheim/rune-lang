@@ -146,6 +146,31 @@ int32_t rune_evaluate(
 void rune_module_free(RuneModule *module);
 
 /**
+ * Evaluate a policy request using the wire format (FlatBuffers-compatible).
+ *
+ * Takes serialized request bytes, evaluates the policy, and writes the
+ * serialized decision to the output buffer.
+ *
+ * FAIL-CLOSED: deserialization failure produces a serialized DENY decision.
+ *
+ * @param module          Module handle (must not be NULL)
+ * @param request_bytes   Serialized PolicyRequest bytes
+ * @param request_len     Length of the request bytes
+ * @param decision_buf    Output buffer for the serialized PolicyDecision
+ * @param decision_buf_len Size of the output buffer
+ * @param decision_written Number of bytes written to the output buffer
+ * @return 0 on success, -1 on error, -2 if output buffer too small.
+ */
+int32_t rune_evaluate_wire(
+    RuneModule *module,
+    const uint8_t *request_bytes,
+    size_t request_len,
+    uint8_t *decision_buf,
+    size_t decision_buf_len,
+    size_t *decision_written
+);
+
+/**
  * Get the number of audit records in the module's trail.
  *
  * @param module Module handle (returns 0 if NULL).

@@ -7,6 +7,7 @@
 // Pillar: Security Baked In — fail-closed by default. Errors produce Deny.
 // ═══════════════════════════════════════════════════════════════════════
 
+use crate::embedding::wire::{self, WireDecision, WireRequest, WireError};
 use crate::runtime::audit::AuditRecord;
 use crate::runtime::evaluator::{PolicyDecision, PolicyRequest};
 use crate::runtime::pipeline::{PipelineConfig, RuntimePipeline};
@@ -144,6 +145,45 @@ impl RuneEngine {
     /// Export all audit records for independent verification.
     pub fn export_audit_log(&self) -> Vec<AuditRecord> {
         self.pipeline.export_audit_log()
+    }
+
+    /// Evaluate a policy request using the wire format types.
+    ///
+    /// FAIL-CLOSED: any error produces a Deny WireDecision.
+    pub fn evaluate_wire(&mut self, request: &WireRequest) -> WireDecision {
+        let policy_request: PolicyRequest = request.into();
+
+        match self.pipeline.evaluate(&policy_request) {
+            Ok(result) => {
+                let audit_id = self.pipeline.audit_trail().len() as u64;
+                WireDecision {
+                    outcome: result.decision,
+                    matched_rule: "evaluate".to_string(),
+                    evaluation_duration_us: result.evaluation_duration.as_micros() as u64,
+                    explanation: String::new(),
+                    audit: Some(wire::WireAuditInfo {
+                        record_id: audit_id,
+                        ..Default::default()
+                    }),
+                }
+            }
+            Err(err) => WireDecision {
+                outcome: PolicyDecision::Deny,
+                matched_rule: String::new(),
+                evaluation_duration_us: 0,
+                explanation: err.to_string(),
+                audit: None,
+            },
+        }
+    }
+
+    /// Evaluate using raw wire bytes: bytes in, bytes out.
+    ///
+    /// The fully zero-copy path for maximum performance.
+    pub fn evaluate_wire_bytes(&mut self, request_bytes: &[u8]) -> Result<Vec<u8>, WireError> {
+        let wire_request = wire::deserialize_request(request_bytes)?;
+        let wire_decision = self.evaluate_wire(&wire_request);
+        Ok(wire::serialize_decision(&wire_decision))
     }
 }
 

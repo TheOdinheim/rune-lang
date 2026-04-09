@@ -4,7 +4,7 @@
 
 **M8: FFI & Backend** — Target: Month 24 — **In Progress**
 
-Layers 1-2 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API. 779 tests passing.
+Layers 1-3 complete: extern blocks, FFI syntax, ffi effect enforcement, audit instrumentation, C ABI embedding API, wire format serialization. 799 tests passing.
 
 ### M8 Deliverables
 
@@ -18,6 +18,10 @@ Layers 1-2 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
 | Safe Rust wrapper (RuneEngine) | **Done** (M8 L2) |
 | C header file (tools/rune.h) | **Done** (M8 L2) |
 | cdylib build target | **Done** (M8 L2) |
+| FlatBuffers wire format (binary serialization) | **Done** (M8 L3) |
+| Wire format C ABI (rune_evaluate_wire) | **Done** (M8 L3) |
+| Safe Rust wire API (evaluate_wire, evaluate_wire_bytes) | **Done** (M8 L3) |
+| FlatBuffers schema contract (schemas/policy.fbs) | **Done** (M8 L3) |
 | LLVM backend | Planned |
 | Standard library | Planned |
 | Formal verification | Planned |
@@ -47,7 +51,7 @@ Layers 1-2 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
 | M5: Runtime engine | Month 15 | **Complete** — runtime evaluator, audit trail, attestation, integration pipeline |
 | M6: Toolchain MVP | Month 18 | **Complete** — tree-sitter, VS Code, CLI, formatter, LSP, manifest, scaffolding, docgen, playground |
 | M7: Module System | Month 21 | **Complete** — L1–L4: parser/AST, name resolution, multi-file, edition/LSP/docgen/integration |
-| M8: FFI & Backend | Month 24 | **In Progress** — L1-L2 done: extern blocks, ffi effects, C ABI embedding API |
+| M8: FFI & Backend | Month 24 | **In Progress** — L1-L3 done: extern blocks, ffi effects, C ABI embedding API, wire format |
 
 ## What's Done
 
@@ -328,7 +332,15 @@ Layers 1-2 complete: extern blocks, FFI syntax, ffi effect enforcement, audit in
   - C header file (tools/rune.h) with full documentation
   - cdylib build target for shared library generation (.so/.dylib/.dll)
 
+- **M8 Layer 3: FlatBuffers wire format with zero-copy serialization** (20 new tests)
+  - Custom binary tagged field encoding for PolicyRequest/PolicyDecision serialization
+  - Wire types: WireRequest (nested Subject/Action/Resource/Context/Attestation), WireDecision
+  - C ABI: rune_evaluate_wire (bytes in, bytes out, fail-closed on deserialization error)
+  - Safe Rust API: evaluate_wire (typed), evaluate_wire_bytes (zero-copy bytes path)
+  - FlatBuffers schema (schemas/policy.fbs) as contract definition
+  - Forward-compatible: unknown field IDs safely skipped during deserialization
+
 ## What's Next
 
-- M8 Layer 3+: LLVM backend, standard library, formal verification
+- M8 Layer 4+: LLVM backend, standard library, formal verification
 - Future module enhancements: pub(crate) visibility, module-level constants
