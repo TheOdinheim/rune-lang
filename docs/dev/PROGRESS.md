@@ -435,6 +435,20 @@
   - Federation interfaces: OIDC and SAML2 data structures for adapter integration
   - Identity audit logging: 19 event types, security event filtering
 
+- **rune-shield Layer 1: AI inference immune system, prompt injection defense, exfiltration prevention** (98 new tests)
+  - Workspace crate: packages/rune-shield/ with 12 modules
+  - Governance mapping: ShieldAction → GovernanceDecision (Permit=0, Deny=1, Escalate=2, Quarantine=3); Allow/Modify map to Permit, Block to Deny, Quarantine to Quarantine, Escalate to Escalate; single exhaustive mapping function
+  - Graduated policy: ShieldLevel (Bronze/Silver/Gold/Platinum) with monotonically tightening max_input_length, injection_block/quarantine thresholds, adversarial_threshold, exfiltration_block_threshold; Bronze 10000B/0.9/0.7, Silver 8000B/0.8/0.6, Gold 5000B/0.7/0.5, Platinum 3000B/0.6/0.4
+  - Input validation: length, UTF-8, null-byte, control-char (strict mode), blocked-pattern checks; InputSanitizer with strip_control_chars/normalize_whitespace/truncate (UTF-8-boundary-safe)/escape_html
+  - Prompt injection detection: 5 weighted strategies summing to 1.0 — KeywordHeuristic (0.4), StructuralAnalysis (0.3, delimiter abuse + role markers), LengthAnomaly (0.1), EncodingDetection (0.1, base64/hex/URL/unicode escapes), InstructionDensity (0.1); neutralize() wraps input in [USER_INPUT_BEGIN]/[USER_INPUT_END] and redacts inline role markers
+  - Exfiltration detection: ExfiltrationDetector wraps rune-privacy's PiiDetector plus 5 built-in SensitivePattern libraries (InternalSystemPrompt, TrainingData, InternalArchitecture, ApiKeys[Critical], InternalUrls); PII leaks → Modify, sensitive-pattern leaks → Block; redact_pii() replaces emails/SSNs/IPs/phones/credit cards with redaction markers via token-based classification + whole-text phone pass
+  - Adversarial detection: AdversarialDetector with Shannon entropy (low/high flagged), ExcessiveRepetition (max-run + 3-char substring counts), UnicodeAnomaly (zero-width, bidi override, control chars), LowInformationDensity (unique-token ratio)
+  - Quarantine: QuarantineStore with sequential Q-N IDs, content types (Input/Output/Request), QuarantineVerdict lifecycle (Released/Confirmed/FalsePositive/Modified), false_positive_rate, average_review_time_ms, pending_review/reviewed filters
+  - Immune memory: ImmuneMemory tracks AttackSignature (confirmation_count log-based confidence boost capped at 0.3) and FalsePositivePattern (suppress after threshold=3); boost_confidence/should_suppress threaded into the shield pipeline
+  - Output filter: OutputFilter with 6 OutputFindingType variants (PiiLeak/SystemPromptLeak/TrainingDataLeak/InternalArchitectureLeak/ApiKeyLeak/InternalUrlLeak); distinguishes redact-in-place vs block based on finding type
+  - Shield engine: 8-step input pipeline (receipt → validation → adversarial → injection → memory lookup → verdict → quarantine/block/escalate/neutralize → stats+audit), 5-step output pipeline (receipt → length check → exfiltration scan → verdict → stats+audit), ShieldStats with detection_rate
+  - Audit log: ShieldAuditEvent with 15 ShieldEventType variants (InputReceived/Validated/Rejected, InjectionDetected/Blocked/Neutralized, AdversarialDetected, Quarantined/Released/Confirmed, OutputInspected, ExfiltrationDetected, OutputModified/Blocked, Escalated); blocks/quarantines/injections/exfiltrations/by_severity/since filters
+
 - **rune-detection Layer 1: anomaly detection, pattern matching, behavioral analysis, alert management** (103 new tests)
   - Workspace crate: packages/rune-detection/ with 10 modules
   - Signals: Signal/SignalSource/SignalType/SignalValue/SignalBatch — normalized events from network/API/user/system/model-inference/policy/audit sources
@@ -479,5 +493,5 @@
 - rune-privacy Layer 2+: real regex patterns, full DP library integration, persistence, policy-as-code
 - rune-security Layer 2+: full CVSS v3.1 (temporal + environmental), threat intel feeds, persistent incident store, SOAR integration
 - rune-detection Layer 2+: real regex/ML pattern matchers, streaming time-series store, cross-signal correlation, SIEM integrations
-- rune-shield: response/enforcement layer that acts on rune-detection alerts (block, quarantine, rate-limit, require-MFA)
+- rune-shield Layer 2+: ML-backed injection classifier, cross-conversation attack correlation, shield-alert integration with rune-detection AlertManager, automated FP → suppression loop, rate-limiting and MFA gating as additional ShieldActions, persistence for quarantine and immune memory
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork

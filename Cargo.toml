@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "packages/rune-rs", "packages/rune-permissions", "packages/rune-secrets", "packages/rune-identity", "packages/rune-privacy", "packages/rune-security", "packages/rune-detection"]
+members = [".", "packages/rune-rs", "packages/rune-permissions", "packages/rune-secrets", "packages/rune-identity", "packages/rune-privacy", "packages/rune-security", "packages/rune-detection", "packages/rune-shield"]
 
 [package]
 name = "rune-lang"
