@@ -435,6 +435,18 @@
   - Federation interfaces: OIDC and SAML2 data structures for adapter integration
   - Identity audit logging: 19 event types, security event filtering
 
+- **rune-security Layer 1: threat modeling, vulnerability scoring, security context, incident management** (108 new tests)
+  - Workspace crate: packages/rune-security/ with 10 modules
+  - Severity: SecuritySeverity (Info–Emergency), score-to-severity mapping, response SLAs (720h/168h/24h/4h/0h), SeverityChange with escalation/de-escalation detection, color codes
+  - Threat taxonomy: STRIDE (6) + AI-specific (PromptInjection, DataPoisoning, ModelExfiltration, AdversarialInput, GovernanceBypass) + SupplyChainCompromise + InsiderThreat, affected_pillar mapping (reuses rune_permissions::Pillar), MITRE ATT&CK IDs, ThreatActor with 9 actor types and 5 sophistication levels, ThreatModelBuilder with overall_risk and unmitigated filter
+  - Vulnerability scoring: simplified CVSS v3.1 base score (ISS, Exploitability, scope-unchanged and scope-changed formulas, 10.0 cap, roundup), AiImpact metrics (model integrity, training data integrity, inference reliability, governance bypass, data exfiltration), VulnerabilityDatabase with severity/category/status filters
+  - Security posture: A–F grading (F < D < C < B < A ordering), 7 dimension categories with weighted scoring, PostureAssessor generating category-specific recommendations for dimensions below 70
+  - Security context: SecurityContext with fluent builder, restrict-only-narrows / elevate-only-raises semantics, ContextStack with most-restrictive clearance and worst-case risk across nested contexts, max depth 64 with SecurityError::ContextDepthExceeded
+  - Incident management: IncidentStatus state machine with next_valid_statuses() enforcement, EscalationPolicy with severity-based SLAs, IncidentTracker with acknowledge/update_status/resolve/close, MTTA/MTTR calculation, incidents_needing_escalation
+  - Policy rules: composable RuleCondition (Always/SeverityAbove/ClassificationAbove/ThreatActive/ContextMatch/And/Or/Not), RuleAction (Allow/Deny/RequireMfa/RequireApproval/Encrypt/Audit/Alert/Quarantine/RateLimit), built-in policy templates (default_network, default_data_protection, default_ai_governance), SecurityPolicySet evaluate/violations
+  - Security metrics: MTTD/MTTR/MTTC/vulnerability_age/patch_coverage/incident_rate/false_positive_rate/detection_coverage, MetricStore with history/average/max/min/trend (5% threshold, 4-point minimum, lower-is-better vs higher-is-better), SecurityDashboard with DashboardSummary
+  - Security audit log: 10 event types (ThreatIdentified, VulnerabilityDiscovered, VulnerabilityPatched, IncidentReported, IncidentEscalated, IncidentResolved, PostureAssessed, PolicyViolation, ContextElevated, SecurityMetricRecorded), events_by_severity/type, since/critical/incident/violation filters
+
 - **rune-privacy Layer 1: PII detection, differential privacy, anonymization, consent, data subject rights** (104 new tests)
   - Workspace crate: packages/rune-privacy/ with 10 modules
   - PII detection: 21 categories including GDPR Article 9 special categories (Health, Biometric, Genetic, etc.), sensitivity levels, heuristic detectors (email, SSN, phone, IP, credit card), pattern library
@@ -453,4 +465,5 @@
 - rune-secrets Layer 2+: real AEAD encryption, Argon2id, persistence
 - rune-identity Layer 2+: persistence, real OIDC/SAML, Argon2id passwords, session store
 - rune-privacy Layer 2+: real regex patterns, full DP library integration, persistence, policy-as-code
+- rune-security Layer 2+: full CVSS v3.1 (temporal + environmental), threat intel feeds, persistent incident store, SOAR integration
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork

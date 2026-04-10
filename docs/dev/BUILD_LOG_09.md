@@ -498,3 +498,63 @@ New workspace crate `packages/rune-privacy/` implementing privacy engineering fo
 - **PIA risk calculation excludes mitigated risks**: `PiaBuilder::overall_risk()` walks risks and skips any with a linked `Mitigation` where `implemented: true`. Forces mitigations to be actually implemented, not merely planned.
 - **DP histogram epsilon split**: Total ε divided equally across bins (ε / num_bins per bin) so total budget consumption equals the query's declared ε — sequential composition theorem.
 - **PII handling not enforced in types**: `PiiHandling` is a recommendation enum; enforcement is the caller's responsibility via the audit log and purpose registry. Keeps the crate compositional.
+
+## 2026-04-10 — rune-security Layer 1: Threat Modeling, Vulnerability Scoring, Security Context, Incident Management
+
+### What was built
+
+New workspace crate `packages/rune-security/` providing the common security vocabulary and posture assessment system for the RUNE governance ecosystem. Every Tier 2+ security library speaks in rune-security's types: `rune-detection` raises alerts using `SecuritySeverity`, `rune-shield` applies responses using `ThreatCategory`, `rune-monitoring` tracks metrics using `SecurityMetric`. Implements STRIDE + AI-specific threat taxonomy, simplified CVSS v3.1 base-score calculation with AI impact metrics, security posture grading with weighted dimensions, `SecurityContext` propagation with most-restrictive clearance and worst-case risk across a context stack, incident lifecycle with enforced state machine and escalation policies, composable policy rules (And/Or/Not), MTTD/MTTR/MTTC metrics with trend analysis and dashboard, and a security audit log.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Every `ThreatCategory` maps to one or more RUNE pillars via `affected_pillar()` (reusing `rune_permissions::Pillar`); rule evaluation auto-records policy decisions for audit; severity-to-score mapping and response SLAs make defense posture a first-class observable.
+- **Assumed Breach**: `SecurityContext` tracks active threats and propagates through call chains; `ContextStack::effective_risk()` returns the worst case across all nested contexts; `IncidentTracker` enforces valid state-machine transitions so incidents cannot skip investigation or eradication steps; MTTD/MTTR/MTTC tracked with trend detection.
+- **Zero Trust Throughout**: `SecurityContext::restrict()` only narrows clearance (never widens); `SecurityContext::elevate_risk()` only raises risk (never lowers); `ContextStack::effective_clearance()` returns the minimum across the full stack — most restrictive wins regardless of call site.
+- **No Single Points of Failure**: Multiple independent posture dimensions (AccessControl, DataProtection, ThreatManagement, IncidentResponse, Compliance, AiGovernance, OperationalResilience) each carry independent weights; multiple escalation levels per severity; policies compose via And/Or/Not combinators so no single rule is load-bearing.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-security to workspace members | +1 line |
+| packages/rune-security/Cargo.toml | Crate manifest with rune-lang, rune-permissions, rune-identity, serde | New |
+| packages/rune-security/src/lib.rs | Crate root, module registration, re-exports | New |
+| packages/rune-security/src/error.rs | SecurityError enum (12 variants) | New |
+| packages/rune-security/src/severity.rs | SecuritySeverity (Info–Emergency), score mapping, response SLAs, SeverityChange | New |
+| packages/rune-security/src/threat.rs | ThreatCategory (STRIDE + AI-specific), ThreatActor, AttackSurface, ThreatModelBuilder | New |
+| packages/rune-security/src/vulnerability.rs | CVSS v3.1 base-score calculation, AiImpact, Vulnerability, VulnerabilityDatabase | New |
+| packages/rune-security/src/posture.rs | PostureGrade (A–F), DimensionCategory, PostureAssessor with weighted scoring | New |
+| packages/rune-security/src/context.rs | SecurityContext with restrict/elevate semantics, ContextStack with depth enforcement | New |
+| packages/rune-security/src/incident.rs | Incident state machine, EscalationPolicy, IncidentTracker with MTTA/MTTR | New |
+| packages/rune-security/src/policy.rs | RuleCondition (And/Or/Not), RuleAction, SecurityPolicy templates (network, data, AI) | New |
+| packages/rune-security/src/metrics.rs | SecurityMetric, MetricStore with trend analysis, SecurityDashboard | New |
+| packages/rune-security/src/audit.rs | SecurityEventType (10 variants), SecurityAuditEvent, SecurityAuditLog with filters | New |
+| packages/rune-security/README.md | Crate overview, module table, four-pillar alignment, usage | New |
+
+### Test summary
+
+108 new tests (1527 total across workspace, all passing):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | All 12 variant Display messages |
+| severity | 8 | Ordering, from_score mapping, response_time_hours, requires_escalation, color_code, SeverityChange escalation/de-escalation |
+| threat | 15 | STRIDE/AI taxonomy, affected_pillar mapping, actor sophistication ordering, ThreatModelBuilder overall_risk and unmitigated filter, threats by category/surface |
+| vulnerability | 16 | CVSS base score unchanged/changed scope, 10.0 cap, roundup, Database add/get/by_severity/by_category/unpatched/critical_unpatched, duplicate detection, average age |
+| posture | 8 | Grade from_score (A–F), dimension weighted sum, recommendations below 70, assessor construction, grade ordering (F < D < C < B < A) |
+| context | 14 | Builder chaining, derive_child depth increment, restrict only narrows, elevate only raises, add_threat dedup, ContextStack effective_clearance (min) and effective_risk (max), max_depth enforcement |
+| incident | 16 | State-machine transitions (valid and invalid), acknowledge, update_status, resolve, escalation_for_severity, should_escalate, MTTA/MTTR calculation, filters |
+| policy | 14 | Always/SeverityAbove/ClassificationAbove/ThreatActive/ContextMatch conditions, And/Or/Not combinators, disabled rule skipped, templates, SecurityPolicySet evaluate/violations |
+| metrics | 13 | MetricStore record/latest/history/average/max/min, trend for lower-is-better vs higher-is-better, insufficient data, SecurityDashboard summary escalation, Display |
+| audit | 8 | Record, events_by_severity/type, since filter, critical_events (>= Critical), incident_events, policy_violations, Display for all event variants |
+
+### Decisions
+
+- **Reuse `rune_permissions::Pillar`**: `ThreatCategory::affected_pillar()` returns `Vec<Pillar>` rather than defining a parallel pillar enum. Keeps the four-pillar vocabulary single-sourced.
+- **PostureGrade variant ordering**: Declared `F=0, D=1, C=2, B=3, A=4` so derived `Ord` makes `grade <= PostureGrade::D` naturally mean "D or worse" — lets the dashboard escalate status cleanly without inverting comparisons.
+- **Consuming-self builder**: `SecurityContext` builder methods take `self` (not `&mut self`) to allow fluent chaining in one expression. Matches the ergonomic style of `ThreatModelBuilder`.
+- **Most-restrictive clearance / worst-case risk**: `ContextStack::effective_clearance()` returns the minimum (most restrictive) across the stack; `effective_risk()` returns the maximum (worst case). Matches Bell-LaPadula + defense-in-depth semantics — delegation can only lose privilege, and any high-risk frame taints the whole stack.
+- **Incident state machine via `next_valid_statuses()`**: Transitions are defined in one place on `IncidentStatus`, and `update_status` validates against that list, returning `InvalidStatusTransition { from, to }` on violation. Single source of truth.
+- **Simplified CVSS v3.1**: Implements the full base-score formula (ISS, Exploitability, scope-unchanged and scope-changed impact, ×1.08 factor, 10.0 cap, roundup) but omits temporal and environmental metrics. Sufficient for triage; extendable without breaking the database API.
+- **MetricStore trend: 5% threshold, 4-point minimum**: Compares first-half vs second-half average across history. Insufficient data below 4 points. Uses `(delta > 0.0) == higher_is_better` to handle "lower is better" (mttd/mttr) and "higher is better" (patch_coverage/detection_coverage) in one branch.
+- **Policy evaluation is pure**: `evaluate_rule` is a free function taking `&SecurityRule` and `&SecurityContext`; `SecurityPolicySet::evaluate` returns `Vec<RuleAction>` instead of mutating anything. Downstream libraries (rune-shield, rune-detection) decide how to act on the results and record their own audit events.
