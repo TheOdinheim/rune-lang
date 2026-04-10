@@ -435,9 +435,22 @@
   - Federation interfaces: OIDC and SAML2 data structures for adapter integration
   - Identity audit logging: 19 event types, security event filtering
 
+- **rune-privacy Layer 1: PII detection, differential privacy, anonymization, consent, data subject rights** (104 new tests)
+  - Workspace crate: packages/rune-privacy/ with 10 modules
+  - PII detection: 21 categories including GDPR Article 9 special categories (Health, Biometric, Genetic, etc.), sensitivity levels, heuristic detectors (email, SSN, phone, IP, credit card), pattern library
+  - Anonymization: redaction, masking, generalization, SHA3-256 hashing, HMAC-SHA3-256 pseudonymization, deterministic Laplace/Gaussian noise, k-anonymity, l-diversity, t-closeness, composable pipelines
+  - Differential privacy: (ε, δ)-DP with strict/standard/relaxed budgets, Laplace/Gaussian/Exponential mechanisms, count/sum/average/histogram queries, budget exhaustion rejection
+  - Purpose limitation: GDPR Art. 6 legal basis, data tagging, purpose-use checks, data minimization (excess/missing fields)
+  - Consent management: lifecycle (active/withdrawn/expired/superseded), evidence (method/IP/UA/signature), per-purpose consent lookup, expiration cleanup
+  - Data subject rights: GDPR Art. 15–22 and CCPA §1798.105/110/120, 30-day / 45-day deadlines, overdue detection, request tracking by subject
+  - Retention: policies by category/purpose/classification, most-restrictive enforcement, expiry actions (Delete/Anonymize/Archive/Review)
+  - Privacy Impact Assessment: PIA/DPIA builder, risk rating, mitigations, category-specific recommendations
+  - Privacy audit log: 11 event types with subject/type/time/violation/consent filters
+
 ## What's Next
 
 - rune-permissions Layer 2+: policy integration, persistence, API
 - rune-secrets Layer 2+: real AEAD encryption, Argon2id, persistence
 - rune-identity Layer 2+: persistence, real OIDC/SAML, Argon2id passwords, session store
+- rune-privacy Layer 2+: real regex patterns, full DP library integration, persistence, policy-as-code
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork

@@ -1,0 +1,14 @@
+[package]
+name = "rune-privacy"
+version = "0.1.0"
+edition = "2024"
+description = "Privacy engineering library for the RUNE governance ecosystem"
+license = "MIT"
+
+[dependencies]
+rune-lang = { path = "../..", default-features = false }
+rune-permissions = { path = "../rune-permissions" }
+rune-identity = { path = "../rune-identity" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"

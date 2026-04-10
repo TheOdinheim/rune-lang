@@ -437,3 +437,64 @@ New workspace crate `packages/rune-identity/` implementing identity management f
 - **Federation data structures only**: OIDC and SAML types for adapter integration, not full protocol implementations. Real OIDC/SAML flows in Layer 2+.
 - **Attestation hash chains**: Each attestation links to predecessor via SHA3-256 hash. Tampering with any attestation invalidates the chain from that point forward.
 - **AuthnMethod Debug/Display redaction**: Passwords, keys, and tokens show method name only — never raw credential data in logs.
+
+## 2026-04-10 — rune-privacy Layer 1: PII Detection, Differential Privacy, Anonymization, Consent, Data Subject Rights
+
+### What was built
+
+New workspace crate `packages/rune-privacy/` implementing privacy engineering for the RUNE governance ecosystem. Provides PII detection and classification (including GDPR Article 9 special categories), anonymization primitives (redaction, masking, generalization, hashing, pseudonymization, k-anonymity, l-diversity, t-closeness), differential privacy with (ε, δ) budget accounting, consent lifecycle management with evidence, GDPR Art. 15–22 and CCPA §1798.105/110/120 data subject rights with deadline tracking, purpose limitation and data minimization checks, retention policies with most-restrictive enforcement, Privacy Impact Assessment (PIA/DPIA) builder, and a privacy-specific audit log.
+
+### Four-pillar alignment
+
+- **Security Baked In**: PII detected and classified by default; anonymization primitives as first-class citizens; SHA3-256 hashing and HMAC-SHA3-256 pseudonymization via rune-secrets crypto primitives; consent evidence recorded with method, timestamp, IP, user agent, document version, signature.
+- **Assumed Breach**: Every privacy operation emits a `PrivacyAuditEvent` with subject, actor, and detail; DP budget tracks cumulative ε spend and rejects queries that would exceed the budget; k-anonymity / l-diversity / t-closeness bound re-identification risk on shared datasets.
+- **Zero Trust Throughout**: Purpose limitation enforced at use-site — data tagged with collection purpose cannot be used for undeclared purposes; data minimization detects excess field collection; consent verified per-purpose before processing; rights requests have independent 30-day (GDPR) / 45-day (CCPA) deadlines tracked separately from request submission.
+- **No Single Points of Failure**: Retention policies auto-expire stale data via `Delete`, `Anonymize`, `Archive`, or `Review` actions; PIAs surface unmitigated risks independent of operational monitoring; multiple DP mechanisms (Laplace, Gaussian, Exponential) for different query types; anonymization pipelines compose multiple steps.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-privacy to workspace members | +1 line |
+| packages/rune-privacy/Cargo.toml | Crate manifest with rune-lang, rune-permissions, rune-identity, serde, hex | New |
+| packages/rune-privacy/src/lib.rs | Crate root, module registration, re-exports | New |
+| packages/rune-privacy/src/error.rs | PrivacyError enum (14 variants) | New |
+| packages/rune-privacy/src/pii.rs | PiiCategory (21 variants), PiiSensitivity, PiiDetector, pattern library, heuristic detectors | New |
+| packages/rune-privacy/src/anonymize.rs | AnonymizationMethod, redact/mask/generalize/hash/pseudonymize, Laplace/Gaussian noise, k-anonymity/l-diversity/t-closeness, pipeline | New |
+| packages/rune-privacy/src/differential.rs | PrivacyBudget (strict/standard/relaxed), DpMechanism, DpEngine with count/sum/average/histogram | New |
+| packages/rune-privacy/src/purpose.rs | LegalBasis (GDPR Art. 6), Purpose registry, DataTag, PurposeCheck, DataMinimization | New |
+| packages/rune-privacy/src/consent.rs | ConsentId, ConsentScope, ConsentStatus, ConsentMethod, ConsentEvidence, Consent, ConsentStore | New |
+| packages/rune-privacy/src/rights.rs | SubjectRight (GDPR+CCPA), RequestStatus, ResponseType, RightsRequest, RightsManager with deadlines | New |
+| packages/rune-privacy/src/retention.rs | RetentionScope, RetentionAction, RetentionPolicy, RetentionManager with most-restrictive enforcement | New |
+| packages/rune-privacy/src/impact.rs | RiskRating, RiskCategory, DataFlow, PrivacyRisk, Mitigation, PiaBuilder with recommendations | New |
+| packages/rune-privacy/src/audit.rs | PrivacyEventType (11 variants), PrivacyAuditEvent, PrivacyAuditLog with filters | New |
+| packages/rune-privacy/README.md | Crate overview, module table, four-pillar alignment, usage | New |
+
+### Test summary
+
+104 new tests (1419 total across workspace, all passing):
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | All 14 variant Display messages |
+| pii | 15 | Category sensitivity, GDPR Article 9 special categories, gdpr_article mapping, heuristic detectors (email, SSN, phone, IP, credit card), field-name detection, record-level scan, high-confidence filter, pii handling display |
+| anonymize | 20 | Redact/mask/generalize/hash/pseudonymize, deterministic Laplace/Gaussian noise, k-anonymity grouping, l-diversity minimum distinct, t-closeness distance, pipeline composition |
+| differential | 13 | Budget presets (strict/standard/relaxed), consume/can_afford/is_exhausted, DP count/sum/average/histogram, budget decreases, rejection when exhausted, history tracking |
+| purpose | 10 | Register/get purpose, tag data, purpose check allowed/denied, expired data, data minimization (excess/missing/exact), legal basis display with GDPR article |
+| consent | 9 | Record, withdraw, active filter, has_consent by purpose, expiration cleanup, history, evidence construction, ConsentMethod display |
+| rights | 12 | GDPR 30-day / CCPA 45-day deadlines, submit/update/complete, overdue detection, requests by subject, pending filter, regulation_article mapping |
+| retention | 5 | Within-policy check, expired detection, expired_data_actions, category applicability, retention action display |
+| impact | 8 | PiaBuilder construction, highest-risk calculation, mitigated risks excluded from overall, category-specific recommendations, RiskRating ordering |
+| audit | 10 | Record, events_for_subject, events_by_type, since filter, violations filter, consent_events filter, event type kind/is_violation/is_consent_event |
+
+### Decisions
+
+- **Separate crate**: rune-privacy depends on rune-lang (crypto), rune-permissions (ClassificationLevel), and rune-identity (IdentityId as data subject). Independent versioning; no changes to compiler, stdlib, or existing crates.
+- **Heuristic PII detection**: Character-class scanning (not regex) to avoid adding a regex dependency. Email/SSN/phone/IP/credit-card detectors are intentionally conservative — false positives are preferred over false negatives for a privacy scanner.
+- **GDPR Article 9 special categories**: `PiiCategory::is_special_category()` flags Health, Biometric, Genetic, RacialEthnic, Political, Religious, TradeUnion, SexualOrientation, CriminalRecord. These require explicit legal basis beyond standard consent.
+- **Deterministic DP noise**: Laplace and Gaussian noise use SplitMix64 PRNG seeded from value bits. Reproducible for audit trails while still providing differential privacy guarantees per query.
+- **Most-restrictive retention wins**: When multiple policies apply to the same data category, `RetentionManager` selects the policy with the smallest `max_retention_days`. Conservative default for compliance.
+- **Separate GDPR / CCPA deadlines**: 30-day GDPR Art. 12(3) vs 45-day CCPA §1798.130 constants in `RightsManager::deadline_for_right()`; CCPA rights tagged via `SubjectRight::is_ccpa()`.
+- **PIA risk calculation excludes mitigated risks**: `PiaBuilder::overall_risk()` walks risks and skips any with a linked `Mitigation` where `implemented: true`. Forces mitigations to be actually implemented, not merely planned.
+- **DP histogram epsilon split**: Total ε divided equally across bins (ε / num_bins per bin) so total budget consumption equals the query's declared ε — sequential composition theorem.
+- **PII handling not enforced in types**: `PiiHandling` is a recommendation enum; enforcement is the caller's responsibility via the audit log and purpose registry. Keeps the crate compositional.

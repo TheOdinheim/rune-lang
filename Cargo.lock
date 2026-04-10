@@ -1452,6 +1452,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-privacy"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "rune-identity",
+ "rune-lang",
+ "rune-permissions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rune-rs"
 version = "0.1.0"
 dependencies = [
