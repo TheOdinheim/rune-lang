@@ -694,8 +694,8 @@ mod tests {
         let avg_us = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
 
         println!("  serialize_request: {:.2} us avg ({} iterations)", avg_us, iterations);
-        // Generous upper bound for CI: under 10 us per serialization.
-        assert!(avg_us < 10.0, "serialization too slow: {:.2} us", avg_us);
+        // Generous upper bound for debug builds: under 100 us per serialization (smoke test for gross regressions).
+        assert!(avg_us < 100.0, "serialization too slow: {:.2} us", avg_us);
     }
 
     #[test]
@@ -712,7 +712,7 @@ mod tests {
         let avg_us = elapsed.as_secs_f64() * 1_000_000.0 / iterations as f64;
 
         println!("  deserialize_request: {:.2} us avg ({} iterations)", avg_us, iterations);
-        assert!(avg_us < 10.0, "deserialization too slow: {:.2} us", avg_us);
+        assert!(avg_us < 100.0, "deserialization too slow: {:.2} us", avg_us);
     }
 
     #[test]

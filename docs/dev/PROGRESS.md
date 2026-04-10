@@ -485,13 +485,16 @@
   - Privacy Impact Assessment: PIA/DPIA builder, risk rating, mitigations, category-specific recommendations
   - Privacy audit log: 11 event types with subject/type/time/violation/consent filters
 
+- **rune-monitoring Layer 1: health checks, metrics, threshold alerting, SLA tracking, system status** (96 new tests)
+  - Workspace crate packages/rune-monitoring/ (10 modules) speaking rune-security's SecuritySeverity vocabulary
+  - Health: 7 HealthCheckTypes, HealthCheckRunner with critical-failure-aware summary, HealthStatus::worst rank (Healthy<Unknown<Degraded<Unhealthy)
+  - Metrics: MetricRegistry (NaN/unknown-metric rejection), linear-interpolated percentile, samples/sec rate, trend with 5% stability band and lower-is-better flip for Timer/Histogram
+  - Thresholds: ThresholdEngine with transition-only evaluate() (no re-fire), 7 ThresholdCondition variants, 5 templates; SLAs: SlaTracker Meeting/AtRisk/Breached/Unknown tri-state with 6 SlaTarget variants and 5 templates
+  - Uptime: O(1) transition ledger → availability_percent and mtbf_seconds in constant time; StatusAggregator combines health+uptime+thresholds+SLAs into worst-case OverallStatus (5 variants) with all-maintenance downgrade; StatusPage::render_text and render_json
+  - Policies: severity-floor gating with 6 AlertChannel variants, MonitoringPolicySet::for_target AllServices wildcard, default_production + high_availability templates; push-based CollectorEngine drains MetricSource samples into MetricRegistry
+  - Audit log: 11 MonitoringEventType variants with threshold/sla/health/severity/since filters
+
 ## What's Next
 
-- rune-permissions Layer 2+: policy integration, persistence, API
-- rune-secrets Layer 2+: real AEAD encryption, Argon2id, persistence
-- rune-identity Layer 2+: persistence, real OIDC/SAML, Argon2id passwords, session store
-- rune-privacy Layer 2+: real regex patterns, full DP library integration, persistence, policy-as-code
-- rune-security Layer 2+: full CVSS v3.1 (temporal + environmental), threat intel feeds, persistent incident store, SOAR integration
-- rune-detection Layer 2+: real regex/ML pattern matchers, streaming time-series store, cross-signal correlation, SIEM integrations
-- rune-shield Layer 2+: ML-backed injection classifier, cross-conversation attack correlation, shield-alert integration with rune-detection AlertManager, automated FP → suppression loop, rate-limiting and MFA gating as additional ShieldActions, persistence for quarantine and immune memory
+- Layer 2+ for all security crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, shield↔detection alert integration, Prometheus/OTel export for monitoring
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
