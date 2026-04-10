@@ -435,6 +435,18 @@
   - Federation interfaces: OIDC and SAML2 data structures for adapter integration
   - Identity audit logging: 19 event types, security event filtering
 
+- **rune-detection Layer 1: anomaly detection, pattern matching, behavioral analysis, alert management** (103 new tests)
+  - Workspace crate: packages/rune-detection/ with 10 modules
+  - Signals: Signal/SignalSource/SignalType/SignalValue/SignalBatch — normalized events from network/API/user/system/model-inference/policy/audit sources
+  - Anomaly detection: AnomalyDetector with ring-buffer history, z-score / IQR / moving-average methods, combined detect returning most severe verdict, mean/std_dev/percentile
+  - Pattern matching: 7 heuristic attack detectors (PromptInjection, SqlInjection, PathTraversal, XssAttempt, CommandInjection, DataExfiltration, EncodedPayload), CustomPattern with keyword threshold, confidence scaling
+  - Behavioral analysis: BehaviorAnalyzer with Welford online mean/variance, per-profile per-metric baselines, z-score deviation vs baseline, insufficient-data → Unknown
+  - Alerts: AlertManager with dedup window (default 5 min), lifecycle (New → Acknowledged → Resolved / FalsePositive), false-positive rate, severity distribution, max-alerts with oldest-first eviction
+  - IoCs: IoCType (9 variants inc. Custom), IoCDatabase with expiry/active flags, text scanning for IP/Domain/URL/FileHash/Email, case-insensitive domain/URL/email/user-agent matching
+  - Rules: DetectionRule with composable RuleCondition (SignalMatch, ValueAbove, ValueBelow, TextContains, TextContainsAny, AnomalyScore, PatternDetected, BehaviorDeviation, IoCMatch, RateExceeds, And, Or, Not), RuleEvalContext, built-in templates (high_request_rate, prompt_injection, anomalous_value, ioc_match, behavioral_deviation)
+  - Pipelines: DetectionPipeline chaining independent stages (AnomalyDetection, PatternScan, BehaviorAnalysis, IoCCheck, RuleEvaluation), two-pass execution so rules can reference any earlier detector's output, embedded AlertManager raises alerts on rule triggers
+  - Detection audit log: 10 event types (AnomalyDetected, PatternMatched, BehaviorDeviation, IoCFound, RuleTriggered, AlertRaised, AlertAcknowledged, AlertResolved, AlertFalsePositive, PipelineProcessed), detection/alert filters
+
 - **rune-security Layer 1: threat modeling, vulnerability scoring, security context, incident management** (108 new tests)
   - Workspace crate: packages/rune-security/ with 10 modules
   - Severity: SecuritySeverity (Info–Emergency), score-to-severity mapping, response SLAs (720h/168h/24h/4h/0h), SeverityChange with escalation/de-escalation detection, color codes
@@ -466,4 +478,6 @@
 - rune-identity Layer 2+: persistence, real OIDC/SAML, Argon2id passwords, session store
 - rune-privacy Layer 2+: real regex patterns, full DP library integration, persistence, policy-as-code
 - rune-security Layer 2+: full CVSS v3.1 (temporal + environmental), threat intel feeds, persistent incident store, SOAR integration
+- rune-detection Layer 2+: real regex/ML pattern matchers, streaming time-series store, cross-signal correlation, SIEM integrations
+- rune-shield: response/enforcement layer that acts on rune-detection alerts (block, quarantine, rate-limit, require-MFA)
 - Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork

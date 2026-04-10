@@ -1409,6 +1409,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
+name = "rune-detection"
+version = "0.1.0"
+dependencies = [
+ "rune-lang",
+ "rune-permissions",
+ "rune-security",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rune-identity"
 version = "0.1.0"
 dependencies = [
