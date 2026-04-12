@@ -491,10 +491,10 @@
   - UptimeTracker (O(1) availability/MTBF), StatusAggregator worst-case rollup, MonitoringPolicy severity-floor gating, push-based CollectorEngine, 11-event audit log
 
 - **rune-provenance Layer 1: data lineage, model provenance, artifact versioning, supply chain verification** (99 new tests)
-  - Workspace crate packages/rune-provenance/ (10 modules) — evidentiary foundation for trust verification
-  - Semver artifacts, BFS lineage tracing, model provenance (training/eval/deploy/fine-tune), supply chain SHA3-256 build hashes with lock verification, SLSA L0–L4 assessment, provenance DAG with cycle detection, 7-check verifier with chain verification, 13-event audit log
+  - Workspace crate packages/rune-provenance/ (10 modules): semver artifacts, BFS lineage tracing, model provenance, supply chain SHA3-256 build hashes, SLSA L0–L4, provenance DAG with cycle detection, 7-check verifier, 13-event audit log
 
+- **rune-truth Layer 1: confidence scoring, consistency checking, contradiction detection, ground truth comparison** (87 new tests)
+  - Workspace crate packages/rune-truth/ (9 modules): weighted confidence scoring (9 factor types), consistency by input hash (dominant-output ratio + Jaccard), source attribution with normalized influence, contradiction detection (negation/numeric/self-consistency), ground truth exact/partial/semantic matching, 6-signal trust assessor (Accept/ManualReview/Reject), verifiable truth claims with evidence lifecycle, 10-event audit log
 ## What's Next
 
-- Layer 2+ for all security/governance crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, Prometheus/OTel export
-- Future: formal verification, cross-compilation, runeOS fork
+- Layer 2+ for all crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, Prometheus/OTel; formal verification

@@ -129,6 +129,62 @@ New workspace crate `packages/rune-shield/` implementing the active defense laye
 
 Bench smoke tests `test_bench_serialize_request` and `test_bench_deserialize_request` in `src/embedding/tests.rs` now assert `avg_us < 100.0`. Debug-build overhead puts actual numbers around 27us, so the previous 10us threshold tripped on every run. These are gross-regression smoke tests, not SLA enforcement — the relaxed bound still catches order-of-magnitude regressions while surviving debug builds. Verified with `cargo test -p rune-lang` (936 unit + 15 integration passing).
 
+## 2026-04-12 — rune-truth Layer 1: Confidence Scoring, Consistency Checking, Contradiction Detection, Ground Truth Comparison
+
+### What was built
+
+New workspace crate `packages/rune-truth/` implementing output trustworthiness verification for the RUNE governance ecosystem. Sits between `rune-provenance` (which tracks where things came from) and `rune-explainability` (which explains why decisions were made). Provides weighted confidence scoring with 9 configurable factor types, output consistency tracking by input hash with dominant-output ratio and Jaccard word similarity, source attribution via token overlap with normalized influence scores, contradiction detection against known facts using keyword overlap and negation indicators (direct negation, numeric disagreement, self-consistency), ground truth comparison with exact/partial/semantic matching and per-category accuracy metrics, aggregate trust assessment combining 6 weighted signals into a 5-level trust score with flags and Accept/ManualReview/Reject recommendations, verifiable truth claims with evidence lifecycle (Pending/Verified/Disputed/Retracted/Expired), and a 10-event-type audit log.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Every output gets a confidence score before use; the TruthAssessor generates flags automatically for low confidence, inconsistency, unattributed content, and contradictions; Critical contradictions force Reject regardless of overall score.
+- **Assumed Breach**: Contradiction detection checks outputs against known facts and prior outputs, catching compromised or hallucinating models; self-consistency checking detects outputs that contradict themselves internally; trust scores combine six independent signals so no single source manipulation can bypass.
+- **Zero Trust Throughout**: No output is trusted by default — TruthAssessor requires positive evidence across multiple dimensions; missing ground truth generates a NoGroundTruth flag rather than assuming correctness; unattributed content is flagged, not silently accepted.
+- **No Single Points of Failure**: Six independent truth signals each contribute independently; a gap in one signal reduces the score but doesn't disable verification; TruthClaimRegistry provides a separate evidence-based verification path.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-truth to workspace members | +1 line |
+| packages/rune-truth/Cargo.toml | Crate manifest with rune-lang, rune-provenance, rune-security, serde | New |
+| packages/rune-truth/src/lib.rs | Crate root, module declarations, re-exports | New |
+| packages/rune-truth/src/error.rs | TruthError enum (12 variants) | New |
+| packages/rune-truth/src/confidence.rs | ConfidenceLevel (5 levels), ConfidenceFactorType (9 variants), ConfidenceCalculator weighted average | New |
+| packages/rune-truth/src/consistency.rs | ConsistencyChecker with dominant-output ratio, Jaccard word similarity, model-wide consistency | New |
+| packages/rune-truth/src/attribution.rs | AttributionEngine with token overlap, normalized influence scores, InfluenceType (8 variants) | New |
+| packages/rune-truth/src/contradiction.rs | ContradictionDetector with negation detection, numeric disagreement, self-consistency, resolution lifecycle | New |
+| packages/rune-truth/src/ground_truth.rs | GroundTruthStore with exact/partial/semantic matching, accuracy by category | New |
+| packages/rune-truth/src/trust_score.rs | TruthAssessor combining 6 weighted signals, TruthTrustLevel (5 levels), TruthFlag, TruthRecommendation | New |
+| packages/rune-truth/src/claim.rs | TruthClaimRegistry with evidence, verify/dispute/retract lifecycle | New |
+| packages/rune-truth/src/audit.rs | TruthEventType (10 variants), TruthAuditLog with output/contradiction/assessment/claim filters | New |
+| packages/rune-truth/README.md | Crate overview, module table, four-pillar alignment | New |
+
+### Test summary
+
+87 new tests, all passing:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | All 12 variant Display messages |
+| confidence | 11 | Score clamping, level derivation, from_score mapping, level ordering/min_score, is_reliable/is_low, calculator single/multiple/custom-weighted factors, factor type display |
+| consistency | 11 | Record adds to group, all-identical score 1.0, all-different low score, majority-same high ratio, single-output 1.0, check_pair exact/different/partial overlap, inconsistent_inputs filter, model_consistency average, input_count/total_outputs |
+| attribution | 9 | Overlapping source high influence, non-overlapping low influence, normalize total to 1.0, record/get, top_sources sorted, sources_above filter, unattributed_outputs, influence type display, attribution method display |
+| contradiction | 13 | Add fact + check, direct negation, numeric disagreement, no contradiction (agree/different topics), check_pair, self-consistency, resolve, unresolved, by_severity, contradiction_rate, type display, severity ordering |
+| ground_truth | 11 | Add/get entry, exact match, partial match (expected contained in actual), semantic match (Jaccard >= 0.7), mismatch, whitespace normalization, accuracy, accuracy_by_category, incorrect_results, compare_all bulk, match type display |
+| trust_score | 11 | All-high → Verified/Accept, all-low → Untrusted/Reject, mixed intermediate, missing components normalize, LowConfidence flag, ContradictionDetected flag, Critical contradiction → Reject, trust level from_score/ordering, recommendation display, weights sum to 1.0 |
+| claim | 14 | Register/get, verify updates status, dispute, retract, verify-already-verified fails, claims_by_type/status, verified/pending/disputed filters, average_confidence, claim type display, claim status display, evidence strength ordering |
+| audit | 6 | Record/retrieve, events_for_output, contradiction_events, assessment_events, claim_events, event type display (all 10) |
+
+### Decisions
+
+- **Jaccard word similarity as universal comparator**: All text comparison (consistency, attribution, ground truth, contradiction) uses Jaccard similarity over whitespace-tokenized lowercase word sets. This is deliberately simple — no regex, no stemming, no embeddings. It's fast, deterministic, and sufficient for Layer 1. A future Layer 2 can swap in embedding-based similarity via the same interface.
+- **Negation word list for contradiction detection**: Contradictions are detected by checking whether two statements share key terms but differ in negation indicators ("not", "no", "never", "false", "incorrect", "wrong", etc.). This is a heuristic that produces false positives on nuanced language but catches obvious contradictions reliably. The `check_self_consistency` method splits text on sentence boundaries and checks all pairs.
+- **Normalized attribution scores**: `AttributionEngine::attribute` normalizes raw Jaccard overlap scores so they sum to 1.0 across all candidate sources. This means a source's influence is relative to other candidates, not absolute. An output with no overlapping sources gets influence 0.0 for all sources rather than arbitrary small values.
+- **Trust assessment weights default to 1.0 sum**: The six default weights (confidence 0.25, consistency 0.20, contradiction-free 0.20, attribution 0.15, ground truth 0.10, provenance 0.10) sum to exactly 1.0 so the trust score is directly interpretable as a probability-like value. Missing components are handled by normalizing against the sum of present weights only.
+- **Critical contradiction overrides trust score**: If contradiction-free < 0.2 (flagged as Critical), the recommendation is Reject regardless of the aggregate trust score. This is a hard safety boundary — a known critical contradiction cannot be papered over by high scores in other dimensions.
+- **Ground truth comparison uses three tiers**: ExactMatch (string equality after whitespace normalization), PartialMatch (expected contained within actual), SemanticMatch (Jaccard >= 0.7). PartialMatch is considered correct because a verbose-but-accurate response contains the right answer. Mismatch (Jaccard < 0.7 and not contained) is the only incorrect outcome.
+
 ## 2026-04-12 — rune-provenance Layer 1: Data Lineage, Model Provenance, Artifact Versioning, Supply Chain Verification
 
 ### What was built
