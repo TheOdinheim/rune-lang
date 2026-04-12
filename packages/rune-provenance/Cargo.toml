@@ -1,0 +1,15 @@
+[package]
+name = "rune-provenance"
+version = "0.1.0"
+edition = "2024"
+description = "Data lineage, model provenance, artifact versioning, and supply chain verification for the RUNE governance ecosystem"
+license = "MIT"
+
+[dependencies]
+rune-lang = { path = "../..", default-features = false }
+rune-permissions = { path = "../rune-permissions" }
+rune-identity = { path = "../rune-identity" }
+rune-security = { path = "../rune-security" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"

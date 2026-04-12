@@ -487,14 +487,14 @@
 
 - **rune-monitoring Layer 1: health checks, metrics, threshold alerting, SLA tracking, system status** (96 new tests)
   - Workspace crate packages/rune-monitoring/ (10 modules) speaking rune-security's SecuritySeverity vocabulary
-  - Health: 7 HealthCheckTypes, HealthCheckRunner with critical-failure-aware summary, HealthStatus::worst rank (Healthy<Unknown<Degraded<Unhealthy)
-  - Metrics: MetricRegistry (NaN/unknown-metric rejection), linear-interpolated percentile, samples/sec rate, trend with 5% stability band and lower-is-better flip for Timer/Histogram
-  - Thresholds: ThresholdEngine with transition-only evaluate() (no re-fire), 7 ThresholdCondition variants, 5 templates; SLAs: SlaTracker Meeting/AtRisk/Breached/Unknown tri-state with 6 SlaTarget variants and 5 templates
-  - Uptime: O(1) transition ledger → availability_percent and mtbf_seconds in constant time; StatusAggregator combines health+uptime+thresholds+SLAs into worst-case OverallStatus (5 variants) with all-maintenance downgrade; StatusPage::render_text and render_json
-  - Policies: severity-floor gating with 6 AlertChannel variants, MonitoringPolicySet::for_target AllServices wildcard, default_production + high_availability templates; push-based CollectorEngine drains MetricSource samples into MetricRegistry
-  - Audit log: 11 MonitoringEventType variants with threshold/sla/health/severity/since filters
+  - Health checks (7 types, critical-failure-aware), MetricRegistry with percentile/rate/trend, ThresholdEngine (transition-only, 7 conditions), SlaTracker (Meeting/AtRisk/Breached tri-state, 6 target types)
+  - UptimeTracker (O(1) availability/MTBF), StatusAggregator worst-case rollup, MonitoringPolicy severity-floor gating, push-based CollectorEngine, 11-event audit log
+
+- **rune-provenance Layer 1: data lineage, model provenance, artifact versioning, supply chain verification** (99 new tests)
+  - Workspace crate packages/rune-provenance/ (10 modules) — evidentiary foundation for trust verification
+  - Semver artifacts, BFS lineage tracing, model provenance (training/eval/deploy/fine-tune), supply chain SHA3-256 build hashes with lock verification, SLSA L0–L4 assessment, provenance DAG with cycle detection, 7-check verifier with chain verification, 13-event audit log
 
 ## What's Next
 
-- Layer 2+ for all security crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, shield↔detection alert integration, Prometheus/OTel export for monitoring
-- Future: formal verification, pub(crate) visibility, cross-compilation, runeOS fork
+- Layer 2+ for all security/governance crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, Prometheus/OTel export
+- Future: formal verification, cross-compilation, runeOS fork
