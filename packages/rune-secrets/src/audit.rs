@@ -24,6 +24,12 @@ pub enum SecretEventType {
     ExportAttempt,
     AccessDenied,
     ClassificationChanged,
+    KeyRotated,
+    SecretExpired,
+    Zeroized,
+    KeyDerived,
+    DecryptionFailed,
+    ShamirReconstructed,
 }
 
 impl fmt::Display for SecretEventType {

@@ -8,6 +8,7 @@
 use std::fmt;
 use serde::{Deserialize, Serialize};
 use rune_permissions::ClassificationLevel;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // ── SecretId ──────────────────────────────────────────────────────────
 
@@ -65,12 +66,7 @@ impl SecretValue {
 
 impl Drop for SecretValue {
     fn drop(&mut self) {
-        // Overwrite with zeros before freeing
-        for byte in self.data.iter_mut() {
-            unsafe {
-                std::ptr::write_volatile(byte as *mut u8, 0);
-            }
-        }
+        self.data.zeroize();
     }
 }
 
@@ -101,6 +97,61 @@ impl PartialEq for SecretValue {
 }
 
 impl Eq for SecretValue {}
+
+// ── SensitiveBytes (zeroized on Drop) ─────────────────────────────────
+
+/// A general-purpose wrapper for sensitive byte data that is zeroized
+/// on drop. Use this for keys, tokens, and any ephemeral secret material.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct SensitiveBytes {
+    data: Vec<u8>,
+}
+
+impl SensitiveBytes {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn expose(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn expose_for<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
+        f(&self.data)
+    }
+}
+
+impl fmt::Debug for SensitiveBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[SENSITIVE {} bytes]", self.data.len())
+    }
+}
+
+impl PartialEq for SensitiveBytes {
+    fn eq(&self, other: &Self) -> bool {
+        if self.data.len() != other.data.len() {
+            return false;
+        }
+        let mut result = 0u8;
+        for (a, b) in self.data.iter().zip(other.data.iter()) {
+            result |= a ^ b;
+        }
+        result == 0
+    }
+}
+
+impl Eq for SensitiveBytes {}
 
 // ── SecretType ────────────────────────────────────────────────────────
 
@@ -594,6 +645,61 @@ mod tests {
         assert!(vs.version(2).is_some());
         assert!(vs.version(0).is_none());
         assert!(vs.version(3).is_none());
+    }
+
+    // ── SensitiveBytes tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_sensitive_bytes_new_and_expose() {
+        let sb = SensitiveBytes::new(vec![1, 2, 3]);
+        assert_eq!(sb.len(), 3);
+        assert!(!sb.is_empty());
+        assert_eq!(sb.expose(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_sensitive_bytes_expose_for() {
+        let sb = SensitiveBytes::new(vec![10, 20]);
+        let sum = sb.expose_for(|bytes| bytes.iter().map(|b| *b as u32).sum::<u32>());
+        assert_eq!(sum, 30);
+    }
+
+    #[test]
+    fn test_sensitive_bytes_debug_redacted() {
+        let sb = SensitiveBytes::new(vec![0; 16]);
+        let debug = format!("{sb:?}");
+        assert!(debug.contains("SENSITIVE"));
+        assert!(debug.contains("16"));
+    }
+
+    #[test]
+    fn test_sensitive_bytes_constant_time_eq() {
+        let a = SensitiveBytes::new(vec![1, 2, 3]);
+        let b = SensitiveBytes::new(vec![1, 2, 3]);
+        let c = SensitiveBytes::new(vec![1, 2, 4]);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_sensitive_bytes_different_lengths() {
+        let a = SensitiveBytes::new(vec![1, 2]);
+        let b = SensitiveBytes::new(vec![1, 2, 3]);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_sensitive_bytes_empty() {
+        let sb = SensitiveBytes::new(vec![]);
+        assert!(sb.is_empty());
+        assert_eq!(sb.len(), 0);
+    }
+
+    #[test]
+    fn test_sensitive_bytes_clone() {
+        let a = SensitiveBytes::new(vec![42; 8]);
+        let b = a.clone();
+        assert_eq!(a, b);
     }
 
     #[test]

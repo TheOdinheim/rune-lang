@@ -73,6 +73,16 @@ pub fn derive_subkeys(
         .collect()
 }
 
+/// Alias for `derive_key` — full HKDF: extract + expand in one call.
+pub fn hkdf_derive(
+    salt: &[u8],
+    ikm: &[u8],
+    info: &[u8],
+    length: usize,
+) -> Result<Vec<u8>, SecretError> {
+    derive_key(salt, ikm, info, length)
+}
+
 // ── Password hashing (Argon2id placeholder) ───────────────────────────
 
 /// Hash a password using Argon2id. Placeholder — returns HKDF-derived key.
@@ -208,6 +218,13 @@ mod tests {
     fn test_verify_password_wrong_salt() {
         let hash = hash_password(b"password", b"salt-1").unwrap();
         assert!(!verify_password(b"password", b"salt-2", &hash).unwrap());
+    }
+
+    #[test]
+    fn test_hkdf_derive_alias() {
+        let k1 = derive_key(b"salt", b"ikm", b"info", 32).unwrap();
+        let k2 = hkdf_derive(b"salt", b"ikm", b"info", 32).unwrap();
+        assert_eq!(k1, k2);
     }
 
     #[test]

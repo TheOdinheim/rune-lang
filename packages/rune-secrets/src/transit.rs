@@ -182,16 +182,16 @@ mod tests {
     }
 
     #[test]
-    fn test_transit_wrong_key_produces_wrong_data() {
+    fn test_transit_wrong_key_rejected() {
         let id = SecretId::new("transit-5");
         let key = test_key();
         let wrong_key = vec![0xBB; 32];
         let plaintext = b"data";
 
         let pkg = package_for_transit(&id, plaintext, &key, "a", "b", 1000).unwrap();
-        // Wrong key derives different transit key → produces garbage, not the original
-        let decrypted = unpackage_transit(&pkg, &wrong_key, 1050).unwrap();
-        assert_ne!(decrypted, plaintext);
+        // Wrong key derives different transit key → AEAD rejects decryption
+        let result = unpackage_transit(&pkg, &wrong_key, 1050);
+        assert!(result.is_err());
     }
 
     #[test]

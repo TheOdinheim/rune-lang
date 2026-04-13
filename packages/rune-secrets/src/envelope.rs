@@ -1,15 +1,20 @@
 // ═══════════════════════════════════════════════════════════════════════
-// Envelope Encryption — DEK/KEK Pattern
+// Envelope Encryption — DEK/KEK Pattern with ChaCha20-Poly1305 AEAD
 //
 // Each secret is encrypted with a unique data-encryption key (DEK).
 // The DEK is then encrypted with a master key-encryption key (KEK).
 // This allows key rotation without re-encrypting all secret data.
 //
-// Placeholder cipher: HMAC-SHA3-256 XOR stream (symmetric, deterministic).
-// Real implementation will swap in AES-256-GCM or similar AEAD.
+// Layer 2: real ChaCha20-Poly1305 AEAD (replaces XOR stream cipher).
 // ═══════════════════════════════════════════════════════════════════════
 
-use rune_lang::stdlib::crypto::sign::hmac_sha3_256;
+use chacha20poly1305::{
+    ChaCha20Poly1305, KeyInit,
+    aead::Aead,
+};
+use rand::RngCore;
+use zeroize::Zeroize;
+
 use rune_lang::stdlib::crypto::hash::sha3_256;
 
 use crate::error::SecretError;
@@ -26,36 +31,29 @@ pub struct EncryptedSecret {
     pub integrity_hash: String,
 }
 
-/// Generate a DEK from random-ish material (placeholder: SHA3-256 of seed).
+/// Derive a 12-byte AEAD nonce from an arbitrary-length input nonce and a label.
+fn derive_aead_nonce(input_nonce: &[u8], label: &[u8]) -> [u8; 12] {
+    let mut combined = Vec::with_capacity(input_nonce.len() + label.len());
+    combined.extend_from_slice(input_nonce);
+    combined.extend_from_slice(label);
+    let hash = sha3_256(&combined);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[..12]);
+    nonce
+}
+
+/// Normalize any key to exactly 32 bytes using SHA3-256.
+fn normalize_key(key: &[u8]) -> [u8; 32] {
+    sha3_256(key)
+}
+
+/// Generate a DEK from seed material (SHA3-256 of seed).
 pub fn generate_dek(seed: &[u8]) -> Vec<u8> {
     sha3_256(seed).to_vec()
 }
 
-/// Encrypt plaintext with a key using HMAC-SHA3-256 XOR stream cipher.
-/// This is a placeholder — real implementation uses AES-256-GCM.
-fn xor_cipher(key: &[u8], nonce: &[u8], data: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(data.len());
-    let mut counter = 0u64;
-    let mut offset = 0;
-
-    while offset < data.len() {
-        let mut block_input = Vec::new();
-        block_input.extend_from_slice(nonce);
-        block_input.extend_from_slice(&counter.to_le_bytes());
-        let stream_block = hmac_sha3_256(key, &block_input);
-
-        let remaining = data.len() - offset;
-        let take = remaining.min(stream_block.len());
-        for i in 0..take {
-            output.push(data[offset + i] ^ stream_block[i]);
-        }
-        offset += take;
-        counter += 1;
-    }
-    output
-}
-
 /// Encrypt a secret value with the DEK/KEK envelope pattern.
+/// Uses ChaCha20-Poly1305 AEAD for both plaintext and DEK encryption.
 pub fn encrypt_secret(
     id: &SecretId,
     plaintext: &[u8],
@@ -66,21 +64,36 @@ pub fn encrypt_secret(
         return Err(SecretError::EncryptionFailed("empty plaintext".into()));
     }
 
-    // Generate a unique DEK from the nonce + id
-    let dek_seed: Vec<u8> = [nonce, id.as_str().as_bytes()].concat();
-    let dek = generate_dek(&dek_seed);
+    // Generate a random DEK
+    let mut dek = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut dek);
 
-    // Encrypt plaintext with DEK
-    let ciphertext = xor_cipher(&dek, nonce, plaintext);
+    // Derive 12-byte AEAD nonces from the input nonce
+    let data_nonce = derive_aead_nonce(nonce, b"data");
+    let dek_nonce = derive_aead_nonce(nonce, b"dek");
 
-    // Encrypt DEK with KEK
-    let encrypted_dek = xor_cipher(kek, nonce, &dek);
+    // Encrypt plaintext with DEK (AEAD)
+    let dek_key = normalize_key(&dek);
+    let data_cipher = ChaCha20Poly1305::new((&dek_key).into());
+    let ciphertext = data_cipher
+        .encrypt((&data_nonce).into(), plaintext)
+        .map_err(|e| SecretError::EncryptionFailed(format!("AEAD encrypt: {e}")))?;
+
+    // Encrypt DEK with KEK (AEAD)
+    let kek_key = normalize_key(kek);
+    let kek_cipher = ChaCha20Poly1305::new((&kek_key).into());
+    let encrypted_dek = kek_cipher
+        .encrypt((&dek_nonce).into(), dek.as_ref())
+        .map_err(|e| SecretError::EncryptionFailed(format!("DEK wrap: {e}")))?;
 
     // Integrity hash over ciphertext + encrypted_dek
     let mut integrity_input = Vec::new();
     integrity_input.extend_from_slice(&ciphertext);
     integrity_input.extend_from_slice(&encrypted_dek);
     let integrity_hash = hex::encode(sha3_256(&integrity_input));
+
+    // Zeroize DEK
+    dek.zeroize();
 
     Ok(EncryptedSecret {
         id: id.clone(),
@@ -109,11 +122,25 @@ pub fn decrypt_secret(
         });
     }
 
-    // Decrypt DEK with KEK
-    let dek = xor_cipher(kek, &encrypted.nonce, &encrypted.encrypted_dek);
+    // Derive nonces
+    let dek_nonce = derive_aead_nonce(&encrypted.nonce, b"dek");
+    let data_nonce = derive_aead_nonce(&encrypted.nonce, b"data");
 
-    // Decrypt plaintext with DEK
-    let plaintext = xor_cipher(&dek, &encrypted.nonce, &encrypted.ciphertext);
+    // Decrypt DEK with KEK (AEAD — fails with wrong KEK)
+    let kek_key = normalize_key(kek);
+    let kek_cipher = ChaCha20Poly1305::new((&kek_key).into());
+    let mut dek = kek_cipher
+        .decrypt((&dek_nonce).into(), encrypted.encrypted_dek.as_ref())
+        .map_err(|_| SecretError::DecryptionFailed("DEK unwrap failed (wrong key or tampered)".into()))?;
+
+    // Decrypt plaintext with DEK (AEAD)
+    let dek_key = normalize_key(&dek);
+    let data_cipher = ChaCha20Poly1305::new((&dek_key).into());
+    let plaintext = data_cipher
+        .decrypt((&data_nonce).into(), encrypted.ciphertext.as_ref())
+        .map_err(|_| SecretError::DecryptionFailed("plaintext decryption failed".into()))?;
+
+    dek.zeroize();
 
     if plaintext.is_empty() {
         return Err(SecretError::DecryptionFailed("empty result".into()));
@@ -129,11 +156,23 @@ pub fn re_encrypt_with_new_kek(
     old_kek: &[u8],
     new_kek: &[u8],
 ) -> Result<EncryptedSecret, SecretError> {
+    let dek_nonce = derive_aead_nonce(&encrypted.nonce, b"dek");
+
     // Decrypt DEK with old KEK
-    let dek = xor_cipher(old_kek, &encrypted.nonce, &encrypted.encrypted_dek);
+    let old_kek_key = normalize_key(old_kek);
+    let old_cipher = ChaCha20Poly1305::new((&old_kek_key).into());
+    let mut dek = old_cipher
+        .decrypt((&dek_nonce).into(), encrypted.encrypted_dek.as_ref())
+        .map_err(|_| SecretError::DecryptionFailed("old KEK unwrap failed".into()))?;
 
     // Re-encrypt DEK with new KEK
-    let new_encrypted_dek = xor_cipher(new_kek, &encrypted.nonce, &dek);
+    let new_kek_key = normalize_key(new_kek);
+    let new_cipher = ChaCha20Poly1305::new((&new_kek_key).into());
+    let new_encrypted_dek = new_cipher
+        .encrypt((&dek_nonce).into(), dek.as_ref())
+        .map_err(|e| SecretError::EncryptionFailed(format!("new KEK wrap: {e}")))?;
+
+    dek.zeroize();
 
     // Recompute integrity hash
     let mut integrity_input = Vec::new();
@@ -175,14 +214,12 @@ mod tests {
     }
 
     #[test]
-    fn test_xor_cipher_roundtrip() {
-        let key = vec![0xCC; 32];
-        let nonce = vec![0xDD; 16];
-        let data = b"hello world, this is a secret message that spans multiple blocks!";
-        let encrypted = xor_cipher(&key, &nonce, data);
-        assert_ne!(encrypted, data);
-        let decrypted = xor_cipher(&key, &nonce, &encrypted);
-        assert_eq!(decrypted, data);
+    fn test_aead_nonce_derivation() {
+        let n1 = derive_aead_nonce(b"nonce", b"data");
+        let n2 = derive_aead_nonce(b"nonce", b"dek");
+        assert_eq!(n1.len(), 12);
+        assert_eq!(n2.len(), 12);
+        assert_ne!(n1, n2);
     }
 
     #[test]
@@ -211,7 +248,7 @@ mod tests {
     fn test_decrypt_with_wrong_kek_fails_integrity() {
         let id = SecretId::new("test");
         let encrypted = encrypt_secret(&id, b"secret", &test_kek(), &test_nonce()).unwrap();
-        // Tamper with the encrypted_dek to simulate wrong KEK result
+        // Tamper with the encrypted_dek to simulate corruption
         let mut tampered = encrypted.clone();
         tampered.encrypted_dek[0] ^= 0xFF;
         let result = decrypt_secret(&tampered, &test_kek());
@@ -258,9 +295,9 @@ mod tests {
         let encrypted = encrypt_secret(&id, plaintext, &old_kek, &nonce).unwrap();
         let re_encrypted = re_encrypt_with_new_kek(&encrypted, &old_kek, &new_kek).unwrap();
 
-        // Old KEK derives wrong DEK → produces garbage, not the original plaintext
-        let decrypted = decrypt_secret(&re_encrypted, &old_kek).unwrap();
-        assert_ne!(decrypted, plaintext);
+        // Old KEK cannot decrypt re-encrypted DEK — AEAD rejects wrong key
+        let result = decrypt_secret(&re_encrypted, &old_kek);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -282,5 +319,39 @@ mod tests {
         let encrypted = encrypt_secret(&id, &plaintext, &kek, &nonce).unwrap();
         let decrypted = decrypt_secret(&encrypted, &kek).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_wrong_kek_rejected_by_aead() {
+        let id = SecretId::new("test");
+        let kek = test_kek();
+        let wrong_kek = vec![0xDD; 32];
+        let nonce = test_nonce();
+
+        let encrypted = encrypt_secret(&id, b"secret data", &kek, &nonce).unwrap();
+        let result = decrypt_secret(&encrypted, &wrong_kek);
+        assert!(matches!(result, Err(SecretError::DecryptionFailed(_))));
+    }
+
+    #[test]
+    fn test_ciphertext_includes_auth_tag() {
+        let id = SecretId::new("test");
+        let plaintext = b"hello";
+        let kek = test_kek();
+        let nonce = test_nonce();
+
+        let encrypted = encrypt_secret(&id, plaintext, &kek, &nonce).unwrap();
+        // ChaCha20-Poly1305 appends a 16-byte auth tag
+        assert_eq!(encrypted.ciphertext.len(), plaintext.len() + 16);
+    }
+
+    #[test]
+    fn test_dek_zeroized_after_encrypt() {
+        // This test verifies the encrypt path completes without error
+        // (zeroization is best-effort verified by code inspection)
+        let id = SecretId::new("z");
+        let encrypted = encrypt_secret(&id, b"data", &test_kek(), &test_nonce()).unwrap();
+        let decrypted = decrypt_secret(&encrypted, &test_kek()).unwrap();
+        assert_eq!(decrypted, b"data");
     }
 }

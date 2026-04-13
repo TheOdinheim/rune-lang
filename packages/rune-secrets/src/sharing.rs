@@ -14,12 +14,12 @@ use crate::error::SecretError;
 // Reduction constant (low 8 bits): 0x1B
 
 /// GF(256) addition is XOR.
-fn gf256_add(a: u8, b: u8) -> u8 {
+pub fn gf256_add(a: u8, b: u8) -> u8 {
     a ^ b
 }
 
 /// GF(256) multiplication using "Russian peasant" algorithm.
-fn gf256_mul(a: u8, b: u8) -> u8 {
+pub fn gf256_mul(a: u8, b: u8) -> u8 {
     let mut result = 0u8;
     let mut a = a;
     let mut b = b;
@@ -38,7 +38,7 @@ fn gf256_mul(a: u8, b: u8) -> u8 {
 }
 
 /// GF(256) multiplicative inverse via Fermat's little theorem: a^254 = a^(-1).
-fn gf256_inv(a: u8) -> Result<u8, SecretError> {
+pub fn gf256_inv(a: u8) -> Result<u8, SecretError> {
     if a == 0 {
         return Err(SecretError::InvalidShares("division by zero in GF(256)".into()));
     }
@@ -56,7 +56,7 @@ fn gf256_inv(a: u8) -> Result<u8, SecretError> {
 }
 
 /// GF(256) division: a / b = a * b^(-1).
-fn gf256_div(a: u8, b: u8) -> Result<u8, SecretError> {
+pub fn gf256_div(a: u8, b: u8) -> Result<u8, SecretError> {
     if b == 0 {
         return Err(SecretError::InvalidShares("division by zero in GF(256)".into()));
     }
@@ -64,6 +64,52 @@ fn gf256_div(a: u8, b: u8) -> Result<u8, SecretError> {
         return Ok(0);
     }
     Ok(gf256_mul(a, gf256_inv(b)?))
+}
+
+/// Evaluate a polynomial with the given coefficients at point `x` in GF(256).
+/// `coefficients[0]` is the constant term (a_0), `coefficients[1]` is the x term, etc.
+pub fn evaluate_polynomial(coefficients: &[u8], x: u8) -> u8 {
+    let mut value = 0u8;
+    let mut x_pow = 1u8;
+    for &coeff in coefficients {
+        value = gf256_add(value, gf256_mul(coeff, x_pow));
+        x_pow = gf256_mul(x_pow, x);
+    }
+    value
+}
+
+/// Compute the Lagrange basis polynomial for share `i` evaluated at x=0,
+/// given a set of x-coordinates. Returns the Lagrange coefficient in GF(256).
+pub fn lagrange_basis_at_zero(
+    x_coords: &[u8],
+    i: usize,
+) -> Result<u8, SecretError> {
+    let mut basis = 1u8;
+    for (j, &x_j) in x_coords.iter().enumerate() {
+        if i == j {
+            continue;
+        }
+        let num = x_j;
+        let den = gf256_add(x_j, x_coords[i]);
+        basis = gf256_mul(basis, gf256_div(num, den)?);
+    }
+    Ok(basis)
+}
+
+/// Lagrange interpolation at x=0 given a set of (x, y) points in GF(256).
+pub fn lagrange_interpolate(
+    points: &[(u8, u8)],
+) -> Result<u8, SecretError> {
+    if points.is_empty() {
+        return Err(SecretError::InvalidShares("no points provided".into()));
+    }
+    let x_coords: Vec<u8> = points.iter().map(|p| p.0).collect();
+    let mut value = 0u8;
+    for (i, &(_, y_i)) in points.iter().enumerate() {
+        let basis = lagrange_basis_at_zero(&x_coords, i)?;
+        value = gf256_add(value, gf256_mul(y_i, basis));
+    }
+    Ok(value)
 }
 
 // ── Share type ─────────────────────────────────────────────────────────
@@ -344,6 +390,50 @@ mod tests {
         let shares = split(secret, 3, 2, b"e").unwrap();
         let r = reconstruct(&shares[0..2]).unwrap();
         assert_eq!(r, secret);
+    }
+
+    // ── evaluate_polynomial / lagrange_interpolate tests ────────────
+
+    #[test]
+    fn test_evaluate_polynomial_constant() {
+        // p(x) = 42
+        assert_eq!(evaluate_polynomial(&[42], 1), 42);
+        assert_eq!(evaluate_polynomial(&[42], 5), 42);
+    }
+
+    #[test]
+    fn test_evaluate_polynomial_linear() {
+        // p(x) = 10 + 3*x  → p(0) = 10
+        assert_eq!(evaluate_polynomial(&[10, 3], 0), 10);
+    }
+
+    #[test]
+    fn test_lagrange_interpolate_recovers_secret() {
+        let secret = b"test";
+        let shares = split(secret, 3, 2, b"entropy").unwrap();
+        // Lagrange interpolation at x=0 on each byte should recover secret
+        for byte_idx in 0..secret.len() {
+            let points: Vec<(u8, u8)> = shares[0..2]
+                .iter()
+                .map(|s| (s.x, s.data[byte_idx]))
+                .collect();
+            let recovered = lagrange_interpolate(&points).unwrap();
+            assert_eq!(recovered, secret[byte_idx]);
+        }
+    }
+
+    #[test]
+    fn test_lagrange_interpolate_empty() {
+        assert!(lagrange_interpolate(&[]).is_err());
+    }
+
+    #[test]
+    fn test_lagrange_basis_at_zero() {
+        // With 2 points, the basis for point 0 evaluated at x=0
+        // should be x_1 / (x_1 - x_0) in GF(256)
+        let basis = lagrange_basis_at_zero(&[1, 2], 0).unwrap();
+        // x_1=2, x_0=1, den = 2 XOR 1 = 3, so basis = 2/3 in GF(256)
+        assert_eq!(basis, gf256_div(2, 3).unwrap());
     }
 
     #[test]

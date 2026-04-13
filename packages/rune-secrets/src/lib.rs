@@ -14,12 +14,16 @@
 //   - No Single Points of Failure: DEK/KEK separation, versioned
 //     rotation, K-of-N secret sharing
 //
+// Layer 2: real ChaCha20-Poly1305 AEAD, strengthened zeroization
+// via zeroize crate, key rotation versioning, secret lifecycle
+// management, enhanced Shamir GF(256) helpers.
+//
 // Architecture:
-//   secret.rs         — SecretValue (zeroized), SecretEntry, VersionedSecret
-//   vault.rs          — In-memory vault with access control and audit
-//   envelope.rs       — DEK/KEK envelope encryption
+//   secret.rs         — SecretValue (zeroized), SensitiveBytes, SecretEntry, VersionedSecret
+//   vault.rs          — In-memory vault with access control, lifecycle, and audit
+//   envelope.rs       — DEK/KEK envelope encryption (ChaCha20-Poly1305 AEAD)
 //   derivation.rs     — HKDF key derivation, password hashing
-//   rotation.rs       — Rotation policies and status tracking
+//   rotation.rs       — Rotation policies, status tracking, key version management
 //   sharing.rs        — Shamir's Secret Sharing over GF(256)
 //   classification.rs — Handling rules per classification level
 //   transit.rs        — Cross-boundary transit encryption
@@ -39,13 +43,23 @@ pub mod audit;
 pub mod error;
 
 pub use secret::{
-    SecretEntry, SecretId, SecretMetadata, SecretState, SecretType, SecretValue, VersionedSecret,
+    SecretEntry, SecretId, SecretMetadata, SecretState, SecretType, SecretValue,
+    SensitiveBytes, VersionedSecret,
 };
-pub use vault::{SecretVault, VaultAccessPolicy, VaultHealth};
+pub use vault::{ExpirationStatus, SecretVault, VaultAccessPolicy, VaultHealth};
 pub use envelope::{EncryptedSecret, decrypt_secret, encrypt_secret, generate_dek, re_encrypt_with_new_kek};
-pub use derivation::{derive_key, derive_subkeys, hash_password, hkdf_expand, hkdf_extract, verify_password};
-pub use rotation::{RotationPolicy, RotationResult, RotationStatus, check_rotation_status};
-pub use sharing::{Share, reconstruct, split};
+pub use derivation::{
+    derive_key, derive_subkeys, hash_password, hkdf_derive, hkdf_expand, hkdf_extract,
+    verify_password,
+};
+pub use rotation::{
+    KeyRotationManager, KeyVersion, KeyVersionStatus, RotationPolicy, RotationResult,
+    RotationStatus, check_rotation_status,
+};
+pub use sharing::{
+    Share, evaluate_polynomial, gf256_add, gf256_div, gf256_inv, gf256_mul,
+    lagrange_basis_at_zero, lagrange_interpolate, reconstruct, split,
+};
 pub use classification::{
     HandlingRules, HandlingViolation, LoggingLevel, ViolationSeverity,
     rules_for_classification, validate_handling,

@@ -14,6 +14,7 @@ use crate::error::SecretError;
 use crate::rotation::{
     RotationPolicy, RotationResult, RotationStatus, check_rotation_status,
 };
+use std::fmt;
 use crate::secret::{
     SecretEntry, SecretId, SecretMetadata, SecretState, SecretType, SecretValue, VersionedSecret,
 };
@@ -282,6 +283,118 @@ impl SecretVault {
         Ok(check_rotation_status(current.metadata.updated_at, now, policy))
     }
 
+    /// Set expiration for a secret.
+    pub fn set_expiration(
+        &mut self,
+        id: &SecretId,
+        expires_at: i64,
+        actor: &str,
+        now: i64,
+    ) -> Result<(), SecretError> {
+        let versioned = self.secrets.get_mut(id)
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        let current = versioned.versions.last_mut()
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        current.metadata.expires_at = Some(expires_at);
+        current.metadata.updated_at = now;
+
+        self.audit_log.record(SecretEvent::new(
+            SecretEventType::Updated,
+            id.clone(),
+            now,
+            actor,
+            format!("expiration set to {expires_at}"),
+        ));
+
+        Ok(())
+    }
+
+    /// Check expiration status for a secret.
+    pub fn check_expiration(
+        &self,
+        id: &SecretId,
+        now: i64,
+        expiring_soon_threshold: i64,
+    ) -> Result<ExpirationStatus, SecretError> {
+        let versioned = self.secrets.get(id)
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        let current = versioned.current()
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+
+        match current.metadata.expires_at {
+            None => Ok(ExpirationStatus::NoExpiry),
+            Some(exp) if now >= exp => Ok(ExpirationStatus::Expired { expired_at: exp }),
+            Some(exp) if exp - now <= expiring_soon_threshold => {
+                Ok(ExpirationStatus::ExpiringSoon {
+                    expires_at: exp,
+                    seconds_remaining: exp - now,
+                })
+            }
+            Some(exp) => Ok(ExpirationStatus::Active { expires_at: exp }),
+        }
+    }
+
+    /// Return IDs of all expired secrets.
+    pub fn expired_secrets(&self, now: i64) -> Vec<&SecretId> {
+        self.secrets.iter()
+            .filter(|(_, vs)| {
+                vs.current().is_some_and(|c| c.metadata.is_expired(now) && c.state.is_usable())
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Mark all expired secrets as Expired state and return count cleaned up.
+    pub fn cleanup_expired(
+        &mut self,
+        actor: &str,
+        now: i64,
+    ) -> usize {
+        let expired_ids: Vec<SecretId> = self.secrets.iter()
+            .filter(|(_, vs)| {
+                vs.current().is_some_and(|c| {
+                    c.metadata.is_expired(now) && c.state == SecretState::Active
+                })
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        let count = expired_ids.len();
+        for id in &expired_ids {
+            if let Some(vs) = self.secrets.get_mut(id) {
+                if let Some(current) = vs.versions.last_mut() {
+                    current.state = SecretState::Expired;
+                }
+            }
+            self.audit_log.record(SecretEvent::new(
+                SecretEventType::SecretExpired,
+                id.clone(),
+                now,
+                actor,
+                "expired secret cleaned up",
+            ));
+        }
+        count
+    }
+
+    /// Get access count for a secret.
+    pub fn access_count(&self, id: &SecretId) -> Result<u64, SecretError> {
+        let versioned = self.secrets.get(id)
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        let current = versioned.current()
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        Ok(current.metadata.usage_count)
+    }
+
+    /// Get last accessed timestamp for a secret.
+    pub fn last_accessed(&self, id: &SecretId) -> Result<i64, SecretError> {
+        let versioned = self.secrets.get(id)
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        let current = versioned.current()
+            .ok_or_else(|| SecretError::SecretNotFound(id.clone()))?;
+        Ok(current.metadata.updated_at)
+    }
+
     /// Vault health: count of secrets by state.
     pub fn health(&self) -> VaultHealth {
         let mut h = VaultHealth::default();
@@ -298,6 +411,39 @@ impl SecretVault {
         }
         h.total = self.secrets.len();
         h
+    }
+}
+
+// ── ExpirationStatus ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpirationStatus {
+    NoExpiry,
+    Active { expires_at: i64 },
+    ExpiringSoon { expires_at: i64, seconds_remaining: i64 },
+    Expired { expired_at: i64 },
+}
+
+impl ExpirationStatus {
+    pub fn is_expired(&self) -> bool {
+        matches!(self, Self::Expired { .. })
+    }
+
+    pub fn is_expiring_soon(&self) -> bool {
+        matches!(self, Self::ExpiringSoon { .. })
+    }
+}
+
+impl fmt::Display for ExpirationStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoExpiry => write!(f, "no expiry"),
+            Self::Active { expires_at } => write!(f, "active (expires at {expires_at})"),
+            Self::ExpiringSoon { seconds_remaining, .. } => {
+                write!(f, "expiring in {seconds_remaining}s")
+            }
+            Self::Expired { expired_at } => write!(f, "expired at {expired_at}"),
+        }
     }
 }
 
@@ -483,6 +629,103 @@ mod tests {
         assert!(vault.retrieve(&SecretId::new("k1"), &admin_policy(), "u", 3).is_ok());
         let result = vault.retrieve(&SecretId::new("k1"), &admin_policy(), "u", 4);
         assert!(matches!(result, Err(SecretError::UsageLimitExceeded { .. })));
+    }
+
+    // ── Lifecycle management tests ─────────────────────────────────────
+
+    #[test]
+    fn test_set_expiration() {
+        let mut vault = test_vault();
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), test_meta(), "a", 100).unwrap();
+        vault.set_expiration(&SecretId::new("k1"), 500, "admin", 200).unwrap();
+
+        let result = vault.retrieve(&SecretId::new("k1"), &admin_policy(), "u", 600);
+        assert!(matches!(result, Err(SecretError::SecretExpired { .. })));
+    }
+
+    #[test]
+    fn test_check_expiration_no_expiry() {
+        let mut vault = test_vault();
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), test_meta(), "a", 100).unwrap();
+        let status = vault.check_expiration(&SecretId::new("k1"), 200, 3600).unwrap();
+        assert_eq!(status, ExpirationStatus::NoExpiry);
+    }
+
+    #[test]
+    fn test_check_expiration_active() {
+        let mut vault = test_vault();
+        let meta = test_meta().with_expires_at(10000);
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), meta, "a", 100).unwrap();
+        let status = vault.check_expiration(&SecretId::new("k1"), 200, 3600).unwrap();
+        assert!(matches!(status, ExpirationStatus::Active { .. }));
+    }
+
+    #[test]
+    fn test_check_expiration_expiring_soon() {
+        let mut vault = test_vault();
+        let meta = test_meta().with_expires_at(1000);
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), meta, "a", 100).unwrap();
+        let status = vault.check_expiration(&SecretId::new("k1"), 800, 3600).unwrap();
+        assert!(status.is_expiring_soon());
+    }
+
+    #[test]
+    fn test_check_expiration_expired() {
+        let mut vault = test_vault();
+        let meta = test_meta().with_expires_at(500);
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), meta, "a", 100).unwrap();
+        let status = vault.check_expiration(&SecretId::new("k1"), 600, 3600).unwrap();
+        assert!(status.is_expired());
+    }
+
+    #[test]
+    fn test_expired_secrets() {
+        let mut vault = test_vault();
+        let meta1 = test_meta().with_expires_at(500);
+        let meta2 = test_meta().with_expires_at(10000);
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), meta1, "a", 100).unwrap();
+        vault.store(SecretId::new("k2"), SecretValue::from_str("v"), meta2, "a", 100).unwrap();
+        let expired = vault.expired_secrets(600);
+        assert_eq!(expired.len(), 1);
+    }
+
+    #[test]
+    fn test_cleanup_expired() {
+        let mut vault = test_vault();
+        let meta = test_meta().with_expires_at(500);
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), meta, "a", 100).unwrap();
+        let count = vault.cleanup_expired("system", 600);
+        assert_eq!(count, 1);
+        // After cleanup, state should be Expired
+        let h = vault.health();
+        assert_eq!(h.expired, 1);
+    }
+
+    #[test]
+    fn test_access_count() {
+        let mut vault = test_vault();
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), test_meta(), "a", 100).unwrap();
+        assert_eq!(vault.access_count(&SecretId::new("k1")).unwrap(), 0);
+        vault.retrieve(&SecretId::new("k1"), &admin_policy(), "u", 200).unwrap();
+        assert_eq!(vault.access_count(&SecretId::new("k1")).unwrap(), 1);
+        vault.retrieve(&SecretId::new("k1"), &admin_policy(), "u", 300).unwrap();
+        assert_eq!(vault.access_count(&SecretId::new("k1")).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_last_accessed() {
+        let mut vault = test_vault();
+        vault.store(SecretId::new("k1"), SecretValue::from_str("v"), test_meta(), "a", 100).unwrap();
+        let ts = vault.last_accessed(&SecretId::new("k1")).unwrap();
+        assert_eq!(ts, 100);
+    }
+
+    #[test]
+    fn test_expiration_status_display() {
+        assert_eq!(ExpirationStatus::NoExpiry.to_string(), "no expiry");
+        assert!(ExpirationStatus::Expired { expired_at: 100 }.to_string().contains("100"));
+        assert!(ExpirationStatus::ExpiringSoon { expires_at: 200, seconds_remaining: 50 }
+            .to_string().contains("50"));
     }
 
     #[test]
