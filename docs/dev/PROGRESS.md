@@ -489,9 +489,11 @@
 
 - **rune-provenance Layer 1** (99 tests): semver artifacts, BFS lineage, model provenance, supply chain SHA3-256/SLSA L0–L4, DAG cycle detection, 7-check verifier, 13-event audit
 
-- **rune-truth Layer 1** (87 tests): weighted confidence (9 factors), consistency by input hash, source attribution, contradiction detection, ground truth matching, 6-signal trust assessor, truth claims lifecycle, 10-event audit
+- **rune-truth Layer 1** (87 tests): weighted confidence, consistency, attribution, contradiction detection, ground truth matching, 6-signal trust assessor, claims lifecycle, 10-event audit
 
-- **rune-explainability Layer 1** (88 tests): decision records (11 types, 6 outcomes), trace reconstruction with root causes, factor attribution with divergence detection, counterfactual analysis (difficulty/feasibility), narrative generation (3 detail levels), audience adaptation (5 audiences), transparency reports with JSON rendering, 8-event audit
+- **rune-explainability Layer 1** (88 tests): decision records (11 types, 6 outcomes), trace reconstruction, factor attribution, counterfactual analysis, narrative generation, audience adaptation (5 audiences), transparency reports, 8-event audit
+
+- **rune-document Layer 1** (90 tests): compliance document generation from live data — GDPR Art. 30 records (7 sections, gap validation), NIST AI RMF profiles (4 functions, 19 categories, weakest-link maturity), CMMC assessments (Level 1-3, score/unmet), PIA/DPIA (risk matrix, Art. 36 triggers), SSP (controls by family, implementation rate), 5 built-in templates, 3 render formats, 10-event audit
 ## What's Next
 
 - Layer 2+ for all crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, Prometheus/OTel; formal verification

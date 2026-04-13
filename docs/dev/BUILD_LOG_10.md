@@ -350,3 +350,54 @@ Dependencies: rune-lang, rune-provenance, rune-truth, rune-security, serde, serd
 - **AudienceAdapter produces guaranteed-distinct output per audience**: Tests verify that all 5 audiences produce different strings for the same input (denied outcome, critical severity). This is a design invariant — if two audiences produce identical output, the adapter is not doing its job.
 - **Neutral factors produce zero contribution in traces but are still steps**: A factor with `FactorDirection::Neutral` appears in the trace (with contribution = 0.0) but does not generate a root cause. This reflects that neutral factors are informational context — they were considered but did not push the outcome in either direction.
 
+---
+
+## rune-document (Layer 1)
+
+### What it does
+
+Compliance document generation from live governance data. Generates GDPR Article 30 records, NIST AI RMF profiles, CMMC maturity assessments, Privacy Impact Assessments, and System Security Plans. Translates internal governance data into the specific formats each regulatory framework requires.
+
+### What was built
+
+New workspace crate `packages/rune-document/` with 10 modules:
+
+- **document.rs** — DocumentId newtype, Document with DocumentVersion (semver: new/initial/bump_revision/bump_minor/bump_major, Display "v1.2.3", Ord), DocumentStatus (Draft/UnderReview/Approved/Published/Superseded/Archived with is_active/is_final), 11 DocumentType variants, ComplianceFramework (12 frameworks: GdprEu, GdprUk, NistAiRmf, NistCsf, Cmmc, EuAiAct, Ccpa, Hipaa, Sox, FedRamp, Iso27001, Custom with jurisdiction/full_name), DocumentSection with fields/subsections/compliance_status, DocumentField with FieldType (6 variants), ComplianceStatus (5 variants), DocumentStore with add/get/by_type/by_framework/by_status/active_documents/documents_due_review/latest_version/approve/archive/supersede/completion_rate
+- **gdpr.rs** — GdprDocumentBuilder with ControllerInfo, ProcessingActivity (legal_basis/data_categories/data_subjects/recipients/transfers/retention/security_measures/automated_decision_making/dpia), InternationalTransfer, build() producing 7 Art. 30 sections with compliance status, validate() returning GdprGap structs
+- **nist.rs** — NistDocumentBuilder with NistFunction/NistCategory/NistSubcategory hierarchy, MaturityLevel (6 levels: NotImplemented/Initial/Developing/Defined/Managed/Optimizing), ProfileType (Current/Target/Gap), ai_rmf_skeleton() with 4 functions (GOVERN/MAP/MEASURE/MANAGE) and 19 categories, assess_maturity() (weakest-link minimum)
+- **cmmc.rs** — CmmcDocumentBuilder with CmmcLevel (Level1/Level2/Level3), CmmcDomain/CmmcPractice, level1_skeleton() with 6 domains and 8 Level 1 practices, score() percentage, unmet_practices(), build() producing domain sections + gap analysis + remediation roadmap
+- **pia.rs** — PiaDocumentBuilder with PiaDataFlow, PiaRisk (likelihood/impact/residual_risk), PiaMitigation, PiaConsultation (DPO/supervisory authority/data subjects), NecessityAssessment, build() producing 7 sections, risk_matrix() tuples, high_risks() for Art. 36 consultation triggers
+- **ssp.rs** — SspBuilder with SystemType (General/Major/Minor/Cloud), ImpactLevel (Low/Moderate/High), SecurityControlEntry with ImplementationStatus (5 variants), implementation_rate(), unimplemented_controls(), controls_by_family(), build() producing 5 sections sorted by control family
+- **template.rs** — DocumentTemplate with 5 built-in templates (gdpr_article30/nist_ai_rmf/cmmc_assessment/dpia/ssp), TemplateSectionDef/TemplateFieldDef, TemplateRegistry with by_framework/by_type, instantiate_template() creates Document from template with empty fields and NotAssessed status
+- **renderer.rs** — DocumentRenderer with render_text (plain text with indentation), render_markdown (headings/tables/badges), render_json (serde_json), render_section at configurable depth, completion_summary() with total/completed sections, required/filled fields, compliance aggregation
+- **audit.rs** — 10 DocumentEventType variants (DocumentCreated, DocumentUpdated, DocumentApproved, DocumentPublished, DocumentArchived, DocumentSuperseded, TemplateInstantiated, ComplianceGapFound, ReviewDue, DocumentRendered), DocumentAuditLog with document/type/since/approval/gap filters
+- **error.rs** — DocumentError with 9 variants (DocumentNotFound, DocumentAlreadyExists, TemplateNotFound, InvalidStatus, MissingRequiredField, RenderingFailed, ValidationFailed, FrameworkNotSupported, InvalidOperation)
+
+Dependencies: rune-lang, rune-provenance, rune-truth, rune-explainability, rune-security, serde, serde_json.
+
+90 new tests, all passing:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | Display for all 9 variants |
+| document | 21 | DocumentId display, Document construction, 11 DocumentType displays, DocumentVersion display/ordering/bumps, DocumentStatus is_active/is_final, ComplianceFramework jurisdiction/full_name, 5 ComplianceStatus displays, 6 FieldType displays, DocumentStore add/get/duplicate-reject/by_type/by_framework/active_documents/approve/archive/supersede/documents_due_review/completion_rate |
+| gdpr | 10 | Builder valid record, 7 sections matching Art. 30, section titles, full activity Compliant, missing legal basis NonCompliant, validate gaps, international transfers, DPO contact, multiple activities, empty builder |
+| nist | 8 | Builder valid profile, function sections, ai_rmf_skeleton 4 functions, MaturityLevel ordering, assess_maturity minimum, ProfileType display, subcategory with evidence, empty function section |
+| cmmc | 9 | Builder valid assessment, domain sections, CmmcLevel ordering, level1_skeleton, score percentage, unmet_practices, all-implemented=1.0, none-implemented=0.0, build produces sections |
+| pia | 9 | Builder valid assessment, 7 sections, risk_matrix, high_risks filtering, RiskLevel ordering, mitigation residual, consultation section, necessity section, empty risks |
+| ssp | 9 | Builder valid plan, control sections, ImpactLevel ordering, implementation_rate, unimplemented_controls, controls_by_family, SystemType display, ImplementationStatus display, empty controls |
+| template | 11 | 5 built-in templates valid, TemplateRegistry register/get/by_framework/by_type, instantiate_template creates Document, instantiated section structure |
+| renderer | 10 | render_text output, render_markdown with headings, markdown compliance badges, render_json valid, JSON roundtrip, render_section depth, completion_summary calculation, missing fields, RenderFormat display, empty document renders |
+| audit | 5 | Record + retrieve, events_for_document, approval_events, compliance_gap_events, 10 event type displays |
+
+### Decisions
+
+- **Document uses serde Serialize/Deserialize throughout**: The core Document type and all its nested types (DocumentSection, DocumentField, ComplianceStatus, etc.) derive Serialize/Deserialize. This enables render_json to use serde_json directly, and also allows documents to be stored/transmitted/compared as JSON. The tradeoff is that the Document graph must be fully owned (no references), which is fine for document-sized data.
+- **ComplianceFramework jurisdiction returns string slices, not an enum**: Using `&str` rather than a `Jurisdiction` enum keeps the API simple. There are only 5 distinct jurisdictions (EU, UK, US, US-CA, International, Unknown) and they are used for display/grouping, not pattern matching. An enum would add ceremony without benefit.
+- **GdprDocumentBuilder produces 7 sections even when empty**: An empty builder (no processing activities) still generates all 7 Art. 30 sections with empty subsections. This matches the regulatory structure — a record of processing must have all required sections even if some are blank. The validate() method flags the blanks.
+- **NIST AI RMF assess_maturity uses weakest-link (minimum)**: Overall maturity is the minimum across all four functions, not the average. This follows the NIST framework's intent: an organization at Optimizing for GOVERN but NotImplemented for MANAGE is not at Developing overall — it has a critical gap.
+- **CMMC score counts only practices at or below target level**: A Level 1 assessment ignores Level 2 and Level 3 practices when computing score(). This prevents organizations from inflating their score by implementing easy Level 2 practices while ignoring harder Level 1 requirements.
+- **PIA residual risk defaults to max(likelihood, impact)**: When a PiaRisk is created without an explicit residual_risk, it defaults to the maximum of likelihood and impact. This is conservative — it assumes no mitigation until one is explicitly applied via with_residual(). The builder's high_risks() method checks residual_risk, not the raw risk levels.
+- **SSP controls sorted by family in output**: The build() method sorts control families alphabetically before generating sections. This produces deterministic output regardless of insertion order, which matters for document comparison and versioning.
+- **Template instantiation marks required sections as NotAssessed**: When instantiate_template() creates a Document from a template, required sections get ComplianceStatus::NotAssessed. This ensures that freshly created documents don't appear compliant by default — each section must be explicitly assessed.
+

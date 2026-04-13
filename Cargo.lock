@@ -1420,6 +1420,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-document"
+version = "0.1.0"
+dependencies = [
+ "rune-explainability",
+ "rune-lang",
+ "rune-provenance",
+ "rune-security",
+ "rune-truth",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rune-explainability"
 version = "0.1.0"
 dependencies = [

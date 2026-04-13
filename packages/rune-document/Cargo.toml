@@ -1,0 +1,15 @@
+[package]
+name = "rune-document"
+version = "0.1.0"
+edition = "2024"
+description = "Compliance document generation from live governance data for the RUNE governance ecosystem"
+license = "MIT"
+
+[dependencies]
+rune-lang = { path = "../..", default-features = false }
+rune-provenance = { path = "../rune-provenance" }
+rune-truth = { path = "../rune-truth" }
+rune-explainability = { path = "../rune-explainability" }
+rune-security = { path = "../rune-security" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
