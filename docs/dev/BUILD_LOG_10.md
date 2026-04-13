@@ -303,3 +303,50 @@ New workspace crate `packages/rune-monitoring/` implementing the observation lay
 - **Status aggregation worst-case rollup with maintenance override**: `StatusAggregator::aggregate` computes the overall status as the `max` of the health rollup, component rollup, threshold/SLA contribution, and critical-failure contribution. A special case at the end downgrades the overall to `Maintenance` only if every component is in maintenance — a partial-maintenance window correctly shows the rest of the system's real state.
 - **Push-based collector**: `CollectorEngine` is reactive — sources call `submit` to push samples, and `collect` drains all pending samples into a `MetricRegistry`. There is no pull/scrape loop and no I/O. A Layer 2+ integration can wrap this with a periodic driver (tokio, thread, cron) but the Layer 1 engine is pure data movement. Unknown metric ids increment an error counter but don't abort the drain so a single misconfigured source can't block the rest.
 
+---
+
+## rune-explainability (Layer 1)
+
+### What it does
+
+Decision traces, factor attribution, counterfactual analysis, transparency reports, and human-readable explanations for governance decisions. Makes the "why" behind every decision auditable, interpretable, and audience-appropriate.
+
+### What was built
+
+New workspace crate `packages/rune-explainability/` with 9 modules:
+
+- **decision.rs** — DecisionId newtype, Decision with 11 DecisionType variants (AccessControl, PolicyEnforcement, RiskAssessment, ThreatResponse, DataClassification, PrivacyAction, ModelGovernance, ComplianceCheck, ResourceAllocation, EscalationRouting, AuditDisposition), 6 DecisionOutcome variants (Approved, Denied, Escalated, Deferred, ConditionallyApproved, Error), DecisionContext with environment map, DecisionFactor with 11 FactorType variants and 3 FactorDirection variants, DecisionStore with duplicate-rejecting register
+- **trace.rs** — DecisionTracer walks backward from outcome through factors, normalizes contributions (signed by direction), identifies RootCauses with 11 RootCauseType variants mapped from FactorType, decisive_factor/supporting_steps/opposing_steps queries
+- **factor.rs** — FactorAnalyzer normalizes weights to sum 1.0, ranks by importance, marks decisive factor, supporting/opposing weight sums; FactorComparison with DivergentFactor detection (weight delta > 0.1 or direction mismatch), Jaccard-style similarity score
+- **counterfactual.rs** — CounterfactualGenerator examines opposing factors for outcome flips, assigns ChangeDifficulty (Easy < 0.3 / Moderate < 0.6 / Hard < 0.9 / Impossible), overall difficulty = max, feasibility = Feasible/DifficultButPossible/Infeasible, min_changes/easiest/hardest queries
+- **narrative.rs** — NarrativeGenerator produces structured Narratives at 3 DetailLevels: Summary (overview only), Standard (+context +factors), Detailed (+rationale +factor breakdown), full_text() rendering
+- **audience.rs** — AudienceAdapter with 5 Audience variants (Technical, Executive, Regulatory, Operator, DataSubject), adapt_outcome/adapt_factor/adapt_severity produce distinct text per audience, terminology() maps technical terms to audience-appropriate language
+- **transparency.rs** — TransparencyReportBuilder with governance_template/compliance_template, auto-generates overview section with metrics, computes summary (total/approved/denied/escalated/approval_rate/type_breakdown), render_json via serde_json, build_from_store convenience
+- **audit.rs** — 8 ExplainabilityEventType variants (DecisionRecorded, TraceGenerated, FactorAnalyzed, CounterfactualGenerated, NarrativeCreated, AudienceAdapted, ReportGenerated, ExplainabilityError), decision/type/since/trace/error filters
+- **error.rs** — ExplainabilityError with 10 variants (DecisionNotFound, DecisionAlreadyExists, TraceConstructionFailed, FactorAnalysisFailed, CounterfactualGenerationFailed, NarrativeGenerationFailed, ReportGenerationFailed, InvalidFactor, InvalidWeight, InvalidOperation)
+
+Dependencies: rune-lang, rune-provenance, rune-truth, rune-security, serde, serde_json.
+
+88 new tests, all passing:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | Display for all 10 variants |
+| decision | 15 | DecisionId display/from, 11 DecisionType displays, 6 DecisionOutcome displays, FactorType/FactorDirection displays, DecisionFactor builder, DecisionContext with_env, Decision with_factor/with_rationale/with_parent, DecisionStore register/get/duplicate-reject/get_by_type/get_by_outcome/children_of/all |
+| trace | 11 | Basic trace, contributions normalized to 1.0, decisive factor identification, supporting/opposing step filtering, root cause identification and type mapping, trace_from_store success/missing, empty factors, neutral factor zero contribution, RootCauseType display (11 variants), root cause confidence clamping |
+| factor | 10 | Normalized weights sum to 1.0, rank assignment, decisive factor marking, supporting/opposing weight sums, empty factors, factor_by_name, top_factors, compare identical (similarity=1.0), compare divergent, compare disjoint (similarity=0.0) |
+| counterfactual | 11 | Flip generation (opposing factors), difficulty from weight, high-weight is hard, feasibility from difficulty, overall difficulty = max, min_changes, easiest/hardest change, narrative populated, ChangeDifficulty display, CounterfactualFeasibility display, all-supporting no-flip |
+| narrative | 10 | Summary/Standard/Detailed section counts, full_text contains headline/sections, context includes environment, rationale in detailed, no-rationale fallback, empty factors skip factor section, DetailLevel display, DetailLevel ordering |
+| audience | 11 | Audience display (5 variants), denied outcome distinct across all 5 audiences, approved DataSubject, conditional Executive, factor Technical/Operator/DataSubject, severity distinct across all 5 audiences, terminology DataSubject/Executive/Technical passthrough |
+| transparency | 12 | Build from decisions, approval rate, type breakdown, auto overview section with metrics, custom sections appended, render_json valid + parseable, governance template, compliance template, empty decisions, build_from_store, ReportMetric builder, ReportSection with_metric |
+| audit | 7 | Record + count, events_for_decision filter, events_by_type filter, trace_events, error_events (no decision_id), since filter, all 8 event type displays |
+
+### Decisions
+
+- **`gen` is a reserved keyword in Rust 2024**: All test variables named `gen` (for "generator") had to be renamed to `cfgen`/`nargen`. Rust 2024 reserves `gen` for future generator syntax. This affects only test code — the public API uses full names like `CounterfactualGenerator`.
+- **Factor comparison uses name-based matching**: `FactorAnalyzer::compare` matches factors across decisions by name (not by FactorType). This is correct because the same FactorType (e.g., SecurityPolicy) can appear multiple times with different names in a single decision, and name-based matching preserves the "same factor, different weight" semantics needed for divergence detection.
+- **Counterfactual flip detection is outcome-string-based**: `is_outcome_flip` checks specific (current, target) pairs like (Denied, "approved") rather than computing a universal flip relation. This keeps the logic explicit and avoids false positives for complex outcomes like ConditionallyApproved → Denied.
+- **Transparency report auto-generates Overview section**: `build_from_decisions` always prepends an Overview section with total_decisions and approval_rate metrics, then appends user-supplied sections. This ensures every report has baseline statistics even if no custom sections are added.
+- **AudienceAdapter produces guaranteed-distinct output per audience**: Tests verify that all 5 audiences produce different strings for the same input (denied outcome, critical severity). This is a design invariant — if two audiences produce identical output, the adapter is not doing its job.
+- **Neutral factors produce zero contribution in traces but are still steps**: A factor with `FactorDirection::Neutral` appears in the trace (with contribution = 0.0) but does not generate a root cause. This reflects that neutral factors are informational context — they were considered but did not push the outcome in either direction.
+

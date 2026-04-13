@@ -1,0 +1,14 @@
+[package]
+name = "rune-explainability"
+version = "0.1.0"
+edition = "2024"
+description = "Decision traces, factor attribution, counterfactual analysis, transparency reports for the RUNE governance ecosystem"
+license = "MIT"
+
+[dependencies]
+rune-lang = { path = "../..", default-features = false }
+rune-provenance = { path = "../rune-provenance" }
+rune-truth = { path = "../rune-truth" }
+rune-security = { path = "../rune-security" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

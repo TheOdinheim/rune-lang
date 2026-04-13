@@ -485,16 +485,13 @@
   - Privacy Impact Assessment: PIA/DPIA builder, risk rating, mitigations, category-specific recommendations
   - Privacy audit log: 11 event types with subject/type/time/violation/consent filters
 
-- **rune-monitoring Layer 1: health checks, metrics, threshold alerting, SLA tracking, system status** (96 new tests)
-  - Workspace crate packages/rune-monitoring/ (10 modules) speaking rune-security's SecuritySeverity vocabulary
-  - Health checks (7 types, critical-failure-aware), MetricRegistry with percentile/rate/trend, ThresholdEngine (transition-only, 7 conditions), SlaTracker (Meeting/AtRisk/Breached tri-state, 6 target types)
-  - UptimeTracker (O(1) availability/MTBF), StatusAggregator worst-case rollup, MonitoringPolicy severity-floor gating, push-based CollectorEngine, 11-event audit log
+- **rune-monitoring Layer 1** (96 tests): health checks, metrics with percentile/rate/trend, threshold alerting (transition-only), SLA tri-state, uptime O(1), status rollup, push-based collector, 11-event audit
 
-- **rune-provenance Layer 1: data lineage, model provenance, artifact versioning, supply chain verification** (99 new tests)
-  - Workspace crate packages/rune-provenance/ (10 modules): semver artifacts, BFS lineage tracing, model provenance, supply chain SHA3-256 build hashes, SLSA L0–L4, provenance DAG with cycle detection, 7-check verifier, 13-event audit log
+- **rune-provenance Layer 1** (99 tests): semver artifacts, BFS lineage, model provenance, supply chain SHA3-256/SLSA L0–L4, DAG cycle detection, 7-check verifier, 13-event audit
 
-- **rune-truth Layer 1: confidence scoring, consistency checking, contradiction detection, ground truth comparison** (87 new tests)
-  - Workspace crate packages/rune-truth/ (9 modules): weighted confidence scoring (9 factor types), consistency by input hash (dominant-output ratio + Jaccard), source attribution with normalized influence, contradiction detection (negation/numeric/self-consistency), ground truth exact/partial/semantic matching, 6-signal trust assessor (Accept/ManualReview/Reject), verifiable truth claims with evidence lifecycle, 10-event audit log
+- **rune-truth Layer 1** (87 tests): weighted confidence (9 factors), consistency by input hash, source attribution, contradiction detection, ground truth matching, 6-signal trust assessor, truth claims lifecycle, 10-event audit
+
+- **rune-explainability Layer 1** (88 tests): decision records (11 types, 6 outcomes), trace reconstruction with root causes, factor attribution with divergence detection, counterfactual analysis (difficulty/feasibility), narrative generation (3 detail levels), audience adaptation (5 audiences), transparency reports with JSON rendering, 8-event audit
 ## What's Next
 
 - Layer 2+ for all crates: persistence, real crypto/regex/ML, policy integration, SIEM/SOAR, Prometheus/OTel; formal verification
