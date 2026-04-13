@@ -338,3 +338,55 @@ Agent governance for the RUNE ecosystem (GUNGNIR governance layer). Provides act
 - **Delegation depth with cycle detection**: delegation_depth walks the delegator chain using a visited HashSet to prevent infinite loops if a delegation cycle exists. This is defensive — the manager shouldn't allow cycles, but the depth calculation is safe regardless.
 - **CheckpointTrigger derives PartialEq but not Eq**: BudgetThreshold and ConfidenceBelow variants contain f64 values. Same rationale as AutonomyOutcome.
 - **ActionType::ToolInvocation carries tool_name**: Unlike other ActionType variants that are unit variants, ToolInvocation includes the tool name for audit trail purposes. This allows the action authorizer to log which specific tool was requested without needing a separate lookup.
+
+---
+
+## rune-networking-ext — Layer 1
+
+**Date**: 2026-04-13
+**Tests**: 116 passing
+**Commit**: (pending)
+
+### What it does
+
+Network-layer governance for the RUNE ecosystem. Governs the transport and network layers — where rune-web governs HTTP and rune-shield governs AI inference, this crate enforces TLS, cipher suites, connection lifecycle, traffic classification, network segmentation, certificates, DNS, rate limiting, and firewall rules. Designed for air-gapped deployments (HEIMDALL, P25/ASTRO 25) and zero-trust network architectures.
+
+### Modules (10)
+
+| Module | Key types | Tests |
+|---|---|---|
+| `protocol` | TlsVersion (4 variants, Ord), CipherSuite (13 variants), CertificateValidation (4 variants), TlsPolicy (12 fields, 4 presets), ProtocolChecker | 15 |
+| `connection` | ConnectionId, Connection (14 fields), ConnectionProtocol (7 variants), ConnectionState (7 variants), ConnectionStore (max_connections, idle detection) | 15 |
+| `traffic` | TrustLevel (5 levels, Ord), TrafficCondition (11 variants with And/Or/Not), TrafficRule, TrafficClassifier, is_in_cidr | 14 |
+| `segmentation` | NetworkZone, ZoneType (7 variants), ZoneFlow, SegmentationPolicy, SegmentationAction (3 variants), SegmentationEnforcer | 10 |
+| `certificate` | CertificateInfo (13 fields), KeyType (4 variants), CertificateStatus (5 variants), CertificateStore (validation/pinning/key size/expiry) | 13 |
+| `dns` | DnsPolicy, DnsQueryType (8 variants), DnsQuery, DnsGovernor (block/allow/pattern matching), DnsDecision | 13 |
+| `rate_limit` | NetworkRateLimitConfig (3 presets), RateCounter (windowed), NetworkRateLimiter (per-source/global), RateLimitType (3 variants) | 10 |
+| `firewall` | FirewallRule, Direction (3 variants), FirewallCondition (11 variants with And/Or/Not/Any), FirewallAction (5 variants), Firewall (priority/hit_count/default-deny) | 16 |
+| `audit` | NetworkEventType (15 variants), NetworkAuditEvent (6 fields), NetworkAuditLog (8 query methods) | 9 |
+| `error` | NetworkError (15 variants) | 1 |
+
+### Architecture
+
+- **Three-layer boundary model**: rune-web governs HTTP (application layer), rune-networking-ext governs TLS/TCP/UDP (transport/network layer), rune-shield governs AI inference. Each layer is independent — a deployment can use any combination.
+- **Four built-in TLS policies**: modern (TLS 1.3 only, AEAD, PFS), intermediate (TLS 1.2+, strong ciphers, PFS), legacy (TLS 1.2+, CBC allowed), air_gapped (TLS 1.3, mTLS, pinning, OCSP). Air-gapped policy maps directly to HEIMDALL and P25/ASTRO 25 requirements.
+- **IPv4 CIDR matching shared across modules**: `is_in_cidr` in traffic.rs is used by traffic classification, segmentation, and firewall. Parses x.x.x.x/N format, handles addr:port stripping, rejects invalid input gracefully.
+- **Denied flows take precedence**: In segmentation, denied_flows are checked before allowed_flows. This ensures explicit denials cannot be overridden by broader allow rules.
+- **Default-deny firewall**: Firewall defaults to Deny when no rule matches. Rules are priority-ordered (highest first). Hit counts track rule effectiveness for security operations.
+- **Windowed rate counters**: RateCounter resets count when the window expires (default 60s). Per-source and global counters are independent — a single source can be rate-limited without affecting the global counter for other sources.
+- **DNS pattern matching**: `*.example.com` matches `sub.example.com` and `deep.sub.example.com` but NOT `example.com` itself. Allowlist mode: if allowed_domains is non-empty, only those domains are permitted (everything else blocked).
+- **Connection lifecycle tracking**: Every connection transitions through Pending→Authenticating→Established→Idle→Closed/Rejected. Byte counters track traffic volume. Idle detection with configurable thresholds enables automatic cleanup.
+
+### Dependencies
+
+- rune-lang (no default features) — core types
+- rune-security — SecuritySeverity for audit events
+- serde + serde_json — serialization
+
+### Decisions
+
+- **Network layer vs application layer**: This crate intentionally does NOT handle HTTP semantics (headers, methods, status codes) — that's rune-web's domain. It handles TLS handshakes, cipher negotiation, connection state, IP-level classification, and port-based rules. The two crates are complementary: a governed HTTP server would use both.
+- **Simplified CIDR for Layer 1**: IPv4 only, no CIDR aggregation or longest-prefix matching. Layer 2 can add IPv6 support and optimized prefix trees. The current implementation is correct for all IPv4 ranges and handles edge cases (invalid input, /0, /32).
+- **Certificate validation is structural, not cryptographic**: Layer 1 validates expiry, revocation status, key size minimums, and pinning. It does not perform actual cryptographic chain verification — that requires a crypto library. Layer 2 will add chain-of-trust verification via the PQC crypto stack.
+- **TrafficCondition and FirewallCondition are separate enums**: Despite overlap (both have source/dest/port/protocol/And/Or/Not), they are kept separate because traffic classification and firewall rules have different semantics. Traffic assigns trust levels; firewall takes actions. Merging would conflate the two purposes.
+- **Connection limit counts non-terminal connections**: `active_count()` counts Pending, Authenticating, Established, Idle, and Draining — everything except Closed and Rejected. This prevents connection exhaustion attacks where an attacker opens connections without completing handshakes.
