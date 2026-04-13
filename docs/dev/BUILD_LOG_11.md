@@ -235,3 +235,55 @@ New workspace crate `packages/rune-safety/` encoding safety properties for AI sy
 - **Fail-safe registry matches on trigger equality, not type**: `FailsafeRegistry.trigger()` compares the full FailsafeTrigger value (including constraint_id/monitor_id), not just the variant type. A fail-safe registered for ConstraintViolation("c1") will not fire for ConstraintViolation("c2"). This is intentional — different constraints may require different fail-safe responses.
 - **Risk matrix uses severity × likelihood with threshold rules**: RiskLevel::from_severity_likelihood uses simple threshold rules rather than a full matrix lookup table. Critical+Occasional or worse = Intolerable. This is conservative — edge cases default to higher risk levels. Layer 2 can add configurable risk matrices for organization-specific risk appetite.
 - **SafetyAssessor skips completeness check when no safety case is specified**: When `safety_case_id` is None, the assessor does not penalize for missing safety case completeness. This allows systems without formal safety cases to still be assessed. When a safety case ID is provided but completeness is below 50%, the system is ConditionalSafe.
+
+---
+
+## rune-web Layer 1
+
+**Date**: 2026-04-13
+**Commit**: (pending)
+**Tests**: 107 passed, 0 failed
+
+### What was built
+
+API gateway protection, HTTP request/response governance, endpoint classification, request signing, web threat mitigation, and session governance. This crate governs the HTTP boundary — the web-specific counterpart to rune-shield's inference boundary.
+
+### Module inventory
+
+| Module | Key types | Tests |
+|--------|-----------|-------|
+| error | WebError (13 variants) | 1 |
+| endpoint | EndpointId, Endpoint (14 fields), HttpMethod (7 variants), EndpointClassification (6 levels: Public→Critical with Ord), RateLimitConfig (3 presets), EndpointRegistry (match_path with pattern matching) | 13 |
+| request | WebRequest (10 fields), RequestValidation, RequestValidator (9 checks: path length/traversal/blocked/header count+size/required headers/query params/body size/content-type, with_defaults per classification), sanitize_path, is_path_traversal | 13 |
+| response | WebResponse, ResponsePolicy (strict preset), ResponseGovernor (security header injection, server stripping, data leakage scanning), DataLeakageType (5 variants), DataLeakageFind, ResponseGovernanceResult | 13 |
+| gateway | GatewayConfig, RateLimiter (token bucket algorithm), ApiGateway (process_request/process_response/stats), GatewayOutcome (7 variants: Allow/Deny/RateLimited/AuthRequired/MfaRequired/EndpointNotFound/MethodNotAllowed), GatewayDecision, GatewayStats | 14 |
+| signing | SigningAlgorithm (HmacSha3_256/HmacSha256), SigningConfig, RequestSigner (canonical string construction, HMAC signing, constant-time verification, clock skew protection), SignedRequest, SignatureVerification | 9 |
+| threat | WebThreatType (8 variants: Csrf/Clickjacking/ContentInjection/OpenRedirect/HttpMethodOverride/HeaderInjection/HostHeaderAttack/SlowlorisAttack), WebThreatDetector (scan_request with 6 active checks), csrf_token_present, check_open_redirect | 10 |
+| session | SameSitePolicy (3 variants), WebSessionConfig (9 fields), WebSession, WebSessionStore (create/validate/touch/authenticate with session regeneration/verify_mfa/invalidate/invalidate_all_for_identity/cleanup_expired/cookie_attributes), SessionValidation | 16 |
+| cors | CorsPolicy (3 presets: permissive/strict/none), CorsChecker (check_preflight/check_simple/response_headers), CorsResult | 10 |
+| audit | WebEventType (15 variants), WebAuditEvent, WebAuditLog (8 query methods) | 8 |
+
+### Architecture alignment
+
+- **HTTP boundary governance**: Every request passes through endpoint classification → auth check → MFA check → rate limiting → request validation → role check. Fail-closed by default (require_auth_by_default: true).
+- **Response hardening**: Automatic security header injection (HSTS, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy), server fingerprint stripping, data leakage scanning (internal IPs, stack traces, file paths, credentials, debug info).
+- **Token bucket rate limiting**: Configurable per-IP, per-identity, or global. Three presets (public: 60/min burst 10, authenticated: 300/min burst 30, internal: 1000/min burst 100). Tokens refill continuously.
+- **Request signing**: Canonical string construction (method + path + sorted headers + body hash), HMAC-based signing, constant-time signature comparison, clock skew enforcement (default 5-minute window).
+- **Session governance**: Secure defaults (HttpOnly, Secure, SameSite=Strict), session regeneration on authentication (prevents fixation), idle timeout (30 min default), max lifetime (24 hours), concurrent session limits per identity, bulk invalidation.
+- **CORS enforcement**: Three policy presets (permissive/strict/none), preflight and simple request checking, credential+wildcard safety (credentials disabled when origin is "*").
+- **Web threat detection**: CSRF token enforcement on state-changing methods, open redirect detection, HTTP method override blocking, CRLF header injection detection, Host header attack detection, content-type mismatch detection.
+
+### Dependencies
+
+- rune-lang (no default features) — core language types
+- rune-security — SecuritySeverity for audit events and data leakage findings
+- serde + serde_json — serialization
+
+### Decisions
+
+- **Web boundary vs inference boundary**: rune-web guards the HTTP boundary (API endpoints, browsers, external clients), rune-shield guards the AI model boundary (inference requests, prompt injection, model outputs). They are complementary — a typical deployment uses both. rune-web does not depend on rune-shield; integration happens through rune-framework's governance pipeline.
+- **String-based cross-crate integration**: Like rune-framework, rune-web uses string-based context (HashMap<String, String>) rather than importing identity/shield/policy crate types directly. Roles come via X-Roles header, MFA status via X-MFA-Verified header. This keeps dependencies minimal and allows embedding in systems that don't use the full RUNE stack.
+- **Simplified HMAC for Layer 1**: The signing module uses a deterministic hash function that captures the full API shape (canonical string construction, clock skew, constant-time comparison) without importing a full cryptographic HMAC implementation. Layer 2 will use SHA3-256 HMAC from a proper crypto crate. The API surface and security properties (determinism, key sensitivity, tamper detection) are fully tested.
+- **EndpointClassification as ordered enum**: Public < Authenticated < Privileged < Internal < Sensitive < Critical. This allows `>=` comparisons for access control (e.g., sensitive_endpoints returns everything >= Sensitive). The ordering reflects increasing restriction, not importance.
+- **Data leakage scanning is heuristic, not regex-heavy**: The response governor checks for common patterns (internal IP ranges, stack trace keywords, file system paths, secret keywords) rather than complex regex. This keeps Layer 1 simple and fast. Layer 2 can add configurable pattern sets and ML-based detection.
+- **Session regeneration prevents fixation attacks**: When regenerate_on_auth is true (default), authenticating a session creates a new session ID and migrates all data. The old session ID becomes invalid. This is a critical defense against session fixation attacks where an attacker pre-sets a victim's session ID.
