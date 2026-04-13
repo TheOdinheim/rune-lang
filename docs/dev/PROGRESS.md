@@ -1,5 +1,7 @@
 # RUNE Development Progress
 
+> **Continued in [PROGRESS_02.md](PROGRESS_02.md)** — entries after line 500 are in the next file.
+
 ## Current Milestone
 
 **M10: Standard Library** — Target: Month 36 — **In Progress**

@@ -1,5 +1,7 @@
 # Build Log 10
 
+> **Continued in [BUILD_LOG_11.md](BUILD_LOG_11.md)** — next entries are in the new file.
+
 ## 2026-04-10 — rune-detection Layer 1: Anomaly Detection, Pattern Matching, Behavioral Analysis, Alert Management
 
 ### What was built
