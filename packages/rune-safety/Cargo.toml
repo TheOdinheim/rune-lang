@@ -1,0 +1,12 @@
+[package]
+name = "rune-safety"
+version = "0.1.0"
+edition = "2024"
+description = "Safety constraints, safety cases, hazard analysis, and fail-safe behaviors for the RUNE governance ecosystem"
+license = "MIT"
+
+[dependencies]
+rune-lang = { path = "../..", default-features = false }
+rune-security = { path = "../rune-security" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

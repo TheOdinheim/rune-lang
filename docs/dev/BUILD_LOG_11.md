@@ -177,3 +177,61 @@ New workspace crate `packages/rune-framework/` providing governance pipeline orc
 - **Dry-run does not short-circuit**: `dry_run()` executes ALL stages even after failures. This provides complete diagnostic information for what-if analysis without affecting the actual decision. The result is marked `dry_run: true` so callers know it's non-binding.
 - **GovernanceOutcome maps to architecture spec decision codes**: `to_decision_code()` returns PERMIT/DENY/CONDITIONAL_PERMIT/ESCALATE/AUDIT/NOT_APPLICABLE. These align with the embedding API contract's PolicyDecision from Section 8 of the architecture spec.
 - **Risk threshold triggers ConditionalPermit**: When all stages pass but `GovernanceContext.risk_score` exceeds `pipeline.risk_threshold`, the outcome is ConditionalPermit (not Permit). This implements the graduated response model — high risk doesn't necessarily mean denial, but requires additional review.
+
+## 2026-04-12 — rune-safety Layer 1: Safety Constraints, Safety Cases, Hazard Analysis, Fail-Safe Behaviors, Safety Integrity Levels
+
+### What was built
+
+New workspace crate `packages/rune-safety/` encoding safety properties for AI systems as typed, verifiable constructs. Safety integrity levels cover three standards: IEC 61508 SIL (0-4 with failure rate targets and test coverage requirements), DO-178C DAL (E-A with structural coverage and independence requirements), and ISO 26262 ASIL (QM through D). SafetyClassification combines all three with cross-standard formal verification detection. SafetyConstraint defines typed safety predicates (8 constraint types, 11 condition variants including And/Or/Not) evaluated against string-keyed contexts. SafetyCase provides GSN-inspired structured safety arguments with recursive goals, strategies, evidence, and completeness tracking. SafetyMonitorEngine watches for constraint violations with configurable consecutive-violation thresholds before triggering responses. FailsafeRegistry maps triggers to prioritized fail-safe behaviors with recovery procedures and test scheduling. HazardRegistry performs systematic hazard identification with a severity×likelihood risk matrix and mitigation tracking. SafetyBoundarySet defines operating envelopes with limit checking and approach detection. SafetyAssessor combines all signals into an overall SafetyLevel (Safe/ConditionalSafe/Degraded/Unsafe/Unknown) with recommendation generation.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Safety constraints encode invariants, preconditions, and postconditions as typed predicates. Safety integrity levels mandate test coverage (90-99.9%), structural coverage, and independent verification based on criticality classification.
+- **Assumed Breach**: Safety monitors watch for violations with consecutive-violation thresholds. Fail-safe behaviors define automatic responses (safe mode, rate limiting, graceful shutdown). Hazard analysis tracks mitigations and residual risk. Recovery procedures support auto-recovery and human-approval gates.
+- **Zero Trust Throughout**: Safety assessor trusts no single signal — combines constraint evaluations, safety case completeness, hazard status, monitor state, and boundary checks. Critical constraint violations or boundary breaches immediately produce Unsafe status regardless of other signals.
+- **No Single Points of Failure**: Multiple mitigation types per hazard (elimination through personal protection). Multiple fail-safe responses per trigger sorted by priority. Cross-standard classification (SIL + DAL + ASIL simultaneously). Safety boundaries with approach warnings before breach detection.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-safety to workspace members | +1 member |
+| packages/rune-safety/Cargo.toml | Crate manifest: rune-lang (no default features), rune-security, serde, serde_json | New |
+| packages/rune-safety/src/lib.rs | Module declarations + re-exports | New |
+| packages/rune-safety/src/error.rs | SafetyError — 14 variants | New |
+| packages/rune-safety/src/integrity.rs | SafetyIntegrityLevel (SIL 0-4), DesignAssuranceLevel (DAL E-A), AutomotiveSafetyLevel (QM/ASIL A-D), SafetyClassification | New |
+| packages/rune-safety/src/constraint.rs | ConstraintId, SafetyConstraint (12 fields), ConstraintType (8 variants), SafetyCondition (11 variants), ConstraintSeverity (5 levels), evaluate_safety_condition, ConstraintEvaluation, ConstraintStore | New |
+| packages/rune-safety/src/safety_case.rs | SafetyCaseId, SafetyCase, SafetyGoal (recursive), SafetyStrategy, SafetyEvidence, EvidenceType (7), EvidenceStrength (4), GoalStatus (5), SafetyCaseStatus (5), SafetyCaseStore | New |
+| packages/rune-safety/src/monitor.rs | SafetyMonitorId, SafetyMonitor, MonitorResponse (6 variants), MonitorStatus (4 variants), MonitorCheckResult, SafetyMonitorEngine | New |
+| packages/rune-safety/src/failsafe.rs | FailsafeId, FailsafeBehavior, FailsafeTrigger (7 variants), FailsafeAction (8 variants), RecoveryProcedure, FailsafeRegistry | New |
+| packages/rune-safety/src/hazard.rs | HazardId, Hazard, HazardType (8 variants), HazardLikelihood (6 levels), RiskLevel (4 levels with risk matrix), HazardMitigation, MitigationType (7), MitigationEffectiveness (4), HazardStatus (5), HazardRegistry | New |
+| packages/rune-safety/src/boundary.rs | SafetyBoundary, BoundaryType (5 variants), OperatingLimit, BoundaryStatus (4 variants), BoundaryCheckResult, SafetyBoundarySet | New |
+| packages/rune-safety/src/assessment.rs | SafetyAssessment, SafetyLevel (5 variants), HazardSummary, MonitorSummary, SafetyAssessor | New |
+| packages/rune-safety/src/audit.rs | SafetyEventType (11 variants), SafetyAuditEvent, SafetyAuditLog | New |
+| packages/rune-safety/README.md | Crate documentation | New |
+
+### Test summary
+
+106 tests, 0 failures:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | Display for all 14 variants |
+| integrity | 11 | SIL ordering, failure_rate_target, requires_independent_verification, min_test_coverage, DAL ordering, structural_coverage_required, independence_required, ASIL ordering, SafetyClassification with_sil/with_dal, requires_formal_verification (SIL4/DalA/AsilD), highest_level_name |
+| constraint | 17 | Construction, ConstraintType 8 variants display, ConstraintSeverity ordering, evaluate ValueInRange satisfied/violated, ValueAbove/Below, ValueEquals, FieldPresent/Absent, LatencyBelow, And/Or/Not combinators, ConstraintStore add/get/evaluate_all/violated/by_type/by_severity+integrity/verified+unverified |
+| safety_case | 11 | Construction with goals, nested goal structure, store add/get, completeness mixed/all-supported, unsupported_goals, evidence_count recursive, GoalStatus 5 display, SafetyCaseStatus 5 display, EvidenceType 7 display, EvidenceStrength ordering |
+| monitor | 12 | Register/get, check satisfied/violated, consecutive violations trigger response, satisfaction resets count, check_all, triggered/active monitors, reset, MonitorResponse 6 display, MonitorStatus 4 display, max_consecutive_before_action |
+| failsafe | 11 | Register/get, trigger sorted by priority, ConstraintViolation/MonitorTriggered match, no match empty, untested, overdue_testing, by_priority, FailsafeTrigger 7 display, FailsafeAction 8 display, RecoveryProcedure construction |
+| hazard | 14 | Register/get, by_type/risk_level/status, intolerable_hazards, unmitigated_hazards, risk_matrix, from_severity_likelihood (6 combinations), HazardType 8 display, HazardLikelihood ordering, RiskLevel ordering, MitigationType 7 display, MitigationEffectiveness ordering, HazardStatus 5 display |
+| boundary | 9 | Add/get, check_all within_limits/approaching/breached, breached/approaching filters, OperatingLimit is_within, BoundaryType 5 display, BoundaryStatus 4 display |
+| assessment | 10 | All safe→Safe, critical violation→Unsafe, triggered monitor→Degraded, breached boundary→Unsafe, intolerable unmitigated→Unsafe, low completeness→ConditionalSafe, generates recommendations, SafetyLevel 5 display, HazardSummary/MonitorSummary construction |
+| audit | 8 | Record/retrieve, events_by_severity, constraint/monitor/hazard/boundary_events filters, critical_events (severity≥Critical), SafetyEventType 11 display, since filter |
+
+### Decisions
+
+- **Safety is not security**: This crate intentionally separates safety concerns from security concerns. rune-security handles adversarial threats; rune-safety handles accidental failures, unintended consequences, and operating envelope violations. The two are complementary — a system needs both. Safety constraints use ConstraintSeverity (Advisory→Catastrophic), not SecuritySeverity (Info→Emergency), because the severity scales represent different risk domains.
+- **Three-standard safety integrity classification**: Rather than picking one standard, SafetyClassification supports IEC 61508 SIL (industrial), DO-178C DAL (avionics), and ISO 26262 ASIL (automotive) simultaneously. A defense system might be SIL 3 + DAL B; an autonomous vehicle might be ASIL D + SIL 4. The `requires_formal_verification()` method checks all three standards to determine if formal methods are mandatory.
+- **Consecutive-violation threshold for monitors**: SafetyMonitor.max_consecutive_before_action prevents spurious single-sample violations from triggering responses. This is critical for noisy real-world environments where sensors occasionally produce bad readings. The default is 1 (immediate response), but safety engineers can increase it for specific monitors.
+- **Fail-safe registry matches on trigger equality, not type**: `FailsafeRegistry.trigger()` compares the full FailsafeTrigger value (including constraint_id/monitor_id), not just the variant type. A fail-safe registered for ConstraintViolation("c1") will not fire for ConstraintViolation("c2"). This is intentional — different constraints may require different fail-safe responses.
+- **Risk matrix uses severity × likelihood with threshold rules**: RiskLevel::from_severity_likelihood uses simple threshold rules rather than a full matrix lookup table. Critical+Occasional or worse = Intolerable. This is conservative — edge cases default to higher risk levels. Layer 2 can add configurable risk matrices for organization-specific risk appetite.
+- **SafetyAssessor skips completeness check when no safety case is specified**: When `safety_case_id` is None, the assessor does not penalize for missing safety case completeness. This allows systems without formal safety cases to still be assessed. When a safety case ID is provided but completeness is below 50%, the system is ConditionalSafe.

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "packages/rune-rs", "packages/rune-permissions", "packages/rune-secrets", "packages/rune-identity", "packages/rune-privacy", "packages/rune-security", "packages/rune-detection", "packages/rune-shield", "packages/rune-monitoring", "packages/rune-provenance", "packages/rune-truth", "packages/rune-explainability", "packages/rune-document", "packages/rune-audit-ext", "packages/rune-policy-ext", "packages/rune-framework"]
+members = [".", "packages/rune-rs", "packages/rune-permissions", "packages/rune-secrets", "packages/rune-identity", "packages/rune-privacy", "packages/rune-security", "packages/rune-detection", "packages/rune-shield", "packages/rune-monitoring", "packages/rune-provenance", "packages/rune-truth", "packages/rune-explainability", "packages/rune-document", "packages/rune-audit-ext", "packages/rune-policy-ext", "packages/rune-framework", "packages/rune-safety"]
 
 [package]
 name = "rune-lang"

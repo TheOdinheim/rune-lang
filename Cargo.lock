@@ -1565,6 +1565,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-safety"
+version = "0.1.0"
+dependencies = [
+ "rune-lang",
+ "rune-security",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rune-secrets"
 version = "0.1.0"
 dependencies = [
