@@ -119,3 +119,61 @@ New workspace crate `packages/rune-policy-ext/` extending rune-security's `Secur
 - **Simulation uses highest-priority-wins within a single policy**: When evaluating a policy against a test case, if multiple rules match, the highest priority rule's action is used. This mirrors how PriorityBased composition works and gives deterministic results.
 - **Import/export uses serde for JSON roundtrip**: ManagedPolicy and all nested types derive Serialize/Deserialize. The JSON format is the canonical interchange format. YAML-like export is simplified (not a full YAML parser) for human readability.
 - **FrameworkBinding uses string framework names**: Rather than an enum of known frameworks, binding uses `String` for framework names. This allows binding to any regulatory framework including organization-specific ones, without requiring code changes for each new framework.
+
+## 2026-04-12 — rune-framework Layer 1: Governance Pipeline Orchestration, Component Registry, Workflow Templates, Health Aggregation
+
+### What was built
+
+New workspace crate `packages/rune-framework/` providing governance pipeline orchestration for end-to-end request evaluation. GovernanceRequest carries subject/resource/context; GovernancePipeline executes stages in order with fail-closed/fail-open/escalate/abort semantics. Five built-in stage evaluators (identity, policy, shield, trust, compliance) use string-based context flags via GovernanceContext rather than importing every crate. ComponentRegistry tracks crate availability with heartbeat-based staleness detection. FrameworkConfig provides environment presets (production/development/air_gapped/testing) with validation. FrameworkHealthAssessor aggregates component and pipeline health. Five WorkflowTemplates (inference_protection, data_access, model_deployment, admin_action, minimal) build pipelines from template definitions using a StageEvaluatorRegistry.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Pipeline is fail-closed by default; production config enforces identity verification, audit logging, and strict risk thresholds; configuration validation warns on deviations from secure defaults.
+- **Assumed Breach**: Shield stage checks active threats; trust stage enforces minimum scores; risk accumulates across stages triggering ConditionalPermit; component registry detects stale heartbeats; health assessor surfaces degraded/unhealthy status.
+- **Zero Trust Throughout**: Every request carries subject identity, resource classification, and action context; identity stage verifies subject before other checks; pipeline stages execute in strict order; governance outcomes map to explicit decision codes.
+- **No Single Points of Failure**: Component registry tracks multiple instances per type; five workflow templates cover different scenarios; four environment presets with validation; extensible StageFn function pointer mechanism.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-framework to workspace members | +1 member |
+| packages/rune-framework/Cargo.toml | Crate manifest: rune-lang, rune-security, rune-audit-ext, serde, serde_json | New |
+| packages/rune-framework/src/lib.rs | Module declarations + re-exports | New |
+| packages/rune-framework/src/error.rs | FrameworkError — 11 variants | New |
+| packages/rune-framework/src/request.rs | GovernanceRequestId, GovernanceRequest (SubjectInfo/ResourceInfo/RequestContext), GovernanceDecisionResult, GovernanceOutcome (6 variants), StageResult, StageOutcome (5 variants) | New |
+| packages/rune-framework/src/stage.rs | StageType (8 variants), StageDefinition, FailAction (4 variants), StageFn function pointer, 5 built-in evaluators (identity/policy/shield/trust/compliance) | New |
+| packages/rune-framework/src/context.rs | GovernanceContext with mutable state: flags, risk_score, trust_score, policy_decision, shield_verdict, warnings, threat_indicators, explanation_fragments, stage_log, to_flat_map | New |
+| packages/rune-framework/src/pipeline.rs | GovernancePipeline with PipelineStageEntry, evaluate()/dry_run(), stage ordering, fail-closed semantics, risk_threshold ConditionalPermit | New |
+| packages/rune-framework/src/registry.rs | ComponentId, ComponentInfo, ComponentType (10 variants), ComponentStatus (4 variants), ComponentRegistry (register/deregister/heartbeat/update_status/by_type/available/stale/system_readiness), SystemReadiness | New |
+| packages/rune-framework/src/config.rs | FrameworkConfig with Environment (5 variants), 4 presets (production/development/air_gapped/testing), validate(), ConfigValidation, ConfigSeverity | New |
+| packages/rune-framework/src/health.rs | FrameworkHealth, FrameworkHealthStatus (4 variants), ComponentHealthEntry, PipelineHealth, PipelineStats, FrameworkHealthAssessor | New |
+| packages/rune-framework/src/workflow.rs | WorkflowTemplate, WorkflowStage, 5 built-in templates, build_pipeline_from_template, default_evaluator_registry, StageEvaluatorRegistry | New |
+| packages/rune-framework/src/audit.rs | FrameworkEventType (10 variants), FrameworkAuditEvent, FrameworkAuditLog | New |
+| packages/rune-framework/README.md | Crate documentation | New |
+
+### Test summary
+
+105 tests, 0 failures:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | Display for all 11 variants |
+| request | 13 | GovernanceRequestId display, request construction, GovernanceOutcome 6 variants (permit/deny/conditional/escalate/audit/NA) with predicates/decision codes, StageOutcome blocking, StageResult builders (pass/fail/severity/detail/duration), GovernanceDecisionResult methods (stage_count/failed_stages/all_passed), RequestContext metadata |
+| stage | 15 | StageType 8 variants display, FailAction 4 variants display, StageDefinition builder, identity_stage pass/fail, policy_stage deny/risk/pass, shield_stage clear/threat, trust_stage default/low, compliance_stage no-req/present/missing |
+| context | 11 | Defaults, flag ops (set/get/has/count), warnings+threats, increase_risk capped at 1.0, record_stage/failure detection, build_explanation (fragments/stage_log/empty), to_flat_map, Default trait |
+| pipeline | 12 | Empty pipeline error, single stage pass, multi-stage all pass, fail-closed blocks, fail-open continues, escalate action, disabled skipped, dry-run no short-circuit, stage ordering, risk threshold ConditionalPermit, pipeline metadata, overall severity tracking |
+| registry | 15 | ComponentId display, ComponentType 10 variants, ComponentStatus 4 variants, register/get/duplicate/deregister, heartbeat, update_status, by_type, available_components, stale_components, system_readiness (ready/not-ready/empty), display, metadata |
+| config | 11 | Environment 5 variants display, 4 presets (production/development/air_gapped/testing), validate bad risk/trust/timeout, production warnings, ConfigValidation display, ConfigSeverity ordering |
+| health | 8 | HealthStatus 4 variants display, PipelineStats new/record/rates, assess healthy/degraded-stale/degraded-status/unhealthy/unknown, display |
+| workflow | 11 | 5 templates (inference/data_access/model_deployment/admin/minimal), build_pipeline_from_template success/missing, build_and_evaluate, template display, template with config, default_evaluator_registry |
+| audit | 6 | EventType 10 variants display, record/retrieve, events_by_type, events_since, pipeline_events, component_events |
+
+### Decisions
+
+- **StageFn function pointers instead of trait objects**: `StageFn = fn(&GovernanceRequest, &mut GovernanceContext, &HashMap<String, String>) -> StageResult`. Function pointers are simpler than trait objects (no dyn dispatch, no lifetime parameters, Copy), and the evaluators don't need mutable state. Each stage gets the request (immutable), the context (mutable accumulator), and its config (immutable). This keeps the pipeline zero-allocation beyond the context itself.
+- **Minimal dependency graph (rune-lang, rune-security, rune-audit-ext only)**: The framework does NOT depend on rune-identity, rune-detection, rune-shield, etc. Built-in stage evaluators use string-based context flags ("identity_verified", "threat_active", "trust_score") rather than actual crate types. Callers wire up their own evaluators that import the crates they need.
+- **Fail-closed is the default, fail-open requires explicit opt-in**: `StageDefinition.fail_action` defaults to `Block`. You must explicitly set `FailAction::Continue` to make a stage fail-open. This matches the zero-trust principle — deny by default, permit only by explicit decision.
+- **Dry-run does not short-circuit**: `dry_run()` executes ALL stages even after failures. This provides complete diagnostic information for what-if analysis without affecting the actual decision. The result is marked `dry_run: true` so callers know it's non-binding.
+- **GovernanceOutcome maps to architecture spec decision codes**: `to_decision_code()` returns PERMIT/DENY/CONDITIONAL_PERMIT/ESCALATE/AUDIT/NOT_APPLICABLE. These align with the embedding API contract's PolicyDecision from Section 8 of the architecture spec.
+- **Risk threshold triggers ConditionalPermit**: When all stages pass but `GovernanceContext.risk_score` exceeds `pipeline.risk_threshold`, the outcome is ConditionalPermit (not Permit). This implements the graduated response model — high risk doesn't necessarily mean denial, but requires additional review.
