@@ -287,3 +287,54 @@ API gateway protection, HTTP request/response governance, endpoint classificatio
 - **EndpointClassification as ordered enum**: Public < Authenticated < Privileged < Internal < Sensitive < Critical. This allows `>=` comparisons for access control (e.g., sensitive_endpoints returns everything >= Sensitive). The ordering reflects increasing restriction, not importance.
 - **Data leakage scanning is heuristic, not regex-heavy**: The response governor checks for common patterns (internal IP ranges, stack trace keywords, file system paths, secret keywords) rather than complex regex. This keeps Layer 1 simple and fast. Layer 2 can add configurable pattern sets and ML-based detection.
 - **Session regeneration prevents fixation attacks**: When regenerate_on_auth is true (default), authenticating a session creates a new session ID and migrates all data. The old session ID becomes invalid. This is a critical defense against session fixation attacks where an attacker pre-sets a victim's session ID.
+
+---
+
+## rune-agents — Layer 1
+
+**Date**: 2026-04-12
+**Tests**: 106 passing
+**Commit**: (pending)
+
+### What it does
+
+Agent governance for the RUNE ecosystem (GUNGNIR governance layer). Provides action authorization, autonomy boundaries, reasoning chain auditing, tool-use permissions, human-in-the-loop checkpoints, task delegation with governance inheritance, and multi-agent coordination governance.
+
+### Modules (10)
+
+| Module | Key types | Tests |
+|---|---|---|
+| `agent` | AgentId, Agent (16 fields), AgentType (6 variants), AgentStatus (5 variants), AgentRegistry | 12 |
+| `autonomy` | AutonomyLevel (7 ordered levels None→Full), AutonomyBoundary (12 fields), AutonomyEnvelope, AutonomyOutcome (7 variants), TimeWindow | 11 |
+| `action` | ActionId, ActionType (9 variants), ActionRisk (5 levels), ActionStatus (7 variants), AgentAction (15 fields), ActionAuthorizer | 12 |
+| `reasoning` | ReasoningChainId, ReasoningChain (9 fields), ReasoningStep (11 fields), StepType (7 variants), ReasoningStore | 12 |
+| `tool` | ToolId, ToolDefinition (11 fields), ToolInvocation (9 fields), ToolPermissionOutcome (5 variants), ToolRegistry | 11 |
+| `checkpoint` | CheckpointId, Checkpoint, CheckpointTrigger (8 variants), CheckpointPriority (4 levels), CheckpointManager | 14 |
+| `delegation` | DelegationId, Delegation (11 fields), DelegationConstraints (8 fields), DelegationManager (cycle detection) | 13 |
+| `coordination` | CoordinationGovernor, CoordinationPolicy, AgentMessage, CollectiveDecision, VoteTally, tally_votes | 14 |
+| `audit` | AgentEventType (18 variants), AgentAuditEvent (5 fields), AgentAuditLog (8 query methods) | 8 |
+| `error` | AgentError (18 variants) | 1 |
+
+### Architecture
+
+- **Autonomy levels as ordered enum**: None(0) < Observe(1) < Suggest(2) < ActLowRisk(3) < ActMediumRisk(4) < ActHighRisk(5) < Full(6). Each level defines maximum risk an agent can authorize independently. AutonomyLevel implements Ord via numeric discriminant.
+- **Three-stage action authorization**: (1) Agent status check (must be operational), (2) Budget check (actions_taken vs max_actions_per_session), (3) Autonomy envelope check with risk comparison, denied/allowed action lists, justification thresholds, and escalation.
+- **Reasoning chain confidence**: Chain confidence = minimum of all step confidences. This is deliberately conservative — a single low-confidence step drags down the whole chain.
+- **Checkpoint trigger matching**: CheckpointManager evaluates all registered checkpoints against an action, returns the highest-priority matching checkpoint. Trigger types: RiskThreshold, ActionType, ResourceAccess, BudgetThreshold, ConfidenceBelow, EveryNActions, Always, Custom.
+- **Governance inheritance through delegation**: DelegationConstraints flow from delegator to delegate — max autonomy, allowed/denied actions, tool restrictions, checkpoint requirements, trust inheritance, sub-delegation limits, reporting. Delegation depth tracked with cycle detection via visited set.
+- **Collective decision-making**: tally_votes counts approve/reject/abstain. Abstain does NOT count toward the majority denominator (votes_cast = approve + reject only). Majority = approve > votes_cast / 2.
+- **Bidirectional communication governance**: CoordinationGovernor checks denied_pairs in both directions (a→b and b→a). If allowed_pairs is non-empty, only listed pairs can communicate.
+
+### Dependencies
+
+- rune-lang (no default features) — core types
+- rune-security — SecuritySeverity for audit events
+- serde + serde_json — serialization
+
+### Decisions
+
+- **AutonomyOutcome derives PartialEq but not Eq**: The ExceedsBudget variant contains f64 (budget limit), which does not implement Eq. This is intentional — f64 budget thresholds need PartialEq for testing but Eq is unsound for floating-point.
+- **String-based cross-crate integration**: Like all Layer 1 crates, rune-agents uses string-based context rather than importing types from other crates. Agent domains, capabilities, and tool names are all String. Integration with rune-framework's governance pipeline uses HashMap<String, String>.
+- **Delegation depth with cycle detection**: delegation_depth walks the delegator chain using a visited HashSet to prevent infinite loops if a delegation cycle exists. This is defensive — the manager shouldn't allow cycles, but the depth calculation is safe regardless.
+- **CheckpointTrigger derives PartialEq but not Eq**: BudgetThreshold and ConfidenceBelow variants contain f64 values. Same rationale as AutonomyOutcome.
+- **ActionType::ToolInvocation carries tool_name**: Unlike other ActionType variants that are unit variants, ToolInvocation includes the tool name for audit trail purposes. This allows the action authorizer to log which specific tool was requested without needing a separate lookup.
