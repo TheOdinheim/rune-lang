@@ -61,3 +61,61 @@ New workspace crate `packages/rune-audit-ext/` providing unified audit aggregati
 - **CEF severity mapping uses 1-10 scale**: The mapping (Info=1, Low=3, Medium=5, High=7, Critical=9, Emergency=10) follows the CEF specification's 0-10 range. The values are chosen to align with common SIEM severity thresholds.
 - **Chain verification recomputes from scratch**: verify_chain() recomputes all hashes from the first event rather than storing hashes alongside events. This is intentional — stored hashes could themselves be tampered with. Recomputation is the only way to truly verify integrity.
 - **Retention preview is read-only**: RetentionManager.preview() counts events that would be affected without modifying the store. This follows the zero-trust principle — operators should see the impact before committing to destructive actions.
+
+## 2026-04-12 — rune-policy-ext Layer 1: Policy Versioning, Composition, Conflict Detection, Simulation, Lifecycle Management
+
+### What was built
+
+New workspace crate `packages/rune-policy-ext/` extending rune-security's `SecurityPolicy`/`SecurityRule` evaluation engine into a full policy management system. ManagedPolicy adds versioning (semver), ownership, lifecycle metadata, framework bindings, and review intervals. PolicyVersionHistory tracks snapshots with diff and rollback. PolicyComposer evaluates composed policy sets using four strategies (MostRestrictive, LeastRestrictive, PriorityBased, FirstMatch) with RuleExpression evaluation (13 expression types including And/Or/Not). ConflictDetector finds contradictions between policies using conservative condition-overlap heuristics. PolicySimulator predicts change impact by evaluating test cases against current and proposed policies. LifecycleManager enforces a state machine (Draft→UnderReview→Approved→Active→Suspended→Deprecated→Retired) with transition validation. Import/export supports JSON roundtrip, YAML-like, and summary formats. FrameworkBindingRegistry maps policies to regulatory requirements (GDPR, NIST AI RMF, CMMC, etc.) with coverage tracking and gap detection.
+
+### Four-pillar alignment
+
+- **Security Baked In**: Policy versioning creates immutable history; lifecycle state machine enforces review/approval gates; conflict detection prevents contradictory policies from coexisting.
+- **Assumed Breach**: Simulation quantifies impact before deployment; rollback enables instant revert; framework bindings track compliance gaps explicitly.
+- **Zero Trust Throughout**: Every transition requires explicit actor ID; approval tracked with identity and timestamp; composition resolves conflicts deterministically; conflict detector surfaces contradictions.
+- **No Single Points of Failure**: Four composition strategies; four export formats; binding registry maps to multiple frameworks; lifecycle supports human-driven and automated transitions.
+
+### Files created / modified
+
+| File | Purpose | Changes |
+|------|---------|---------|
+| Cargo.toml | Add rune-policy-ext to workspace members | +1 line |
+| packages/rune-policy-ext/Cargo.toml | Crate manifest: rune-lang, rune-security, serde, serde_json | New |
+| packages/rune-policy-ext/src/lib.rs | Module declarations + re-exports | New |
+| packages/rune-policy-ext/src/error.rs | PolicyExtError — 11 variants | New |
+| packages/rune-policy-ext/src/policy.rs | ManagedPolicyId, ManagedPolicy (18 fields), PolicyDomain (11), PolicyVersion (semver), PolicyStatus (7), PolicyRule, RuleExpression (13), PolicyAction (12), ManagedPolicyStore | New |
+| packages/rune-policy-ext/src/version.rs | PolicySnapshot, PolicyDiff, PolicyChange, ChangeType (8), PolicyVersionHistory, VersionStore | New |
+| packages/rune-policy-ext/src/composition.rs | ComposedPolicySet, CompositionStrategy (4), ComposedEvaluation, MatchedRule, PolicyComposer, evaluate_rule_expression | New |
+| packages/rune-policy-ext/src/conflict.rs | PolicyConflict, ConflictType (5), ConflictSeverity (4), ConflictResolution, ResolutionType (5), ConflictDetector | New |
+| packages/rune-policy-ext/src/simulation.rs | SimulationRun, SimulationTestCase, SimulationResult, SimulationImpact, SimulationRisk (3), PolicySimulator | New |
+| packages/rune-policy-ext/src/lifecycle.rs | LifecycleTransition, LifecycleManager with enforced state machine | New |
+| packages/rune-policy-ext/src/import_export.rs | PolicyFormat (4), PolicyExporter (json/yaml/summary), PolicyImporter (json/batch) | New |
+| packages/rune-policy-ext/src/binding.rs | FrameworkBinding, BindingCoverage (4), FrameworkBindingRegistry, FrameworkCoverageSummary | New |
+| packages/rune-policy-ext/src/audit.rs | PolicyExtEventType (11 variants), PolicyExtAuditEvent, PolicyExtAuditLog | New |
+| packages/rune-policy-ext/README.md | Crate documentation | New |
+
+### Test summary
+
+93 tests, 0 failures:
+
+| Module | Tests | What's covered |
+|--------|-------|----------------|
+| error | 1 | Display for all 11 variants |
+| policy | 13 | ManagedPolicyId display, construction, PolicyDomain display (11 variants), PolicyVersion display/ordering/bumps, PolicyStatus predicates, PolicyAction display, store add/get/duplicate/by_domain/by_status/active/search/policies_due_review/remove |
+| version | 13 | Record snapshot, latest, at_version, diff name change, diff rule additions/removals, diff status change, rollback_to, all_versions, changes_since, VersionStore record/diff/rollback |
+| composition | 10 | Compose creates set, MostRestrictive/LeastRestrictive/PriorityBased/FirstMatch evaluation, conflict reporting, merge_rules, evaluate_rule_expression Equals/And/missing field |
+| conflict | 11 | Direct contradiction, redundant rules, detect_in_set, no conflicts, resolve, unresolved, by_severity, conflicts_for_policy, ConflictType display, ConflictSeverity ordering, ResolutionType display |
+| simulation | 10 | Identical policies 0 changes, different policies, newly denied/permitted, risk Safe/High, impact_summary, generate_test_cases, result changed flag, empty test cases |
+| lifecycle | 13 | Draft→UnderReview, UnderReview→Approved, Approved→Active, Active→Suspended/Deprecated, Deprecated→Retired, Retired terminal, Draft→Active fails, Active→Draft fails, valid_transitions, history, transition_with_approval, policies_needing_review |
+| import_export | 8 | export_json valid, JSON roundtrip, export_yaml_like, export_summary, import_json, import_json invalid, import_batch_json, PolicyFormat display |
+| binding | 8 | bind/bindings_for, policies_for_framework, policies_for_requirement, coverage_summary, gaps, unbound_policies, BindingCoverage display, FrameworkCoverageSummary display |
+| audit | 6 | Record/retrieve, events_for_policy, conflict_events, lifecycle_events, simulation_events, all 11 event type displays |
+
+### Decisions
+
+- **Own RuleExpression instead of reusing rune-security's RuleCondition**: rune-security's RuleCondition evaluates against `SecurityContext` (with typed `risk_level`, `clearance`, `active_threats`). rune-policy-ext needs string-keyed evaluation for cross-framework compatibility — policies from different domains use arbitrary field names, not a fixed security context. RuleExpression evaluates against `HashMap<String, String>`, making it framework-agnostic.
+- **Conservative condition-overlap heuristic for conflict detection**: Exact condition overlap is undecidable for arbitrary expression trees. Layer 1 uses a simple heuristic: Always overlaps with everything, same-field Equals overlap if same value, And/Or trees overlap if they share field names. False negatives are acceptable (missing some subtle conflicts) — Layer 2 can use SMT for full analysis.
+- **Lifecycle state machine is enforced, not advisory**: `transition()` returns `Err(InvalidTransition)` for invalid paths. You cannot skip from Draft to Active. This is deliberate — the governance model requires human review gates. The machine is intentionally restrictive: Retired is terminal with no exit.
+- **Simulation uses highest-priority-wins within a single policy**: When evaluating a policy against a test case, if multiple rules match, the highest priority rule's action is used. This mirrors how PriorityBased composition works and gives deterministic results.
+- **Import/export uses serde for JSON roundtrip**: ManagedPolicy and all nested types derive Serialize/Deserialize. The JSON format is the canonical interchange format. YAML-like export is simplified (not a full YAML parser) for human readability.
+- **FrameworkBinding uses string framework names**: Rather than an enum of known frameworks, binding uses `String` for framework names. This allows binding to any regulatory framework including organization-specific ones, without requiring code changes for each new framework.
