@@ -11,14 +11,17 @@ pub mod adversarial;
 pub mod audit;
 pub mod error;
 pub mod exfiltration;
+pub mod fingerprint;
 pub mod injection;
 pub mod input;
 pub mod memory;
 pub mod output;
+pub mod pattern;
 pub mod policy;
 pub mod quarantine;
 pub mod response;
 pub mod shield;
+pub mod token;
 
 pub use adversarial::{
     AdversarialDetector, AdversarialFinding, AdversarialResult, AdversarialType,
@@ -26,14 +29,25 @@ pub use adversarial::{
 pub use audit::{ShieldAuditEvent, ShieldAuditLog, ShieldEventType};
 pub use error::ShieldError;
 pub use exfiltration::{
-    redact_pii, ExfiltrationDetector, ExfiltrationFinding, ExfiltrationResult, SensitivePattern,
-    SensitivePatternType,
+    contains_base64_block, contains_hex_block, contains_sensitive_json_keys, redact_pii,
+    ExfiltrationAnalysis, ExfiltrationAnalyzer, ExfiltrationDetector, ExfiltrationFinding,
+    ExfiltrationResult, SensitivePattern, SensitivePatternType,
+};
+pub use fingerprint::{
+    shannon_entropy, fingerprint, ContentFingerprint, FingerprintStore,
 };
 pub use injection::{
     neutralize, InjectionDetector, InjectionResult, InjectionStrategy, StrategyResult,
 };
 pub use input::{InputSanitizer, InputValidation, InputValidator};
 pub use memory::{AttackSignature, FalsePositivePattern, ImmuneMemory};
+pub use pattern::{
+    InjectionCategory, InjectionPattern, InjectionScore, InjectionScorer,
+    indirect_injection_patterns, jailbreak_patterns, prompt_injection_patterns,
+};
+pub use token::{
+    PiiTokenType, SecretTokenType, TokenClassification, TokenClassifier, TokenType,
+};
 pub use output::{OutputFilter, OutputFilterResult, OutputFinding, OutputFindingType};
 pub use policy::{ShieldLevel, ShieldPolicy};
 pub use quarantine::{

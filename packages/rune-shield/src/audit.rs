@@ -25,6 +25,13 @@ pub enum ShieldEventType {
     OutputModified { reason: String },
     OutputBlocked { reason: String },
     Escalated { reason: String },
+    // Layer 2 event types
+    InjectionPatternMatched { pattern_id: String, score: f64 },
+    PiiDetected { pii_type: String, count: usize },
+    SecretDetected { secret_type: String },
+    ExfiltrationAttempt { risk_score: f64, detail: String },
+    FingerprintRecorded { hash: String },
+    AttackPatternRecognized { fingerprint: String, seen_count: u64 },
 }
 
 impl ShieldEventType {
@@ -45,6 +52,12 @@ impl ShieldEventType {
             Self::OutputModified { .. } => "OutputModified",
             Self::OutputBlocked { .. } => "OutputBlocked",
             Self::Escalated { .. } => "Escalated",
+            Self::InjectionPatternMatched { .. } => "InjectionPatternMatched",
+            Self::PiiDetected { .. } => "PiiDetected",
+            Self::SecretDetected { .. } => "SecretDetected",
+            Self::ExfiltrationAttempt { .. } => "ExfiltrationAttempt",
+            Self::FingerprintRecorded { .. } => "FingerprintRecorded",
+            Self::AttackPatternRecognized { .. } => "AttackPatternRecognized",
         }
     }
 
@@ -110,6 +123,24 @@ impl fmt::Display for ShieldEventType {
             Self::OutputModified { reason } => write!(f, "OutputModified({reason})"),
             Self::OutputBlocked { reason } => write!(f, "OutputBlocked({reason})"),
             Self::Escalated { reason } => write!(f, "Escalated({reason})"),
+            Self::InjectionPatternMatched { pattern_id, score } => {
+                write!(f, "InjectionPatternMatched({pattern_id}, {score:.3})")
+            }
+            Self::PiiDetected { pii_type, count } => {
+                write!(f, "PiiDetected({pii_type}, {count})")
+            }
+            Self::SecretDetected { secret_type } => {
+                write!(f, "SecretDetected({secret_type})")
+            }
+            Self::ExfiltrationAttempt { risk_score, detail } => {
+                write!(f, "ExfiltrationAttempt({risk_score:.3}, {detail})")
+            }
+            Self::FingerprintRecorded { hash } => {
+                write!(f, "FingerprintRecorded({})", &hash[..8.min(hash.len())])
+            }
+            Self::AttackPatternRecognized { fingerprint, seen_count } => {
+                write!(f, "AttackPatternRecognized({}, {seen_count})", &fingerprint[..8.min(fingerprint.len())])
+            }
         }
     }
 }
@@ -285,10 +316,36 @@ mod tests {
             ShieldEventType::OutputModified { reason: "redact".into() },
             ShieldEventType::OutputBlocked { reason: "leak".into() },
             ShieldEventType::Escalated { reason: "review".into() },
+            ShieldEventType::InjectionPatternMatched { pattern_id: "pi-01".into(), score: 0.9 },
+            ShieldEventType::PiiDetected { pii_type: "Email".into(), count: 1 },
+            ShieldEventType::SecretDetected { secret_type: "AwsKey".into() },
+            ShieldEventType::ExfiltrationAttempt { risk_score: 0.8, detail: "pii+secrets".into() },
+            ShieldEventType::FingerprintRecorded { hash: "abcdef1234567890".into() },
+            ShieldEventType::AttackPatternRecognized { fingerprint: "abcdef1234567890".into(), seen_count: 3 },
         ];
         for e in &events {
             assert!(!e.to_string().is_empty());
             assert!(!e.kind().is_empty());
         }
+    }
+
+    #[test]
+    fn test_new_event_types_kind_names() {
+        assert_eq!(
+            ShieldEventType::InjectionPatternMatched { pattern_id: "x".into(), score: 0.5 }.kind(),
+            "InjectionPatternMatched"
+        );
+        assert_eq!(
+            ShieldEventType::PiiDetected { pii_type: "Email".into(), count: 1 }.kind(),
+            "PiiDetected"
+        );
+        assert_eq!(
+            ShieldEventType::SecretDetected { secret_type: "ApiKey".into() }.kind(),
+            "SecretDetected"
+        );
+        assert_eq!(
+            ShieldEventType::FingerprintRecorded { hash: "abc".into() }.kind(),
+            "FingerprintRecorded"
+        );
     }
 }

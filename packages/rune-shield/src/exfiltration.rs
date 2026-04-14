@@ -456,6 +456,112 @@ fn redact_phones_in_text(text: &str) -> String {
     out
 }
 
+// ── Encoded data helpers ─────────────────────────────────────────────
+
+/// Check if input contains a base64-encoded block (min 32 chars).
+pub fn contains_base64_block(input: &str) -> bool {
+    use regex::Regex;
+    let re = Regex::new(r"[A-Za-z0-9+/]{32,}={0,2}").unwrap();
+    re.is_match(input)
+}
+
+/// Check if input contains a hex-encoded block (min 32 hex chars).
+pub fn contains_hex_block(input: &str) -> bool {
+    use regex::Regex;
+    let re = Regex::new(r"\b[0-9a-fA-F]{32,}\b").unwrap();
+    re.is_match(input)
+}
+
+/// Check if input contains JSON keys commonly associated with sensitive data.
+pub fn contains_sensitive_json_keys(input: &str) -> bool {
+    let lower = input.to_lowercase();
+    let keys = [
+        "\"password\"", "\"secret\"", "\"api_key\"", "\"apikey\"",
+        "\"token\"", "\"access_token\"", "\"private_key\"",
+        "\"authorization\"", "\"credential\"", "\"ssn\"",
+    ];
+    keys.iter().any(|k| lower.contains(k))
+}
+
+// ── ExfiltrationAnalysis ────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ExfiltrationAnalysis {
+    pub pii_found: bool,
+    pub secrets_found: bool,
+    pub encoded_data_found: bool,
+    pub sensitive_json_found: bool,
+    pub pii_types: Vec<crate::token::PiiTokenType>,
+    pub secret_types: Vec<crate::token::SecretTokenType>,
+    pub risk_score: f64,
+    pub detail: String,
+}
+
+// ── ExfiltrationAnalyzer ────────────────────────────────────────────
+
+pub struct ExfiltrationAnalyzer {
+    classifier: crate::token::TokenClassifier,
+}
+
+impl ExfiltrationAnalyzer {
+    pub fn new() -> Self {
+        Self {
+            classifier: crate::token::TokenClassifier::new(),
+        }
+    }
+
+    pub fn analyze(&self, input: &str) -> ExfiltrationAnalysis {
+        let pii_found = self.classifier.contains_pii(input);
+        let secrets_found = self.classifier.contains_secrets(input);
+        let encoded_data_found = contains_base64_block(input) || contains_hex_block(input);
+        let sensitive_json_found = contains_sensitive_json_keys(input);
+
+        let pii_types = self.classifier.pii_types_found(input);
+        let secret_types = self.classifier.secret_types_found(input);
+
+        let mut risk_score = 0.0_f64;
+        if pii_found { risk_score += 0.3; }
+        if secrets_found { risk_score += 0.5; }
+        if encoded_data_found { risk_score += 0.2; }
+        if sensitive_json_found { risk_score += 0.2; }
+        let risk_score = risk_score.min(1.0);
+
+        let mut parts = Vec::new();
+        if pii_found { parts.push(format!("PII({} types)", pii_types.len())); }
+        if secrets_found { parts.push(format!("secrets({} types)", secret_types.len())); }
+        if encoded_data_found { parts.push("encoded_data".to_string()); }
+        if sensitive_json_found { parts.push("sensitive_json".to_string()); }
+        let detail = if parts.is_empty() {
+            "no exfiltration indicators".to_string()
+        } else {
+            parts.join(", ")
+        };
+
+        ExfiltrationAnalysis {
+            pii_found,
+            secrets_found,
+            encoded_data_found,
+            sensitive_json_found,
+            pii_types,
+            secret_types,
+            risk_score,
+            detail,
+        }
+    }
+}
+
+impl Default for ExfiltrationAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ExfiltrationAnalyzer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExfiltrationAnalyzer").finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,5 +663,92 @@ mod tests {
             SensitivePatternType::InternalUrls.default_severity(),
             SecuritySeverity::Medium
         );
+    }
+
+    // ── ExfiltrationAnalyzer tests (Layer 2) ────────────────────────
+
+    #[test]
+    fn test_analyzer_detects_pii() {
+        let a = ExfiltrationAnalyzer::new();
+        let r = a.analyze(&format!("contact {}", "user@example.com"));
+        assert!(r.pii_found);
+        assert!(r.risk_score > 0.0);
+    }
+
+    #[test]
+    fn test_analyzer_detects_secrets() {
+        let a = ExfiltrationAnalyzer::new();
+        let r = a.analyze(&format!("key: {}", "AKIAIOSFODNN7EXAMPLE"));
+        assert!(r.secrets_found);
+        assert!(r.risk_score >= 0.5);
+    }
+
+    #[test]
+    fn test_analyzer_clean_input() {
+        let a = ExfiltrationAnalyzer::new();
+        let r = a.analyze("The weather is nice.");
+        assert!(!r.pii_found);
+        assert!(!r.secrets_found);
+        assert!(!r.encoded_data_found);
+        assert_eq!(r.risk_score, 0.0);
+    }
+
+    #[test]
+    fn test_contains_base64_block() {
+        assert!(contains_base64_block(
+            "data: dGhpcyBpcyBhIGxvbmcgZW5vdWdoIGJhc2U2NCBzdHJpbmc="
+        ));
+        assert!(!contains_base64_block("short"));
+    }
+
+    #[test]
+    fn test_contains_hex_block() {
+        assert!(contains_hex_block(
+            "hash: 0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!contains_hex_block("not hex"));
+    }
+
+    #[test]
+    fn test_contains_sensitive_json_keys() {
+        assert!(contains_sensitive_json_keys(
+            "{\"password\": \"hunter2\"}"
+        ));
+        assert!(contains_sensitive_json_keys(
+            "{\"api_key\": \"xyz\"}"
+        ));
+        assert!(!contains_sensitive_json_keys(
+            "{\"name\": \"Alice\"}"
+        ));
+    }
+
+    #[test]
+    fn test_analyzer_encoded_data() {
+        let a = ExfiltrationAnalyzer::new();
+        let r = a.analyze(
+            "payload: dGhpcyBpcyBhIGxvbmcgZW5vdWdoIGJhc2U2NCBzdHJpbmc="
+        );
+        assert!(r.encoded_data_found);
+    }
+
+    #[test]
+    fn test_analyzer_sensitive_json() {
+        let a = ExfiltrationAnalyzer::new();
+        let r = a.analyze("{\"token\": \"abc123\"}");
+        assert!(r.sensitive_json_found);
+    }
+
+    #[test]
+    fn test_analyzer_risk_score_capped() {
+        let a = ExfiltrationAnalyzer::new();
+        let input = format!(
+            "{} {} {} {}",
+            "user@test.com",
+            "AKIAIOSFODNN7EXAMPLE",
+            "dGhpcyBpcyBhIGxvbmcgZW5vdWdoIGJhc2U2NCBzdHJpbmc=",
+            "{\"password\":\"x\"}"
+        );
+        let r = a.analyze(&input);
+        assert!(r.risk_score <= 1.0);
     }
 }

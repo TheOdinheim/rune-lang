@@ -130,6 +130,50 @@ impl ImmuneMemory {
     pub fn false_positive_count(&self) -> usize {
         self.false_positives.len()
     }
+
+    // ── Layer 2: fingerprint recording and statistics ────────────────
+
+    /// Record a content fingerprint hash for an attack.
+    pub fn record_fingerprint(
+        &mut self,
+        fingerprint_hash: impl Into<String>,
+        category: ThreatCategory,
+        severity: SecuritySeverity,
+        timestamp: i64,
+    ) {
+        let hash = fingerprint_hash.into();
+        let sig = format!("fp:{hash}");
+        self.record_attack(sig, category, severity, timestamp);
+    }
+
+    /// Count attacks recorded within a time window.
+    pub fn attack_frequency(&self, window_ms: i64, now: i64) -> usize {
+        let cutoff = now - window_ms;
+        self.attack_signatures
+            .values()
+            .filter(|a| a.last_seen >= cutoff)
+            .count()
+    }
+
+    /// Return the top N attack categories by frequency.
+    pub fn top_attack_categories(&self, n: usize) -> Vec<(ThreatCategory, usize)> {
+        let mut counts: HashMap<ThreatCategory, usize> = HashMap::new();
+        for sig in self.attack_signatures.values() {
+            *counts.entry(sig.category.clone()).or_insert(0) += 1;
+        }
+        let mut sorted: Vec<_> = counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.truncate(n);
+        sorted
+    }
+
+    /// Count unique fingerprint-based attack signatures.
+    pub fn unique_attack_fingerprints(&self) -> usize {
+        self.attack_signatures
+            .keys()
+            .filter(|k| k.starts_with("fp:"))
+            .count()
+    }
 }
 
 #[cfg(test)]
@@ -217,5 +261,47 @@ mod tests {
         s.confirmation_count = 10;
         let b = s.confidence_boost();
         assert!(b >= a);
+    }
+
+    // ── Layer 2 tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_record_fingerprint() {
+        let mut m = ImmuneMemory::new();
+        m.record_fingerprint("abc123", ThreatCategory::PromptInjection, SecuritySeverity::High, 1000);
+        assert_eq!(m.unique_attack_fingerprints(), 1);
+        assert!(m.known_attack("fp:abc123").is_some());
+    }
+
+    #[test]
+    fn test_attack_frequency_window() {
+        let mut m = ImmuneMemory::new();
+        m.record_attack("a", ThreatCategory::PromptInjection, SecuritySeverity::High, 100);
+        m.record_attack("b", ThreatCategory::ModelExfiltration, SecuritySeverity::Medium, 500);
+        m.record_attack("c", ThreatCategory::PromptInjection, SecuritySeverity::High, 900);
+        assert_eq!(m.attack_frequency(500, 1000), 2); // b and c within window
+        assert_eq!(m.attack_frequency(1000, 1000), 3); // all within window
+    }
+
+    #[test]
+    fn test_top_attack_categories() {
+        let mut m = ImmuneMemory::new();
+        m.record_attack("a", ThreatCategory::PromptInjection, SecuritySeverity::High, 100);
+        m.record_attack("b", ThreatCategory::PromptInjection, SecuritySeverity::High, 200);
+        m.record_attack("c", ThreatCategory::ModelExfiltration, SecuritySeverity::Medium, 300);
+        let top = m.top_attack_categories(5);
+        assert!(!top.is_empty());
+        assert_eq!(top[0].0, ThreatCategory::PromptInjection);
+        assert_eq!(top[0].1, 2);
+    }
+
+    #[test]
+    fn test_unique_attack_fingerprints_only_counts_fp_prefix() {
+        let mut m = ImmuneMemory::new();
+        m.record_attack("regular-sig", ThreatCategory::PromptInjection, SecuritySeverity::High, 100);
+        m.record_fingerprint("hash1", ThreatCategory::PromptInjection, SecuritySeverity::High, 200);
+        m.record_fingerprint("hash2", ThreatCategory::ModelExfiltration, SecuritySeverity::Medium, 300);
+        assert_eq!(m.unique_attack_fingerprints(), 2);
+        assert_eq!(m.attack_count(), 3);
     }
 }

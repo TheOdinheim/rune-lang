@@ -169,3 +169,174 @@ chacha20poly1305 = "0.10"  # AEAD cipher for envelope encryption
 rand = "0.8"               # Random DEK generation
 zeroize = { version = "1", features = ["derive"] }  # Memory zeroization
 ```
+
+---
+
+## rune-shield — Layer 2 Upgrade
+
+**Date:** 2026-04-13
+**Type:** Layer 2 (internal upgrade, backward-compatible)
+**Tests:** 164 (98 existing + 66 new)
+**Dependencies added:** regex = "1"
+
+### Overview
+
+Upgraded `rune-shield` from keyword-based heuristics to production-grade
+regex-based pattern matching, token classification, content fingerprinting,
+and enhanced exfiltration analysis. All 98 existing tests continue to pass
+unchanged. All existing public APIs preserved.
+
+### Changes by Module
+
+#### pattern.rs — Regex Injection Detection (NEW, PART 1)
+
+New module for configurable regex-based injection detection:
+
+- **InjectionCategory** enum: PromptInjection, JailbreakAttempt,
+  IndirectInjection, SqlInjection, CommandInjection, TemplateInjection
+- **InjectionPattern** struct: id, name, compiled Regex, category,
+  severity (f64), description, false_positive_rate
+- **Built-in pattern sets**: `prompt_injection_patterns()` (12 patterns),
+  `jailbreak_patterns()` (6 patterns), `indirect_injection_patterns()`
+  (3 patterns) — 21 total regex patterns
+- **InjectionScorer**: accumulates severity of matching patterns, caps at
+  1.0, `is_injection = score >= threshold`
+- **InjectionScore**: score, matched_patterns, category_scores breakdown,
+  is_injection flag, detail string
+
+16 tests for pattern matching, scoring, categories, custom patterns.
+
+#### token.rs — Token Classification (NEW, PART 2)
+
+New module for regex-based PII and secret token detection:
+
+- **PiiTokenType** enum: Email, PhoneNumber, SocialSecurityNumber,
+  CreditCardNumber, IpAddress, DateOfBirth, StreetAddress, Name, Custom
+- **SecretTokenType** enum: ApiKey, AwsAccessKey, AwsSecretKey,
+  GitHubToken, JwtToken, PrivateKey, Password, ConnectionString, Custom
+- **TokenClassifier**: 5 PII patterns + 4 secret patterns built-in
+- Methods: classify, contains_pii, contains_secrets, pii_types_found,
+  secret_types_found, redact_pii, redact_secrets, redact_all
+
+17 tests for detection, redaction, clean text, sorted classification.
+
+#### fingerprint.rs — Content Fingerprinting (NEW, PART 3)
+
+New module for SHA3-256 content fingerprinting and entropy analysis:
+
+- **ContentFingerprint**: hash, normalized_length, token_count, entropy
+- **fingerprint()**: normalize (lowercase, collapse whitespace, remove
+  punctuation) then SHA3-256 hash
+- **shannon_entropy()**: byte-level Shannon entropy calculation
+- **FingerprintStore**: record/seen_count/is_known/record_attack/
+  is_known_attack/known_attack_patterns tracking
+
+12 tests for determinism, normalization, entropy, store operations.
+
+#### exfiltration.rs — Enhanced Exfiltration Detection (PART 4)
+
+Added encoded data detection and ExfiltrationAnalyzer:
+
+- **contains_base64_block()**: regex for 32+ char base64 blocks
+- **contains_hex_block()**: regex for 32+ char hex blocks
+- **contains_sensitive_json_keys()**: checks for password/secret/token/
+  api_key/authorization/credential/ssn JSON keys
+- **ExfiltrationAnalysis**: pii_found, secrets_found, encoded_data_found,
+  sensitive_json_found, pii_types, secret_types, risk_score, detail
+- **ExfiltrationAnalyzer**: wraps TokenClassifier + encoded data helpers,
+  produces risk_score (PII=0.3, secrets=0.5, encoded=0.2, json=0.2,
+  capped at 1.0)
+
+9 new tests (13 existing unchanged).
+
+#### memory.rs — Immune Memory Enhancement (PART 5)
+
+Added fingerprint recording and attack statistics:
+
+- **record_fingerprint()**: records fingerprint hash as `fp:{hash}` attack
+- **attack_frequency(window_ms, now)**: count attacks within time window
+- **top_attack_categories(n)**: top N categories by frequency
+- **unique_attack_fingerprints()**: count fp:-prefixed signatures
+
+4 new tests (7 existing unchanged).
+
+#### audit.rs — New Event Types (PART 7)
+
+Added 6 new ShieldEventType variants:
+
+- `InjectionPatternMatched { pattern_id, score }`
+- `PiiDetected { pii_type, count }`
+- `SecretDetected { secret_type }`
+- `ExfiltrationAttempt { risk_score, detail }`
+- `FingerprintRecorded { hash }`
+- `AttackPatternRecognized { fingerprint, seen_count }`
+
+Updated Display, kind(), existing display-all test expanded. 1 new test
+(5 existing unchanged).
+
+#### shield.rs — Shield Verdict Enhancement (PART 6)
+
+Integrated Layer 2 components into Shield engine:
+
+- 4 new pub fields: injection_scorer, token_classifier,
+  exfiltration_analyzer, fingerprint_store
+- **Input pipeline**: InjectionScorer runs alongside existing
+  InjectionDetector; confidence = max(original, regex_score); pattern
+  matches logged to audit; content fingerprinted for attack tracking
+- **Output pipeline**: ExfiltrationAnalyzer runs before OutputFilter;
+  PII/secret/exfiltration events logged to audit
+- All existing 13 tests pass unchanged
+
+7 new tests (13 existing unchanged).
+
+#### lib.rs — Updated Module Declarations and Re-exports
+
+3 new module declarations: `pub mod pattern`, `pub mod token`,
+`pub mod fingerprint`
+
+New public exports: InjectionCategory, InjectionPattern, InjectionScore,
+InjectionScorer, prompt_injection_patterns, jailbreak_patterns,
+indirect_injection_patterns, PiiTokenType, SecretTokenType,
+TokenClassification, TokenClassifier, TokenType, ContentFingerprint,
+FingerprintStore, shannon_entropy, fingerprint, ExfiltrationAnalysis,
+ExfiltrationAnalyzer, contains_base64_block, contains_hex_block,
+contains_sensitive_json_keys
+
+### Test Summary
+
+| Module | Existing | New | Total |
+|---|---|---|---|
+| pattern.rs | 0 | 16 | 16 |
+| token.rs | 0 | 17 | 17 |
+| fingerprint.rs | 0 | 12 | 12 |
+| exfiltration.rs | 13 | 9 | 22 |
+| memory.rs | 7 | 4 | 11 |
+| audit.rs | 5 | 1 | 6 |
+| shield.rs | 13 | 7 | 20 |
+| adversarial.rs | 7 | 0 | 7 |
+| injection.rs | 13 | 0 | 13 |
+| input.rs | 11 | 0 | 11 |
+| quarantine.rs | 10 | 0 | 10 |
+| output.rs | 6 | 0 | 6 |
+| policy.rs | 6 | 0 | 6 |
+| response.rs | 6 | 0 | 6 |
+| error.rs | 1 | 0 | 1 |
+| **Total** | **98** | **66** | **164** |
+
+### Backward Compatibility
+
+- All 98 existing tests pass unchanged
+- All public function signatures unchanged
+- All public type names unchanged
+- Existing InjectionDetector, ExfiltrationDetector, ImmuneMemory APIs
+  fully preserved
+- Shield struct gains 4 new pub fields (additive only)
+- New components enhance detection without altering existing behavior:
+  confidence = max(original, regex_scorer) ensures strictly better
+  detection
+
+### Dependencies
+
+```toml
+regex = "1"  # Regex-based pattern matching for injection/token detection
+```
