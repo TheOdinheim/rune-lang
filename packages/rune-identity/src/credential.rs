@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 
 use crate::error::IdentityError;
 use crate::identity::IdentityId;
@@ -265,6 +267,205 @@ impl CredentialStore {
     }
 }
 
+// ── HashedCredential (Layer 2) ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HashedCredential {
+    pub hash: String,
+    pub salt: String,
+    pub algorithm: String,
+    pub created_at: i64,
+}
+
+impl HashedCredential {
+    pub fn from_password(password: &str, now: i64) -> Self {
+        let mut salt_bytes = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut salt_bytes);
+        let salt_hex = hex::encode(salt_bytes);
+        let hash_hex = hash_credential_sha3(password, &salt_bytes);
+        Self {
+            hash: hash_hex,
+            salt: salt_hex,
+            algorithm: "SHA3-256".into(),
+            created_at: now,
+        }
+    }
+}
+
+fn hash_credential_sha3(password: &str, salt: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(salt);
+    hasher.update(password.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+pub fn verify_credential(password: &str, stored: &HashedCredential) -> bool {
+    let salt = match hex::decode(&stored.salt) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let computed = hash_credential_sha3(password, &salt);
+    // Constant-time comparison via XOR accumulation
+    if computed.len() != stored.hash.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (a, b) in computed.as_bytes().iter().zip(stored.hash.as_bytes()) {
+        result |= a ^ b;
+    }
+    result == 0
+}
+
+// ── Credential Strength Validation (Layer 2) ───────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CredentialStrengthResult {
+    pub score: u8,
+    pub meets_minimum: bool,
+    pub issues: Vec<String>,
+}
+
+const COMMON_PASSWORDS: &[&str] = &[
+    "password", "123456", "12345678", "qwerty", "abc123", "monkey",
+    "1234567", "letmein", "trustno1", "dragon", "baseball", "iloveyou",
+    "master", "sunshine", "ashley", "michael", "shadow", "123123",
+    "654321", "superman", "qazwsx", "football", "password1", "password123",
+    "admin", "welcome", "login", "princess", "starwars", "passw0rd",
+];
+
+pub fn validate_credential_strength(password: &str) -> CredentialStrengthResult {
+    validate_credential_strength_with_username(password, None)
+}
+
+pub fn validate_credential_strength_with_username(password: &str, username: Option<&str>) -> CredentialStrengthResult {
+    let mut issues = Vec::new();
+    let mut score: u8 = 0;
+
+    // Length check (min 12)
+    if password.len() < 12 {
+        issues.push(format!("minimum length 12, got {}", password.len()));
+    } else {
+        score += 20;
+        if password.len() >= 16 {
+            score += 10;
+        }
+    }
+
+    // Uppercase
+    if password.chars().any(|c| c.is_ascii_uppercase()) {
+        score += 15;
+    } else {
+        issues.push("missing uppercase letter".into());
+    }
+
+    // Lowercase
+    if password.chars().any(|c| c.is_ascii_lowercase()) {
+        score += 15;
+    } else {
+        issues.push("missing lowercase letter".into());
+    }
+
+    // Digit
+    if password.chars().any(|c| c.is_ascii_digit()) {
+        score += 15;
+    } else {
+        issues.push("missing digit".into());
+    }
+
+    // Special character
+    if password.chars().any(|c| !c.is_alphanumeric()) {
+        score += 15;
+    } else {
+        issues.push("missing special character".into());
+    }
+
+    // Repeated characters (no more than 3 in a row)
+    let chars: Vec<char> = password.chars().collect();
+    for window in chars.windows(4) {
+        if window.iter().all(|c| *c == window[0]) {
+            issues.push("more than 3 repeated characters in a row".into());
+            score = score.saturating_sub(10);
+            break;
+        }
+    }
+
+    // Common password check
+    let lower = password.to_lowercase();
+    if COMMON_PASSWORDS.iter().any(|p| lower == *p) {
+        issues.push("password is in common password list".into());
+        score = score.saturating_sub(30);
+    }
+
+    // Username match check
+    if let Some(uname) = username {
+        if !uname.is_empty() && lower.contains(&uname.to_lowercase()) {
+            issues.push("password contains username".into());
+            score = score.saturating_sub(20);
+        }
+    }
+
+    // Bonus for entropy diversity
+    let unique: std::collections::HashSet<char> = password.chars().collect();
+    if unique.len() > 10 {
+        score += 10;
+    }
+
+    score = score.min(100);
+    let meets_minimum = issues.is_empty();
+
+    CredentialStrengthResult {
+        score,
+        meets_minimum,
+        issues,
+    }
+}
+
+// ── Credential History (Layer 2) ───────────────────────────────────
+
+#[derive(Debug, Clone, Default)]
+pub struct CredentialHistory {
+    pub previous_hashes: Vec<String>,
+    pub last_changed_at: i64,
+    pub change_count: u64,
+    pub max_history: usize,
+}
+
+impl CredentialHistory {
+    pub fn new(max_history: usize) -> Self {
+        Self {
+            previous_hashes: Vec::new(),
+            last_changed_at: 0,
+            change_count: 0,
+            max_history,
+        }
+    }
+
+    pub fn is_reused(&self, new_hash: &str) -> bool {
+        self.previous_hashes.iter().any(|h| h == new_hash)
+    }
+
+    pub fn record_change(&mut self, old_hash: &str, now: i64) {
+        self.previous_hashes.push(old_hash.to_string());
+        if self.previous_hashes.len() > self.max_history {
+            self.previous_hashes.remove(0);
+        }
+        self.last_changed_at = now;
+        self.change_count += 1;
+    }
+
+    pub fn days_since_change(&self, now: i64) -> u64 {
+        if self.last_changed_at == 0 {
+            return u64::MAX;
+        }
+        let ms = (now - self.last_changed_at).max(0) as u64;
+        ms / 86_400_000
+    }
+
+    pub fn needs_rotation(&self, max_age_days: u64, now: i64) -> bool {
+        self.days_since_change(now) >= max_age_days
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -408,5 +609,138 @@ mod tests {
         assert_eq!(store.credentials_by_type(&IdentityId::new("user:alice"), "Password").len(), 1);
         assert_eq!(store.credentials_by_type(&IdentityId::new("user:alice"), "ApiKey").len(), 1);
         assert_eq!(store.credentials_by_type(&IdentityId::new("user:alice"), "Token").len(), 0);
+    }
+
+    // ── Part 1: Real Credential Hashing Tests ────────────────────────
+
+    #[test]
+    fn test_sha3_256_credential_hash_produces_64_char_hex() {
+        let hashed = HashedCredential::from_password("my-secure-password", 1000);
+        assert_eq!(hashed.hash.len(), 64);
+        assert!(hashed.hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_same_password_same_salt_produces_same_hash() {
+        let salt = hex::decode("aabbccdd00112233aabbccdd00112233").unwrap();
+        let h1 = hash_credential_sha3("password123", &salt);
+        let h2 = hash_credential_sha3("password123", &salt);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_same_password_different_salt_produces_different_hash() {
+        let h1 = HashedCredential::from_password("password123", 1000);
+        let h2 = HashedCredential::from_password("password123", 1000);
+        // Overwhelmingly likely to have different salts
+        assert_ne!(h1.hash, h2.hash);
+    }
+
+    #[test]
+    fn test_verify_credential_succeeds_with_correct_password() {
+        let hashed = HashedCredential::from_password("correct-horse-battery", 1000);
+        assert!(verify_credential("correct-horse-battery", &hashed));
+    }
+
+    #[test]
+    fn test_verify_credential_fails_with_wrong_password() {
+        let hashed = HashedCredential::from_password("correct-horse-battery", 1000);
+        assert!(!verify_credential("wrong-password", &hashed));
+    }
+
+    #[test]
+    fn test_hashed_credential_stores_algorithm_as_sha3_256() {
+        let hashed = HashedCredential::from_password("test", 1000);
+        assert_eq!(hashed.algorithm, "SHA3-256");
+    }
+
+    #[test]
+    fn test_validate_credential_strength_rejects_short_passwords() {
+        let result = validate_credential_strength("short");
+        assert!(!result.meets_minimum);
+        assert!(result.issues.iter().any(|i| i.contains("minimum length")));
+    }
+
+    #[test]
+    fn test_validate_credential_strength_flags_missing_categories() {
+        let result = validate_credential_strength("alllowercase!!");
+        assert!(result.issues.iter().any(|i| i.contains("uppercase")));
+        assert!(result.issues.iter().any(|i| i.contains("digit")));
+    }
+
+    #[test]
+    fn test_validate_credential_strength_scores_strong_password_high() {
+        let result = validate_credential_strength("MyStr0ng!Pass#2024x");
+        assert!(result.score >= 80);
+        assert!(result.meets_minimum);
+    }
+
+    #[test]
+    fn test_validate_credential_strength_catches_common_passwords() {
+        let result = validate_credential_strength("password");
+        assert!(!result.meets_minimum);
+        assert!(result.issues.iter().any(|i| i.contains("common password")));
+    }
+
+    #[test]
+    fn test_credential_history_is_reused_detects_previously_used() {
+        let mut history = CredentialHistory::new(10);
+        history.record_change("oldhash123", 1000);
+        assert!(history.is_reused("oldhash123"));
+    }
+
+    #[test]
+    fn test_credential_history_is_reused_allows_new() {
+        let mut history = CredentialHistory::new(10);
+        history.record_change("oldhash123", 1000);
+        assert!(!history.is_reused("newhash456"));
+    }
+
+    #[test]
+    fn test_credential_history_record_change_adds_to_history() {
+        let mut history = CredentialHistory::new(10);
+        history.record_change("hash1", 1000);
+        history.record_change("hash2", 2000);
+        assert_eq!(history.previous_hashes.len(), 2);
+        assert_eq!(history.change_count, 2);
+    }
+
+    #[test]
+    fn test_credential_history_record_change_respects_max_history() {
+        let mut history = CredentialHistory::new(2);
+        history.record_change("hash1", 1000);
+        history.record_change("hash2", 2000);
+        history.record_change("hash3", 3000);
+        assert_eq!(history.previous_hashes.len(), 2);
+        assert!(!history.is_reused("hash1")); // evicted
+        assert!(history.is_reused("hash2"));
+        assert!(history.is_reused("hash3"));
+    }
+
+    #[test]
+    fn test_credential_history_days_since_change() {
+        let history = CredentialHistory {
+            previous_hashes: vec![],
+            last_changed_at: 1000,
+            change_count: 1,
+            max_history: 10,
+        };
+        // 2 days = 2 * 86_400_000 ms
+        let now = 1000 + 2 * 86_400_000;
+        assert_eq!(history.days_since_change(now), 2);
+    }
+
+    #[test]
+    fn test_credential_history_needs_rotation_when_expired() {
+        let history = CredentialHistory {
+            previous_hashes: vec![],
+            last_changed_at: 1000,
+            change_count: 1,
+            max_history: 10,
+        };
+        let now = 1000 + 91 * 86_400_000; // 91 days later
+        assert!(history.needs_rotation(90, now));
+        let now2 = 1000 + 30 * 86_400_000; // 30 days later
+        assert!(!history.needs_rotation(90, now2));
     }
 }

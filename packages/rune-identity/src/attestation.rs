@@ -25,6 +25,11 @@ pub enum AttestationType {
     ModelAttested,
     CertificateIssued,
     BiometricEnrolled,
+    // Layer 2
+    BiometricVerification,
+    HardwareToken,
+    CertificateChain,
+    CrossReferenceAttestation,
 }
 
 impl fmt::Display for AttestationType {
@@ -154,6 +159,84 @@ impl AttestationChain {
     }
 }
 
+// ── ChainVerificationResult (Layer 2) ────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ChainVerificationResult {
+    pub valid: bool,
+    pub verified_links: usize,
+    pub broken_at: Option<usize>,
+    pub timestamps: Vec<i64>,
+}
+
+pub fn verify_attestation_chain(chain: &AttestationChain) -> ChainVerificationResult {
+    if chain.attestations.is_empty() {
+        return ChainVerificationResult {
+            valid: true,
+            verified_links: 0,
+            broken_at: None,
+            timestamps: Vec::new(),
+        };
+    }
+
+    let timestamps: Vec<i64> = chain.attestations.iter().map(|a| a.verified_at).collect();
+
+    // First attestation should have no previous_hash
+    if chain.attestations[0].previous_hash.is_some() {
+        return ChainVerificationResult {
+            valid: false,
+            verified_links: 0,
+            broken_at: Some(0),
+            timestamps,
+        };
+    }
+
+    let mut verified = 0;
+    for i in 1..chain.attestations.len() {
+        let expected_hash = chain.attestations[i - 1].hash();
+        match &chain.attestations[i].previous_hash {
+            Some(h) if h == &expected_hash => {
+                verified += 1;
+            }
+            _ => {
+                return ChainVerificationResult {
+                    valid: false,
+                    verified_links: verified,
+                    broken_at: Some(i),
+                    timestamps,
+                };
+            }
+        }
+    }
+
+    ChainVerificationResult {
+        valid: true,
+        verified_links: if chain.attestations.len() > 1 { chain.attestations.len() - 1 } else { 0 },
+        broken_at: None,
+        timestamps,
+    }
+}
+
+// ── ChainAnchor (Layer 2) ───────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ChainAnchor {
+    pub root_hash: String,
+    pub tip_hash: String,
+    pub chain_length: usize,
+}
+
+pub fn anchor_chain(chain: &AttestationChain) -> Option<ChainAnchor> {
+    if chain.attestations.is_empty() {
+        return None;
+    }
+    Some(ChainAnchor {
+        root_hash: chain.attestations[0].hash(),
+        tip_hash: chain.attestations.last().unwrap().hash(),
+        chain_length: chain.attestations.len(),
+    })
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -257,5 +340,81 @@ mod tests {
         let chain = AttestationChain::new(IdentityId::new("user:alice"));
         assert!(chain.verify_chain());
         assert!(chain.is_empty());
+    }
+
+    // ── Part 4: Attestation Chain Verification Tests ─────────────────
+
+    #[test]
+    fn test_verify_attestation_chain_valid() {
+        let mut chain = AttestationChain::new(IdentityId::new("user:alice"));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::EmailVerified,
+            "a@b.com", "svc", 1000, &test_key(),
+        ));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::PhoneVerified,
+            "phone", "svc", 2000, &test_key(),
+        ));
+        let result = verify_attestation_chain(&chain);
+        assert!(result.valid);
+        assert_eq!(result.verified_links, 1);
+        assert!(result.broken_at.is_none());
+        assert_eq!(result.timestamps, vec![1000, 2000]);
+    }
+
+    #[test]
+    fn test_verify_attestation_chain_tampered() {
+        let mut chain = AttestationChain::new(IdentityId::new("user:alice"));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::EmailVerified,
+            "a@b.com", "svc", 1000, &test_key(),
+        ));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::PhoneVerified,
+            "phone", "svc", 2000, &test_key(),
+        ));
+        chain.attestations[0].evidence = "tampered".into();
+        let result = verify_attestation_chain(&chain);
+        assert!(!result.valid);
+        assert_eq!(result.broken_at, Some(1));
+    }
+
+    #[test]
+    fn test_anchor_chain_returns_root_and_tip() {
+        let mut chain = AttestationChain::new(IdentityId::new("user:alice"));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::EmailVerified,
+            "a@b.com", "svc", 1000, &test_key(),
+        ));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::DocumentVerified,
+            "doc", "svc", 2000, &test_key(),
+        ));
+        let anchor = anchor_chain(&chain).unwrap();
+        assert_eq!(anchor.chain_length, 2);
+        assert_ne!(anchor.root_hash, anchor.tip_hash);
+        assert_eq!(anchor.root_hash.len(), 64);
+    }
+
+    #[test]
+    fn test_anchor_chain_empty_returns_none() {
+        let chain = AttestationChain::new(IdentityId::new("user:alice"));
+        assert!(anchor_chain(&chain).is_none());
+    }
+
+    #[test]
+    fn test_new_attestation_types_layer2() {
+        let mut chain = AttestationChain::new(IdentityId::new("user:alice"));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::BiometricVerification,
+            "face_scan", "bio-svc", 1000, &test_key(),
+        ));
+        chain.add(IdentityAttestation::new(
+            IdentityId::new("user:alice"), AttestationType::HardwareToken,
+            "yubikey_123", "hw-svc", 2000, &test_key(),
+        ));
+        assert!(chain.has_type(&AttestationType::BiometricVerification));
+        assert!(chain.has_type(&AttestationType::HardwareToken));
+        assert!(chain.verify_chain());
     }
 }

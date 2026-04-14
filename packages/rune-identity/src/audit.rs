@@ -35,6 +35,22 @@ pub enum IdentityEventType {
     TrustScoreChanged { old_score: f64, new_score: f64 },
     AttestationAdded { attestation_type: String },
     ClaimIssued { claim_type: String },
+    // Layer 2
+    CredentialHashed,
+    CredentialVerified,
+    CredentialStrengthChecked,
+    CredentialRotated,
+    SessionTokenHashed,
+    SessionFingerprintCreated,
+    SessionFingerprintMismatch,
+    TrustScoreAdjusted { reason: String, delta: f64 },
+    TrustDecayApplied { old_score: f64, new_score: f64 },
+    AttestationChainVerified { valid: bool, links: usize },
+    TotpVerified,
+    BackupCodeUsed,
+    FederatedIdentityLinked { provider: String },
+    FederatedIdentityUnlinked { provider: String },
+    MfaPolicyEnforced { operation: String },
 }
 
 impl IdentityEventType {
@@ -46,6 +62,8 @@ impl IdentityEventType {
                 | Self::AuthenticationFailed { .. }
                 | Self::CredentialCompromised
                 | Self::MfaFailed
+                | Self::SessionFingerprintMismatch
+                | Self::TrustDecayApplied { .. }
         )
     }
 }
@@ -74,6 +92,33 @@ impl fmt::Display for IdentityEventType {
             }
             Self::AttestationAdded { attestation_type } => write!(f, "AttestationAdded({attestation_type})"),
             Self::ClaimIssued { claim_type } => write!(f, "ClaimIssued({claim_type})"),
+            Self::CredentialHashed => write!(f, "CredentialHashed"),
+            Self::CredentialVerified => write!(f, "CredentialVerified"),
+            Self::CredentialStrengthChecked => write!(f, "CredentialStrengthChecked"),
+            Self::CredentialRotated => write!(f, "CredentialRotated"),
+            Self::SessionTokenHashed => write!(f, "SessionTokenHashed"),
+            Self::SessionFingerprintCreated => write!(f, "SessionFingerprintCreated"),
+            Self::SessionFingerprintMismatch => write!(f, "SessionFingerprintMismatch"),
+            Self::TrustScoreAdjusted { reason, delta } => {
+                write!(f, "TrustScoreAdjusted({reason}, {delta:+.2})")
+            }
+            Self::TrustDecayApplied { old_score, new_score } => {
+                write!(f, "TrustDecayApplied({old_score:.2}->{new_score:.2})")
+            }
+            Self::AttestationChainVerified { valid, links } => {
+                write!(f, "AttestationChainVerified(valid={valid}, links={links})")
+            }
+            Self::TotpVerified => write!(f, "TotpVerified"),
+            Self::BackupCodeUsed => write!(f, "BackupCodeUsed"),
+            Self::FederatedIdentityLinked { provider } => {
+                write!(f, "FederatedIdentityLinked({provider})")
+            }
+            Self::FederatedIdentityUnlinked { provider } => {
+                write!(f, "FederatedIdentityUnlinked({provider})")
+            }
+            Self::MfaPolicyEnforced { operation } => {
+                write!(f, "MfaPolicyEnforced({operation})")
+            }
         }
     }
 }
@@ -261,5 +306,40 @@ mod tests {
         assert!(s.contains("1000"));
         assert!(s.contains("IdentityCreated"));
         assert!(s.contains("user:alice"));
+    }
+
+    // ── Part 7: Audit Enhancement Tests ──────────────────────────────
+
+    #[test]
+    fn test_layer2_event_types_display() {
+        let events: Vec<IdentityEventType> = vec![
+            IdentityEventType::CredentialHashed,
+            IdentityEventType::CredentialVerified,
+            IdentityEventType::CredentialStrengthChecked,
+            IdentityEventType::CredentialRotated,
+            IdentityEventType::SessionTokenHashed,
+            IdentityEventType::SessionFingerprintCreated,
+            IdentityEventType::SessionFingerprintMismatch,
+            IdentityEventType::TrustScoreAdjusted { reason: "mfa".into(), delta: 0.15 },
+            IdentityEventType::TrustDecayApplied { old_score: 0.8, new_score: 0.6 },
+            IdentityEventType::AttestationChainVerified { valid: true, links: 3 },
+            IdentityEventType::TotpVerified,
+            IdentityEventType::BackupCodeUsed,
+            IdentityEventType::FederatedIdentityLinked { provider: "okta".into() },
+            IdentityEventType::FederatedIdentityUnlinked { provider: "okta".into() },
+            IdentityEventType::MfaPolicyEnforced { operation: "admin".into() },
+        ];
+        for e in &events {
+            assert!(!e.to_string().is_empty());
+        }
+        assert_eq!(events.len(), 15); // 15 new Layer 2 variants
+    }
+
+    #[test]
+    fn test_layer2_security_events() {
+        assert!(IdentityEventType::SessionFingerprintMismatch.is_security_event());
+        assert!(IdentityEventType::TrustDecayApplied { old_score: 0.8, new_score: 0.5 }.is_security_event());
+        assert!(!IdentityEventType::CredentialHashed.is_security_event());
+        assert!(!IdentityEventType::TotpVerified.is_security_event());
     }
 }

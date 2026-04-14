@@ -1627,11 +1627,14 @@ name = "rune-identity"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hmac",
+ "rand",
  "rune-lang",
  "rune-permissions",
  "rune-secrets",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]

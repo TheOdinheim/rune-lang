@@ -246,3 +246,118 @@ cargo test --workspace
 | Assumed Breach | Session token hashing prevents stolen-database replay; IP/UA binding detects hijacking |
 | No Single Points of Failure | Sliding window + endpoint rate limiting provide layered throttling; preflight caching reduces CORS overhead |
 | Zero Trust Throughout | Cryptographic session IDs resist guessing; data leakage scanner with 9 regex patterns catches secrets before they leave |
+
+---
+
+## rune-identity — Layer 2 Upgrade
+
+**Date:** 2026-04-14
+**Type:** Layer 2 (internal upgrade, backward-compatible)
+**Tests:** 188 (120 existing + 68 new)
+**Dependencies added:** sha3 = "0.10", hmac = "0.12", rand = "0.8" (hex already present)
+
+### Overview
+
+Upgraded `rune-identity` with SHA3-256 credential hashing, cryptographic
+session tokens with token-hash storage, enhanced trust scoring with
+exponential decay, attestation chain verification with detailed results,
+TOTP MFA with backup codes, identity federation with trust policies,
+and 15 new audit event types.
+
+### Changes by Module
+
+#### credential.rs — SHA3-256 Credential Hashing (PART 1)
+
+- `HashedCredential` struct: hash/salt/algorithm/created_at
+- `from_password()`: 16-byte crypto random salt, SHA3-256(salt||password)
+- `hash_credential_sha3()`: internal SHA3-256 helper
+- `verify_credential()`: constant-time XOR comparison
+- `CredentialStrengthResult`: score 0-100, meets_minimum, issues
+- `validate_credential_strength()` / `validate_credential_strength_with_username()`
+  with 8 checks: length≥12, uppercase, lowercase, digit, special, repeated
+  chars (>3), common password list (30 entries), username containment
+- `CredentialHistory`: previous_hashes, is_reused, record_change,
+  days_since_change, needs_rotation, max_history enforcement
+- 16 new tests
+
+#### session.rs — Cryptographic Session Tokens (PART 2)
+
+- `generate_session_token()`: 32 crypto-random bytes, hex with `idt_` prefix
+- `hash_session_token()`: SHA3-256 for storage keying
+- `session_key()`: transparent hash-or-legacy lookup
+- Sessions stored by token hash internally, raw token returned to caller
+- `SessionFingerprint`: SHA3-256 hashed IP + User-Agent, never stores raw
+- `set_fingerprint()` / `validate_fingerprint()` on SessionManager
+- `concurrent_session_count()` / `revoke_oldest_sessions()` /
+  `sessions_by_identity()`
+- 14 new tests
+
+#### trust.rs — Enhanced Trust Scoring (PART 3)
+
+- `TrustAdjustmentReason` enum: 8 variants with `default_impact()`
+  (SuccessfulAuthentication +0.05, SuspiciousActivity -0.20, MfaVerified +0.15, etc.)
+- `TrustAdjustment` struct: reason, delta, timestamp, old/new score
+- `TrustScoreManager`: score, exponential decay `score * e^(-rate * hours)`,
+  adjust_trust, trust_history, trust_trend (Improving/Stable/Degrading via
+  half-split average comparison with ±0.02 threshold)
+- `TrustTrend` enum: Improving/Stable/Degrading
+- `required_trust_level()`: read→Low, write→Medium, admin→High, critical→Full
+- 11 new tests
+
+#### attestation.rs — Attestation Chain Verification (PART 4)
+
+- `ChainVerificationResult`: valid, verified_links, broken_at, timestamps
+- `verify_attestation_chain()`: returns detailed result instead of bool
+- `ChainAnchor`: root_hash, tip_hash, chain_length
+- `anchor_chain()`: compact external verification summary
+- 4 new `AttestationType` variants: BiometricVerification, HardwareToken,
+  CertificateChain, CrossReferenceAttestation
+- 5 new tests
+
+#### authn.rs — TOTP MFA & Backup Codes (PART 5)
+
+- `TotpConfig`: secret, digits (default 6), period_seconds (default 30)
+- `generate_totp_code()`: HMAC-SHA3-256 with RFC 6238 truncation
+- `verify_totp_code()`: clock skew window (past + future)
+- `BackupCodeSet`: 8-char alphanumeric codes stored as SHA3-256 hashes,
+  single-use verify with remaining count
+- `MfaPolicy`: required_for operations, grace_period_ms, allowed_methods
+- 14 new tests
+
+#### federation.rs — Identity Federation (PART 6)
+
+- `FederatedIdentity`: local_identity_id, provider, external_id,
+  linked_at, last_synced_at, trust_modifier
+- `FederatedIdentityStore`: link/unlink/find_by_external_id/identities_for
+- `FederationTrustPolicy`: trusted_providers map with trust levels
+- 7 new tests
+
+#### audit.rs — New Audit Event Types (PART 7)
+
+- 15 new `IdentityEventType` variants: CredentialHashed, CredentialVerified,
+  CredentialStrengthChecked, CredentialRotated, SessionTokenHashed,
+  SessionFingerprintCreated, SessionFingerprintMismatch, TrustScoreAdjusted,
+  TrustDecayApplied, AttestationChainVerified, TotpVerified, BackupCodeUsed,
+  FederatedIdentityLinked, FederatedIdentityUnlinked, MfaPolicyEnforced
+- Display implementations for all 34 variants (19 original + 15 new)
+- SessionFingerprintMismatch and TrustDecayApplied added to is_security_event()
+- 2 new tests
+
+### Test Summary
+
+```
+cargo test -p rune-identity
+  188 passed; 0 failed
+
+cargo test --workspace
+  all passed; 0 failed
+```
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | SHA3-256 credential hashing with constant-time verify; TOTP MFA with backup codes; MFA policy enforcement |
+| Assumed Breach | Session tokens stored as hashes prevent stolen-DB replay; SessionFingerprint detects session hijacking; credential history prevents reuse |
+| No Single Points of Failure | Federation supports multiple identity providers; trust scoring combines multiple adjustment signals |
+| Zero Trust Throughout | Cryptographic session tokens resist guessing; exponential trust decay requires continuous verification; attestation chain verification with detailed break detection |

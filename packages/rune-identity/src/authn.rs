@@ -9,12 +9,17 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use hmac::{Hmac, Mac};
+use rand::RngCore;
 use rune_lang::stdlib::crypto::hash::sha3_256;
 use rune_secrets::derivation::verify_password;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 
 use crate::credential::{CredentialId, CredentialStatus, CredentialStore, CredentialType};
 use crate::identity::{IdentityId, IdentityStatus, IdentityStore};
+
+type HmacSha3_256 = Hmac<Sha3_256>;
 
 // ── AuthnMethod ───────────────────────────────────────────────────────
 
@@ -429,6 +434,154 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     result == 0
 }
 
+// ── TOTP (Layer 2) ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct TotpConfig {
+    pub secret: Vec<u8>,
+    pub digits: u32,
+    pub period_seconds: u64,
+}
+
+impl TotpConfig {
+    pub fn new(secret: Vec<u8>) -> Self {
+        Self {
+            secret,
+            digits: 6,
+            period_seconds: 30,
+        }
+    }
+
+    pub fn with_digits(mut self, digits: u32) -> Self {
+        self.digits = digits;
+        self
+    }
+
+    pub fn with_period(mut self, seconds: u64) -> Self {
+        self.period_seconds = seconds;
+        self
+    }
+}
+
+pub fn generate_totp_code(config: &TotpConfig, time_ms: i64) -> String {
+    let counter = (time_ms as u64 / 1000) / config.period_seconds;
+    let counter_bytes = counter.to_be_bytes();
+
+    let mut mac = HmacSha3_256::new_from_slice(&config.secret)
+        .expect("HMAC accepts any key length");
+    mac.update(&counter_bytes);
+    let result = mac.finalize().into_bytes();
+
+    let offset = (result[result.len() - 1] & 0x0f) as usize;
+    let truncated = ((result[offset] as u32 & 0x7f) << 24)
+        | ((result[offset + 1] as u32) << 16)
+        | ((result[offset + 2] as u32) << 8)
+        | (result[offset + 3] as u32);
+
+    let modulus = 10u32.pow(config.digits);
+    let code = truncated % modulus;
+    format!("{:0>width$}", code, width = config.digits as usize)
+}
+
+pub fn verify_totp_code(config: &TotpConfig, code: &str, time_ms: i64, window: u32) -> bool {
+    let period_ms = (config.period_seconds * 1000) as i64;
+    for i in 0..=window {
+        let t = time_ms - (i as i64 * period_ms);
+        if generate_totp_code(config, t) == code {
+            return true;
+        }
+        if i > 0 {
+            let t_future = time_ms + (i as i64 * period_ms);
+            if generate_totp_code(config, t_future) == code {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+// ── Backup Codes (Layer 2) ──────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct BackupCodeSet {
+    pub code_hashes: Vec<String>,
+    pub used: Vec<bool>,
+}
+
+fn sha3_hex(input: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(input);
+    hex::encode(hasher.finalize())
+}
+
+impl BackupCodeSet {
+    pub fn generate(count: usize) -> (Self, Vec<String>) {
+        let mut raw_codes = Vec::with_capacity(count);
+        let mut hashes = Vec::with_capacity(count);
+        let charset: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+
+        for _ in 0..count {
+            let mut code_bytes = [0u8; 8];
+            rand::thread_rng().fill_bytes(&mut code_bytes);
+            let code: String = code_bytes.iter()
+                .map(|b| charset[(*b as usize) % charset.len()] as char)
+                .collect();
+            hashes.push(sha3_hex(code.as_bytes()));
+            raw_codes.push(code);
+        }
+
+        (Self { code_hashes: hashes, used: vec![false; count] }, raw_codes)
+    }
+
+    pub fn verify_backup_code(&mut self, code: &str) -> bool {
+        let hash = sha3_hex(code.as_bytes());
+        for (i, stored) in self.code_hashes.iter().enumerate() {
+            if !self.used[i] && *stored == hash {
+                self.used[i] = true;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn remaining(&self) -> usize {
+        self.used.iter().filter(|u| !**u).count()
+    }
+}
+
+// ── MFA Policy (Layer 2) ────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct MfaPolicy {
+    pub required_for: Vec<String>,
+    pub grace_period_ms: i64,
+    pub allowed_methods: Vec<MfaMethod>,
+}
+
+impl Default for MfaPolicy {
+    fn default() -> Self {
+        Self {
+            required_for: vec!["admin".into(), "critical".into()],
+            grace_period_ms: 5 * 60 * 1000, // 5 minutes
+            allowed_methods: vec![MfaMethod::Totp, MfaMethod::WebAuthn, MfaMethod::Recovery],
+        }
+    }
+}
+
+impl MfaPolicy {
+    pub fn is_required(&self, operation: &str) -> bool {
+        self.required_for.iter().any(|r| r == operation)
+    }
+
+    pub fn is_method_allowed(&self, method: &MfaMethod) -> bool {
+        self.allowed_methods.contains(method)
+    }
+
+    pub fn within_grace_period(&self, last_mfa_at: i64, now: i64) -> bool {
+        (now - last_mfa_at) < self.grace_period_ms
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -765,5 +918,115 @@ mod tests {
         assert_eq!(AuthnFailureReason::InvalidCredentials.to_string(), "invalid credentials");
         assert_eq!(AuthnFailureReason::IdentityLocked.to_string(), "identity locked");
         assert_eq!(AuthnFailureReason::RateLimited.to_string(), "rate limited");
+    }
+
+    // ── Part 5: MFA Enhancement Tests ────────────────────────────────
+
+    #[test]
+    fn test_totp_generate_produces_6_digit_code() {
+        let config = TotpConfig::new(vec![0xAA; 32]);
+        let code = generate_totp_code(&config, 1_000_000);
+        assert_eq!(code.len(), 6);
+        assert!(code.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn test_totp_deterministic_same_time() {
+        let config = TotpConfig::new(vec![0xBB; 32]);
+        let c1 = generate_totp_code(&config, 1_000_000);
+        let c2 = generate_totp_code(&config, 1_000_000);
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn test_totp_different_at_different_periods() {
+        let config = TotpConfig::new(vec![0xCC; 32]);
+        let c1 = generate_totp_code(&config, 0);
+        let c2 = generate_totp_code(&config, 60_000); // 60 seconds later, different period
+        assert_ne!(c1, c2);
+    }
+
+    #[test]
+    fn test_totp_verify_correct_code() {
+        let config = TotpConfig::new(vec![0xDD; 32]);
+        let time = 1_000_000;
+        let code = generate_totp_code(&config, time);
+        assert!(verify_totp_code(&config, &code, time, 1));
+    }
+
+    #[test]
+    fn test_totp_verify_with_window() {
+        let config = TotpConfig::new(vec![0xEE; 32]);
+        let time = 1_000_000;
+        let code = generate_totp_code(&config, time);
+        // Verify with code from one period ago (within window=1)
+        let future_time = time + 30_000; // one period later
+        assert!(verify_totp_code(&config, &code, future_time, 1));
+    }
+
+    #[test]
+    fn test_totp_verify_rejects_wrong_code() {
+        let config = TotpConfig::new(vec![0xFF; 32]);
+        assert!(!verify_totp_code(&config, "000000", 1_000_000, 1));
+    }
+
+    #[test]
+    fn test_backup_code_generation() {
+        let (set, codes) = BackupCodeSet::generate(8);
+        assert_eq!(codes.len(), 8);
+        assert_eq!(set.code_hashes.len(), 8);
+        for code in &codes {
+            assert_eq!(code.len(), 8);
+        }
+    }
+
+    #[test]
+    fn test_backup_code_verify_valid() {
+        let (mut set, codes) = BackupCodeSet::generate(5);
+        assert!(set.verify_backup_code(&codes[0]));
+    }
+
+    #[test]
+    fn test_backup_code_single_use() {
+        let (mut set, codes) = BackupCodeSet::generate(5);
+        assert!(set.verify_backup_code(&codes[0]));
+        assert!(!set.verify_backup_code(&codes[0])); // already used
+    }
+
+    #[test]
+    fn test_backup_code_rejects_invalid() {
+        let (mut set, _codes) = BackupCodeSet::generate(5);
+        assert!(!set.verify_backup_code("notacode"));
+    }
+
+    #[test]
+    fn test_backup_code_remaining_count() {
+        let (mut set, codes) = BackupCodeSet::generate(5);
+        assert_eq!(set.remaining(), 5);
+        set.verify_backup_code(&codes[0]);
+        assert_eq!(set.remaining(), 4);
+    }
+
+    #[test]
+    fn test_mfa_policy_required_for() {
+        let policy = MfaPolicy::default();
+        assert!(policy.is_required("admin"));
+        assert!(policy.is_required("critical"));
+        assert!(!policy.is_required("read"));
+    }
+
+    #[test]
+    fn test_mfa_policy_allowed_methods() {
+        let policy = MfaPolicy::default();
+        assert!(policy.is_method_allowed(&MfaMethod::Totp));
+        assert!(policy.is_method_allowed(&MfaMethod::WebAuthn));
+    }
+
+    #[test]
+    fn test_mfa_policy_grace_period() {
+        let policy = MfaPolicy::default();
+        let last_mfa = 1_000_000;
+        assert!(policy.within_grace_period(last_mfa, last_mfa + 60_000)); // 1 min later
+        assert!(!policy.within_grace_period(last_mfa, last_mfa + 6 * 60_000)); // 6 min later
     }
 }

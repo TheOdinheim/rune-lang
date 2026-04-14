@@ -311,6 +311,159 @@ pub struct TrustEvaluation {
     pub reason: String,
 }
 
+// ── TrustAdjustmentReason (Layer 2) ─────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrustAdjustmentReason {
+    SuccessfulAuthentication,
+    FailedAuthentication,
+    MfaVerified,
+    SuspiciousActivity,
+    DeviceChange,
+    LocationChange,
+    CredentialRotation,
+    ManualAdjustment,
+}
+
+impl TrustAdjustmentReason {
+    pub fn default_impact(&self) -> f64 {
+        match self {
+            Self::SuccessfulAuthentication => 0.05,
+            Self::FailedAuthentication => -0.10,
+            Self::MfaVerified => 0.15,
+            Self::SuspiciousActivity => -0.20,
+            Self::DeviceChange => -0.10,
+            Self::LocationChange => -0.05,
+            Self::CredentialRotation => 0.05,
+            Self::ManualAdjustment => 0.0,
+        }
+    }
+}
+
+impl fmt::Display for TrustAdjustmentReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+// ── TrustAdjustment (Layer 2) ───────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct TrustAdjustment {
+    pub reason: TrustAdjustmentReason,
+    pub delta: f64,
+    pub timestamp: i64,
+    pub old_score: f64,
+    pub new_score: f64,
+}
+
+// ── TrustTrend (Layer 2) ────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrustTrend {
+    Improving,
+    Stable,
+    Degrading,
+}
+
+impl fmt::Display for TrustTrend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+// ── TrustScoreManager (Layer 2) ─────────────────────────────────────
+
+pub struct TrustScoreManager {
+    pub score: f64,
+    pub last_activity_at: i64,
+    pub decay_rate: f64,
+    history: Vec<TrustAdjustment>,
+}
+
+impl TrustScoreManager {
+    pub fn new(initial_score: f64) -> Self {
+        Self {
+            score: initial_score.clamp(0.0, 1.0),
+            last_activity_at: 0,
+            decay_rate: 0.01,
+            history: Vec::new(),
+        }
+    }
+
+    pub fn with_decay_rate(mut self, rate: f64) -> Self {
+        self.decay_rate = rate;
+        self
+    }
+
+    pub fn adjust_trust(&mut self, reason: TrustAdjustmentReason, now: i64) -> TrustAdjustment {
+        self.adjust_trust_with_delta(reason.default_impact(), reason, now)
+    }
+
+    pub fn adjust_trust_with_delta(&mut self, delta: f64, reason: TrustAdjustmentReason, now: i64) -> TrustAdjustment {
+        let old_score = self.score;
+        self.score = (self.score + delta).clamp(0.0, 1.0);
+        self.last_activity_at = now;
+        let adj = TrustAdjustment {
+            reason,
+            delta,
+            timestamp: now,
+            old_score,
+            new_score: self.score,
+        };
+        self.history.push(adj.clone());
+        adj
+    }
+
+    pub fn apply_trust_decay(&mut self, now: i64) -> f64 {
+        if self.last_activity_at == 0 {
+            return self.score;
+        }
+        let hours = (now - self.last_activity_at) as f64 / 3_600_000.0;
+        if hours <= 0.0 {
+            return self.score;
+        }
+        let decayed = self.score * (-self.decay_rate * hours).exp();
+        self.score = decayed.clamp(0.0, 1.0);
+        self.score
+    }
+
+    pub fn trust_history(&self) -> &[TrustAdjustment] {
+        &self.history
+    }
+
+    pub fn trust_trend(&self) -> TrustTrend {
+        if self.history.len() < 2 {
+            return TrustTrend::Stable;
+        }
+        let mid = self.history.len() / 2;
+        let first_half_avg: f64 = self.history[..mid].iter().map(|a| a.new_score).sum::<f64>() / mid as f64;
+        let second_half_avg: f64 = self.history[mid..].iter().map(|a| a.new_score).sum::<f64>() / (self.history.len() - mid) as f64;
+        let diff = second_half_avg - first_half_avg;
+        if diff > 0.02 {
+            TrustTrend::Improving
+        } else if diff < -0.02 {
+            TrustTrend::Degrading
+        } else {
+            TrustTrend::Stable
+        }
+    }
+
+    pub fn level(&self) -> TrustLevel {
+        TrustLevel::from_score(self.score)
+    }
+}
+
+pub fn required_trust_level(operation: &str) -> TrustLevel {
+    match operation {
+        "read" => TrustLevel::Low,
+        "write" => TrustLevel::Medium,
+        "admin" => TrustLevel::High,
+        "critical" => TrustLevel::Full,
+        _ => TrustLevel::Medium,
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -462,5 +615,102 @@ mod tests {
         let calc = TrustCalculator::new();
         let score = calc.calculate(&[]);
         assert_eq!(score.score, 0.0);
+    }
+
+    // ── Part 3: Enhanced Trust Scoring Tests ─────────────────────────
+
+    #[test]
+    fn test_trust_adjustment_successful_auth() {
+        let mut mgr = TrustScoreManager::new(0.5);
+        let adj = mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 1000);
+        assert!(adj.new_score > adj.old_score);
+        assert!((adj.delta - 0.05).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_trust_adjustment_suspicious_activity() {
+        let mut mgr = TrustScoreManager::new(0.8);
+        let adj = mgr.adjust_trust(TrustAdjustmentReason::SuspiciousActivity, 1000);
+        assert!(adj.new_score < adj.old_score);
+        assert!((adj.delta - (-0.20)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_trust_adjustment_clamped_to_bounds() {
+        let mut mgr = TrustScoreManager::new(0.05);
+        mgr.adjust_trust(TrustAdjustmentReason::SuspiciousActivity, 1000);
+        assert!(mgr.score >= 0.0);
+
+        let mut mgr2 = TrustScoreManager::new(0.95);
+        mgr2.adjust_trust(TrustAdjustmentReason::MfaVerified, 1000);
+        assert!(mgr2.score <= 1.0);
+    }
+
+    #[test]
+    fn test_trust_history_records_adjustments() {
+        let mut mgr = TrustScoreManager::new(0.5);
+        mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 1000);
+        mgr.adjust_trust(TrustAdjustmentReason::FailedAuthentication, 2000);
+        assert_eq!(mgr.trust_history().len(), 2);
+    }
+
+    #[test]
+    fn test_trust_trend_improving() {
+        let mut mgr = TrustScoreManager::new(0.3);
+        mgr.adjust_trust(TrustAdjustmentReason::FailedAuthentication, 1000);
+        mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 2000);
+        mgr.adjust_trust(TrustAdjustmentReason::MfaVerified, 3000);
+        mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 4000);
+        assert_eq!(mgr.trust_trend(), TrustTrend::Improving);
+    }
+
+    #[test]
+    fn test_trust_trend_degrading() {
+        let mut mgr = TrustScoreManager::new(0.8);
+        mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 1000);
+        mgr.adjust_trust(TrustAdjustmentReason::SuccessfulAuthentication, 2000);
+        mgr.adjust_trust(TrustAdjustmentReason::SuspiciousActivity, 3000);
+        mgr.adjust_trust(TrustAdjustmentReason::FailedAuthentication, 4000);
+        assert_eq!(mgr.trust_trend(), TrustTrend::Degrading);
+    }
+
+    #[test]
+    fn test_trust_decay_exponential() {
+        let mut mgr = TrustScoreManager::new(0.8).with_decay_rate(0.1);
+        mgr.last_activity_at = 1000; // some past time
+        let decayed = mgr.apply_trust_decay(1000 + 10 * 3_600_000); // 10 hours later
+        // 0.8 * e^(-0.1 * 10) = 0.8 * e^(-1) ≈ 0.294
+        assert!(decayed < 0.4);
+        assert!(decayed > 0.2);
+    }
+
+    #[test]
+    fn test_trust_decay_no_activity() {
+        let mut mgr = TrustScoreManager::new(0.8);
+        // last_activity_at == 0, no decay applied
+        let decayed = mgr.apply_trust_decay(10_000);
+        assert!((decayed - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_required_trust_level_mapping() {
+        assert_eq!(required_trust_level("read"), TrustLevel::Low);
+        assert_eq!(required_trust_level("write"), TrustLevel::Medium);
+        assert_eq!(required_trust_level("admin"), TrustLevel::High);
+        assert_eq!(required_trust_level("critical"), TrustLevel::Full);
+        assert_eq!(required_trust_level("unknown"), TrustLevel::Medium);
+    }
+
+    #[test]
+    fn test_trust_score_manager_level() {
+        let mgr = TrustScoreManager::new(0.85);
+        assert_eq!(mgr.level(), TrustLevel::Full);
+    }
+
+    #[test]
+    fn test_trust_adjustment_reason_default_impacts() {
+        assert!(TrustAdjustmentReason::MfaVerified.default_impact() > 0.0);
+        assert!(TrustAdjustmentReason::SuspiciousActivity.default_impact() < 0.0);
+        assert!((TrustAdjustmentReason::ManualAdjustment.default_impact()).abs() < 0.001);
     }
 }

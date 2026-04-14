@@ -10,6 +10,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::identity::IdentityId;
 use crate::trust::TrustLevel;
 
 // ── OidcClaims ────────────────────────────────────────────────────────
@@ -89,6 +90,101 @@ pub struct FederationProvider {
     pub issuer_url: String,
     pub trust_level: TrustLevel,
     pub active: bool,
+}
+
+// ── FederatedIdentity (Layer 2) ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FederatedIdentity {
+    pub local_identity_id: IdentityId,
+    pub provider: String,
+    pub external_id: String,
+    pub linked_at: i64,
+    pub last_synced_at: i64,
+    pub trust_modifier: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FederatedIdentityStore {
+    identities: Vec<FederatedIdentity>,
+}
+
+impl FederatedIdentityStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn link(
+        &mut self,
+        local_identity_id: IdentityId,
+        provider: &str,
+        external_id: &str,
+        now: i64,
+        trust_modifier: f64,
+    ) -> &FederatedIdentity {
+        self.identities.push(FederatedIdentity {
+            local_identity_id,
+            provider: provider.to_string(),
+            external_id: external_id.to_string(),
+            linked_at: now,
+            last_synced_at: now,
+            trust_modifier,
+        });
+        self.identities.last().unwrap()
+    }
+
+    pub fn unlink(&mut self, provider: &str, external_id: &str) -> bool {
+        let len_before = self.identities.len();
+        self.identities.retain(|fi| !(fi.provider == provider && fi.external_id == external_id));
+        self.identities.len() < len_before
+    }
+
+    pub fn find_by_external_id(&self, provider: &str, external_id: &str) -> Option<&FederatedIdentity> {
+        self.identities.iter().find(|fi| fi.provider == provider && fi.external_id == external_id)
+    }
+
+    pub fn identities_for(&self, local_id: &IdentityId) -> Vec<&FederatedIdentity> {
+        self.identities.iter().filter(|fi| &fi.local_identity_id == local_id).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.identities.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.identities.is_empty()
+    }
+}
+
+// ── FederationTrustPolicy (Layer 2) ─────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct FederationTrustPolicy {
+    pub trusted_providers: HashMap<String, TrustLevel>,
+}
+
+impl FederationTrustPolicy {
+    pub fn new() -> Self {
+        Self { trusted_providers: HashMap::new() }
+    }
+
+    pub fn add_trusted_provider(&mut self, provider: &str, trust_level: TrustLevel) {
+        self.trusted_providers.insert(provider.to_string(), trust_level);
+    }
+
+    pub fn is_trusted(&self, provider: &str) -> bool {
+        self.trusted_providers.contains_key(provider)
+    }
+
+    pub fn trust_level_for(&self, provider: &str) -> Option<&TrustLevel> {
+        self.trusted_providers.get(provider)
+    }
+}
+
+impl Default for FederationTrustPolicy {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -187,5 +283,71 @@ mod tests {
         assert_eq!(FederationProtocol::Oidc.to_string(), "OIDC");
         assert_eq!(FederationProtocol::Saml2.to_string(), "SAML 2.0");
         assert_eq!(FederationProtocol::Custom("LDAP".into()).to_string(), "Custom(LDAP)");
+    }
+
+    // ── Part 6: Identity Federation Tests ────────────────────────────
+
+    #[test]
+    fn test_federated_identity_link() {
+        let mut store = FederatedIdentityStore::new();
+        let fi = store.link(
+            IdentityId::new("user:alice"), "okta", "ext-123", 1000, 0.1,
+        );
+        assert_eq!(fi.provider, "okta");
+        assert_eq!(fi.external_id, "ext-123");
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn test_federated_identity_unlink() {
+        let mut store = FederatedIdentityStore::new();
+        store.link(IdentityId::new("user:alice"), "okta", "ext-123", 1000, 0.1);
+        assert!(store.unlink("okta", "ext-123"));
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn test_federated_identity_unlink_nonexistent() {
+        let mut store = FederatedIdentityStore::new();
+        assert!(!store.unlink("okta", "nonexistent"));
+    }
+
+    #[test]
+    fn test_federated_identity_find_by_external_id() {
+        let mut store = FederatedIdentityStore::new();
+        store.link(IdentityId::new("user:alice"), "okta", "ext-123", 1000, 0.1);
+        store.link(IdentityId::new("user:bob"), "google", "ext-456", 2000, 0.05);
+        let found = store.find_by_external_id("okta", "ext-123").unwrap();
+        assert_eq!(found.local_identity_id.as_str(), "user:alice");
+        assert!(store.find_by_external_id("okta", "ext-999").is_none());
+    }
+
+    #[test]
+    fn test_federated_identity_identities_for() {
+        let mut store = FederatedIdentityStore::new();
+        let id = IdentityId::new("user:alice");
+        store.link(id.clone(), "okta", "ext-1", 1000, 0.1);
+        store.link(id.clone(), "google", "ext-2", 2000, 0.05);
+        store.link(IdentityId::new("user:bob"), "okta", "ext-3", 3000, 0.1);
+        assert_eq!(store.identities_for(&id).len(), 2);
+    }
+
+    #[test]
+    fn test_federation_trust_policy() {
+        let mut policy = FederationTrustPolicy::new();
+        policy.add_trusted_provider("okta", TrustLevel::High);
+        policy.add_trusted_provider("google", TrustLevel::Medium);
+        assert!(policy.is_trusted("okta"));
+        assert!(!policy.is_trusted("unknown"));
+        assert_eq!(policy.trust_level_for("okta"), Some(&TrustLevel::High));
+    }
+
+    #[test]
+    fn test_federated_identity_trust_modifier() {
+        let mut store = FederatedIdentityStore::new();
+        let fi = store.link(
+            IdentityId::new("user:alice"), "okta", "ext-123", 1000, 0.15,
+        );
+        assert!((fi.trust_modifier - 0.15).abs() < 0.001);
     }
 }

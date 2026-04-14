@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
 
 use crate::authn::AuthnResult;
 use crate::error::IdentityError;
@@ -134,11 +136,65 @@ pub struct SessionValidation {
 
 // ── SessionManager ────────────────────────────────────────────────────
 
+// ── SessionFingerprint (Layer 2) ─────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionFingerprint {
+    pub ip_hash: String,
+    pub ua_hash: String,
+}
+
+impl SessionFingerprint {
+    pub fn new(ip: &str, user_agent: &str) -> Self {
+        Self {
+            ip_hash: sha3_hash(ip),
+            ua_hash: sha3_hash(user_agent),
+        }
+    }
+
+    pub fn matches(&self, ip: &str, user_agent: &str) -> bool {
+        sha3_hash(ip) == self.ip_hash && sha3_hash(user_agent) == self.ua_hash
+    }
+
+    pub fn matches_ip(&self, ip: &str) -> bool {
+        sha3_hash(ip) == self.ip_hash
+    }
+}
+
+fn sha3_hash(input: &str) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(input.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn generate_session_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    format!("idt_{}", hex::encode(bytes))
+}
+
+fn hash_session_token(token: &str) -> String {
+    sha3_hash(token)
+}
+
+// ── SessionManager ────────────────────────────────────────────────────
+
 pub struct SessionManager {
-    sessions: HashMap<SessionId, Session>,
-    identity_sessions: HashMap<IdentityId, Vec<SessionId>>,
+    sessions: HashMap<String, Session>,  // keyed by token hash
+    identity_sessions: HashMap<IdentityId, Vec<String>>,  // token hashes
     config: SessionConfig,
     next_id: u64,
+    fingerprints: HashMap<String, SessionFingerprint>,  // token_hash -> fingerprint
+}
+
+fn session_key(id: &SessionId) -> String {
+    let raw = id.as_str();
+    if raw.starts_with("idt_") {
+        hash_session_token(raw)
+    } else {
+        // Legacy counter-based IDs — use as-is for backward compat
+        raw.to_string()
+    }
 }
 
 impl SessionManager {
@@ -148,6 +204,7 @@ impl SessionManager {
             identity_sessions: HashMap::new(),
             config,
             next_id: 1,
+            fingerprints: HashMap::new(),
         }
     }
 
@@ -171,11 +228,14 @@ impl SessionManager {
             _ => return Err(IdentityError::InvalidOperation("cannot create session from failed auth".into())),
         };
 
-        let session_id = SessionId::new(format!("sess-{}", self.next_id));
+        // Layer 2: crypto random token with idt_ prefix
+        let raw_token = generate_session_token();
+        let token_hash = hash_session_token(&raw_token);
+        let session_id = SessionId::new(&raw_token);
         self.next_id += 1;
 
         let session = Session {
-            id: session_id.clone(),
+            id: session_id,
             identity_id: identity_id.clone(),
             authenticated_at: now,
             last_activity_at: now,
@@ -189,18 +249,20 @@ impl SessionManager {
             metadata: HashMap::new(),
         };
 
-        self.sessions.insert(session_id.clone(), session.clone());
-        self.identity_sessions.entry(identity_id).or_default().push(session_id);
+        self.sessions.insert(token_hash.clone(), session.clone());
+        self.identity_sessions.entry(identity_id).or_default().push(token_hash);
 
         Ok(session)
     }
 
     pub fn get_session(&self, id: &SessionId) -> Option<&Session> {
-        self.sessions.get(id)
+        let key = session_key(id);
+        self.sessions.get(&key)
     }
 
     pub fn validate_session(&self, id: &SessionId, now: i64) -> SessionValidation {
-        let session = match self.sessions.get(id) {
+        let key = session_key(id);
+        let session = match self.sessions.get(&key) {
             Some(s) => s,
             None => return SessionValidation {
                 valid: false,
@@ -260,28 +322,30 @@ impl SessionManager {
     }
 
     pub fn touch(&mut self, id: &SessionId, now: i64) -> Result<(), IdentityError> {
-        let session = self.sessions.get_mut(id)
+        let key = session_key(id);
+        let session = self.sessions.get_mut(&key)
             .ok_or_else(|| IdentityError::SessionNotFound(id.clone()))?;
         session.last_activity_at = now;
         Ok(())
     }
 
     pub fn revoke_session(&mut self, id: &SessionId, reason: &str) -> Result<(), IdentityError> {
-        let session = self.sessions.get_mut(id)
+        let key = session_key(id);
+        let session = self.sessions.get_mut(&key)
             .ok_or_else(|| IdentityError::SessionNotFound(id.clone()))?;
         session.status = SessionStatus::Revoked { reason: reason.into() };
         Ok(())
     }
 
     pub fn revoke_all_sessions(&mut self, identity_id: &IdentityId, reason: &str) -> usize {
-        let session_ids: Vec<SessionId> = self.identity_sessions
+        let hashes: Vec<String> = self.identity_sessions
             .get(identity_id)
             .cloned()
             .unwrap_or_default();
 
         let mut count = 0;
-        for sid in &session_ids {
-            if let Some(session) = self.sessions.get_mut(sid) {
+        for h in &hashes {
+            if let Some(session) = self.sessions.get_mut(h) {
                 if session.status == SessionStatus::Active {
                     session.status = SessionStatus::Revoked { reason: reason.into() };
                     count += 1;
@@ -293,9 +357,9 @@ impl SessionManager {
 
     pub fn active_sessions(&self, identity_id: &IdentityId) -> Vec<&Session> {
         self.identity_sessions.get(identity_id)
-            .map(|ids| {
-                ids.iter()
-                    .filter_map(|id| self.sessions.get(id))
+            .map(|hashes| {
+                hashes.iter()
+                    .filter_map(|h| self.sessions.get(h))
                     .filter(|s| s.status == SessionStatus::Active)
                     .collect()
             })
@@ -307,14 +371,14 @@ impl SessionManager {
     }
 
     pub fn cleanup_expired(&mut self, now: i64) -> usize {
-        let expired_ids: Vec<SessionId> = self.sessions.iter()
+        let expired_keys: Vec<String> = self.sessions.iter()
             .filter(|(_, s)| s.status == SessionStatus::Active && now >= s.expires_at)
-            .map(|(id, _)| id.clone())
+            .map(|(key, _)| key.clone())
             .collect();
 
-        let count = expired_ids.len();
-        for id in &expired_ids {
-            if let Some(session) = self.sessions.get_mut(id) {
+        let count = expired_keys.len();
+        for key in &expired_keys {
+            if let Some(session) = self.sessions.get_mut(key) {
                 session.status = SessionStatus::Expired;
             }
         }
@@ -325,7 +389,8 @@ impl SessionManager {
         if !self.config.renewal_allowed {
             return Err(IdentityError::InvalidOperation("session renewal not allowed".into()));
         }
-        let session = self.sessions.get_mut(id)
+        let key = session_key(id);
+        let session = self.sessions.get_mut(&key)
             .ok_or_else(|| IdentityError::SessionNotFound(id.clone()))?;
         if session.status != SessionStatus::Active {
             return Err(IdentityError::SessionRevoked(id.clone()));
@@ -336,6 +401,63 @@ impl SessionManager {
         session.expires_at = now + self.config.max_duration_ms;
         session.last_activity_at = now;
         Ok(())
+    }
+
+    // ── Layer 2: Session Security Controls ──────────────────────────
+
+    pub fn concurrent_session_count(&self, identity_id: &IdentityId) -> usize {
+        self.active_session_count(identity_id)
+    }
+
+    pub fn revoke_oldest_sessions(&mut self, identity_id: &IdentityId, keep: usize, reason: &str) -> usize {
+        let mut active: Vec<(String, i64)> = self.identity_sessions
+            .get(identity_id)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|h| {
+                self.sessions.get(&h).and_then(|s| {
+                    if s.status == SessionStatus::Active {
+                        Some((h, s.authenticated_at))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        // Sort by authenticated_at ascending (oldest first)
+        active.sort_by_key(|(_, t)| *t);
+
+        let to_revoke = active.len().saturating_sub(keep);
+        let mut count = 0;
+        for (h, _) in active.iter().take(to_revoke) {
+            if let Some(session) = self.sessions.get_mut(h) {
+                session.status = SessionStatus::Revoked { reason: reason.into() };
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn sessions_by_identity(&self, identity_id: &IdentityId) -> Vec<&Session> {
+        self.identity_sessions.get(identity_id)
+            .map(|hashes| {
+                hashes.iter()
+                    .filter_map(|h| self.sessions.get(h))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn set_fingerprint(&mut self, id: &SessionId, fingerprint: SessionFingerprint) {
+        let key = session_key(id);
+        self.fingerprints.insert(key, fingerprint);
+    }
+
+    pub fn validate_fingerprint(&self, id: &SessionId, ip: &str, user_agent: &str) -> bool {
+        let key = session_key(id);
+        self.fingerprints.get(&key).is_some_and(|fp| fp.matches(ip, user_agent))
     }
 }
 
@@ -519,5 +641,151 @@ mod tests {
         assert!(validation.valid);
         assert!(validation.current_trust_score < 0.8);
         assert!(validation.current_trust_score > 0.7);
+    }
+
+    // ── Part 2: Cryptographic Session Token Tests ────────────────────
+
+    #[test]
+    fn test_session_token_has_idt_prefix() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let session = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        assert!(session.id.as_str().starts_with("idt_"));
+    }
+
+    #[test]
+    fn test_session_token_is_68_chars() {
+        // "idt_" (4) + 64 hex chars = 68
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let session = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        assert_eq!(session.id.as_str().len(), 68);
+    }
+
+    #[test]
+    fn test_session_tokens_are_unique() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let s1 = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        let s2 = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1001,
+        ).unwrap();
+        assert_ne!(s1.id.as_str(), s2.id.as_str());
+    }
+
+    #[test]
+    fn test_session_stored_by_hash_not_raw_token() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let session = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        // Internal storage key should be the hash, not the raw token
+        let raw = session.id.as_str();
+        assert!(!mgr.sessions.contains_key(raw));
+        let hashed = hash_session_token(raw);
+        assert!(mgr.sessions.contains_key(&hashed));
+    }
+
+    #[test]
+    fn test_session_lookup_by_raw_token() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let session = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        // get_session should work with the raw token
+        let found = mgr.get_session(&session.id);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().identity_id.as_str(), "user:alice");
+    }
+
+    #[test]
+    fn test_session_fingerprint_creation() {
+        let fp = SessionFingerprint::new("192.168.1.1", "Mozilla/5.0");
+        assert_eq!(fp.ip_hash.len(), 64);
+        assert_eq!(fp.ua_hash.len(), 64);
+        // Never stores raw values
+        assert_ne!(fp.ip_hash, "192.168.1.1");
+    }
+
+    #[test]
+    fn test_session_fingerprint_matches() {
+        let fp = SessionFingerprint::new("10.0.0.1", "Chrome/100");
+        assert!(fp.matches("10.0.0.1", "Chrome/100"));
+        assert!(!fp.matches("10.0.0.2", "Chrome/100"));
+        assert!(!fp.matches("10.0.0.1", "Firefox/99"));
+    }
+
+    #[test]
+    fn test_session_fingerprint_matches_ip() {
+        let fp = SessionFingerprint::new("10.0.0.1", "Chrome/100");
+        assert!(fp.matches_ip("10.0.0.1"));
+        assert!(!fp.matches_ip("10.0.0.2"));
+    }
+
+    #[test]
+    fn test_session_set_and_validate_fingerprint() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let session = mgr.create_session(
+            IdentityId::new("user:alice"),
+            &success_result("user:alice"),
+            1000,
+        ).unwrap();
+        mgr.set_fingerprint(&session.id, SessionFingerprint::new("1.2.3.4", "UA"));
+        assert!(mgr.validate_fingerprint(&session.id, "1.2.3.4", "UA"));
+        assert!(!mgr.validate_fingerprint(&session.id, "5.6.7.8", "UA"));
+    }
+
+    #[test]
+    fn test_concurrent_session_count() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let id = IdentityId::new("user:alice");
+        mgr.create_session(id.clone(), &success_result("user:alice"), 1000).unwrap();
+        mgr.create_session(id.clone(), &success_result("user:alice"), 1001).unwrap();
+        assert_eq!(mgr.concurrent_session_count(&id), 2);
+    }
+
+    #[test]
+    fn test_revoke_oldest_sessions() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let id = IdentityId::new("user:alice");
+        mgr.create_session(id.clone(), &success_result("user:alice"), 1000).unwrap();
+        mgr.create_session(id.clone(), &success_result("user:alice"), 2000).unwrap();
+        mgr.create_session(id.clone(), &success_result("user:alice"), 3000).unwrap();
+        let revoked = mgr.revoke_oldest_sessions(&id, 1, "too many sessions");
+        assert_eq!(revoked, 2);
+        assert_eq!(mgr.active_session_count(&id), 1);
+    }
+
+    #[test]
+    fn test_sessions_by_identity() {
+        let mut mgr = SessionManager::new(SessionConfig::default());
+        let id = IdentityId::new("user:alice");
+        mgr.create_session(id.clone(), &success_result("user:alice"), 1000).unwrap();
+        mgr.create_session(id.clone(), &success_result("user:alice"), 2000).unwrap();
+        let sessions = mgr.sessions_by_identity(&id);
+        assert_eq!(sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_session_fingerprint_mismatch_different_ip() {
+        let fp = SessionFingerprint::new("192.168.1.1", "Chrome/120");
+        let fp2 = SessionFingerprint::new("10.0.0.1", "Chrome/120");
+        assert_ne!(fp.ip_hash, fp2.ip_hash);
+        assert_eq!(fp.ua_hash, fp2.ua_hash);
     }
 }

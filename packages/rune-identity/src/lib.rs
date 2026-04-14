@@ -27,17 +27,39 @@ pub use identity_type::{
 };
 pub use credential::{
     Credential, CredentialId, CredentialStatus, CredentialStore, CredentialType, TokenType,
+    // Layer 2
+    HashedCredential, CredentialStrengthResult, CredentialHistory,
+    verify_credential, validate_credential_strength, validate_credential_strength_with_username,
 };
 pub use authn::{
     AuthnFailureReason, AuthnMethod, AuthnRequest, AuthnResult, Authenticator, MfaMethod,
+    // Layer 2
+    TotpConfig, BackupCodeSet, MfaPolicy,
+    generate_totp_code, verify_totp_code,
 };
-pub use session::{Session, SessionConfig, SessionId, SessionManager, SessionStatus, SessionValidation};
+pub use session::{
+    Session, SessionConfig, SessionId, SessionManager, SessionStatus, SessionValidation,
+    // Layer 2
+    SessionFingerprint,
+};
 pub use trust::{
     TrustCalculator, TrustEvaluation, TrustFactor, TrustFactorType, TrustLevel, TrustPolicy,
     TrustScore,
+    // Layer 2
+    TrustAdjustment, TrustAdjustmentReason, TrustScoreManager, TrustTrend,
+    required_trust_level,
 };
-pub use attestation::{AttestationChain, AttestationType, IdentityAttestation};
+pub use attestation::{
+    AttestationChain, AttestationType, IdentityAttestation,
+    // Layer 2
+    ChainVerificationResult, ChainAnchor,
+    verify_attestation_chain, anchor_chain,
+};
 pub use claims::{Claim, ClaimSet, ClaimType};
-pub use federation::{FederationProtocol, FederationProvider, OidcClaims, SamlAssertion};
+pub use federation::{
+    FederationProtocol, FederationProvider, OidcClaims, SamlAssertion,
+    // Layer 2
+    FederatedIdentity, FederatedIdentityStore, FederationTrustPolicy,
+};
 pub use audit::{IdentityAuditEvent, IdentityAuditLog, IdentityEventType};
 pub use error::IdentityError;
