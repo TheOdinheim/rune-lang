@@ -312,6 +312,17 @@ impl RoleHierarchy {
         result
     }
 
+    pub fn all_roles(&self) -> Vec<&Role> {
+        self.roles.values().collect()
+    }
+
+    pub fn replace_roles(&mut self, roles: Vec<Role>) {
+        self.roles.clear();
+        for role in roles {
+            self.roles.insert(role.id.clone(), role);
+        }
+    }
+
     pub fn has_cycle(&self) -> bool {
         for id in self.roles.keys() {
             if self.detect_cycle_from(id) {

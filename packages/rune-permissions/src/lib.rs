@@ -40,4 +40,11 @@ pub use grant::{Grant, GrantId, GrantStore};
 pub use context::EvalContext;
 pub use decision::{AccessDecision, DetailedAccessDecision, EvaluationStep, FailedCheck, NearestMiss};
 pub use error::PermissionError;
-pub use store::{PermissionEvent, PermissionEventType, PermissionStore};
+pub use store::{
+    BulkGrantResult, CascadeResult, DelegationNode, EffectivePermission,
+    EvaluationCache, EvaluationStats, GrantIndex, GrantRequest, LeastPrivilegeReport,
+    PermissionEvent, PermissionEventType, PermissionSnapshot, PermissionSource,
+    PermissionStore, RestoreResult, RoleComparison, RoleConflict, RoleConflictType,
+    SimulationResult, SimulationRisk, SodCheckResult, SodEnforcement, SodPolicy,
+    SodViolation, TemporalDelegation,
+};

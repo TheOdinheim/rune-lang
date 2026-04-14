@@ -361,3 +361,7 @@ cargo test --workspace
 | Assumed Breach | Session tokens stored as hashes prevent stolen-DB replay; SessionFingerprint detects session hijacking; credential history prevents reuse |
 | No Single Points of Failure | Federation supports multiple identity providers; trust scoring combines multiple adjustment signals |
 | Zero Trust Throughout | Cryptographic session tokens resist guessing; exponential trust decay requires continuous verification; attestation chain verification with detailed break detection |
+
+---
+
+> Continued in [BUILD_LOG_14.md](BUILD_LOG_14.md)

@@ -382,6 +382,32 @@ impl RbacEngine {
         self.check_access(&request).is_allowed()
     }
 
+    // ── Layer 2: Accessors for snapshot/restore ─────────────────
+
+    pub fn all_assignments(&self) -> &[RoleAssignment] {
+        &self.assignments
+    }
+
+    pub fn replace_assignments(&mut self, assignments: Vec<RoleAssignment>) {
+        self.assignments = assignments;
+    }
+
+    pub fn hierarchy(&self) -> &RoleHierarchy {
+        &self.hierarchy
+    }
+
+    pub fn hierarchy_mut(&mut self) -> &mut RoleHierarchy {
+        &mut self.hierarchy
+    }
+
+    pub fn all_permissions(&self) -> &HashMap<PermissionId, Permission> {
+        &self.permissions
+    }
+
+    pub fn replace_permissions(&mut self, permissions: HashMap<PermissionId, Permission>) {
+        self.permissions = permissions;
+    }
+
     pub fn effective_permissions_for_subject(&self, subject_id: &SubjectId) -> Vec<&Permission> {
         let mut perm_ids = std::collections::HashSet::new();
         for assignment in self.active_roles(subject_id) {

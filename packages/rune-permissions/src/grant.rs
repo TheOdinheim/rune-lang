@@ -177,6 +177,14 @@ impl GrantStore {
         Err(PermissionError::GrantNotFound(grant_id.clone()))
     }
 
+    pub fn all_grants(&self) -> &[Grant] {
+        &self.grants
+    }
+
+    pub fn replace_grants(&mut self, grants: Vec<Grant>) {
+        self.grants = grants;
+    }
+
     pub fn cleanup_expired(&mut self, now: i64) -> usize {
         let mut count = 0;
         for grant in &mut self.grants {
