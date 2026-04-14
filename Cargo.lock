@@ -1566,6 +1566,7 @@ name = "rune-audit-ext"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hmac",
  "rune-lang",
  "rune-security",
  "serde",

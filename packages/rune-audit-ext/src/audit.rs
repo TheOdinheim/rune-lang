@@ -21,6 +21,13 @@ pub enum AuditExtEventType {
     CorrelationRun { chains_found: usize },
     ChainVerified { status: String },
     TimelineGenerated { entry_count: usize },
+    ChainAuthenticated { event_count: usize, algorithm: String },
+    StorageCompacted { before_count: usize, after_count: usize },
+    IndexRebuilt { indexed_events: usize },
+    EventEnriched { event_id: String, enrichments_applied: usize },
+    ArchiveCompleted { archived_count: usize, policy: String },
+    RetentionValidated { policy_count: usize, issues: usize },
+    ExportValidated { format: String, event_count: usize, valid: bool },
 }
 
 impl fmt::Display for AuditExtEventType {
@@ -48,6 +55,27 @@ impl fmt::Display for AuditExtEventType {
             Self::TimelineGenerated { entry_count } => {
                 write!(f, "timeline-generated:{entry_count} entries")
             }
+            Self::ChainAuthenticated { event_count, algorithm } => {
+                write!(f, "chain-authenticated:{event_count} events via {algorithm}")
+            }
+            Self::StorageCompacted { before_count, after_count } => {
+                write!(f, "storage-compacted:{before_count}->{after_count}")
+            }
+            Self::IndexRebuilt { indexed_events } => {
+                write!(f, "index-rebuilt:{indexed_events} events")
+            }
+            Self::EventEnriched { event_id, enrichments_applied } => {
+                write!(f, "event-enriched:{event_id} ({enrichments_applied} enrichments)")
+            }
+            Self::ArchiveCompleted { archived_count, policy } => {
+                write!(f, "archive-completed:{archived_count} events ({policy})")
+            }
+            Self::RetentionValidated { policy_count, issues } => {
+                write!(f, "retention-validated:{policy_count} policies ({issues} issues)")
+            }
+            Self::ExportValidated { format, event_count, valid } => {
+                write!(f, "export-validated:{format} ({event_count} events, valid={valid})")
+            }
         }
     }
 }
@@ -63,6 +91,13 @@ impl AuditExtEventType {
             Self::CorrelationRun { .. } => "correlation-run",
             Self::ChainVerified { .. } => "chain-verified",
             Self::TimelineGenerated { .. } => "timeline-generated",
+            Self::ChainAuthenticated { .. } => "chain-authenticated",
+            Self::StorageCompacted { .. } => "storage-compacted",
+            Self::IndexRebuilt { .. } => "index-rebuilt",
+            Self::EventEnriched { .. } => "event-enriched",
+            Self::ArchiveCompleted { .. } => "archive-completed",
+            Self::RetentionValidated { .. } => "retention-validated",
+            Self::ExportValidated { .. } => "export-validated",
         }
     }
 }
@@ -208,12 +243,19 @@ mod tests {
             AuditExtEventType::CorrelationRun { chains_found: 3 },
             AuditExtEventType::ChainVerified { status: "valid".into() },
             AuditExtEventType::TimelineGenerated { entry_count: 20 },
+            AuditExtEventType::ChainAuthenticated { event_count: 10, algorithm: "HMAC-SHA3-256".into() },
+            AuditExtEventType::StorageCompacted { before_count: 100, after_count: 80 },
+            AuditExtEventType::IndexRebuilt { indexed_events: 50 },
+            AuditExtEventType::EventEnriched { event_id: "e2".into(), enrichments_applied: 3 },
+            AuditExtEventType::ArchiveCompleted { archived_count: 25, policy: "p1".into() },
+            AuditExtEventType::RetentionValidated { policy_count: 3, issues: 1 },
+            AuditExtEventType::ExportValidated { format: "cef".into(), event_count: 50, valid: true },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
             assert!(!t.type_name().is_empty());
         }
-        assert_eq!(types.len(), 8);
+        assert_eq!(types.len(), 15);
     }
 
     #[test]
@@ -233,5 +275,46 @@ mod tests {
         ));
         assert_eq!(log.events_by_type("retention-applied").len(), 1);
         assert_eq!(log.events_by_type("correlation-run").len(), 1);
+    }
+
+    #[test]
+    fn test_new_layer2_event_types() {
+        let mut log = AuditExtLog::new();
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::ChainAuthenticated { event_count: 10, algorithm: "HMAC-SHA3-256".into() },
+            "system", 1000, "authenticated",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::StorageCompacted { before_count: 100, after_count: 80 },
+            "system", 2000, "compacted",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::IndexRebuilt { indexed_events: 50 },
+            "system", 3000, "rebuilt",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::EventEnriched { event_id: "e1".into(), enrichments_applied: 3 },
+            "system", 4000, "enriched",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::ArchiveCompleted { archived_count: 25, policy: "p1".into() },
+            "system", 5000, "archived",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::RetentionValidated { policy_count: 3, issues: 1 },
+            "system", 6000, "validated",
+        ));
+        log.record(AuditExtAuditEvent::new(
+            AuditExtEventType::ExportValidated { format: "cef".into(), event_count: 50, valid: true },
+            "system", 7000, "export-validated",
+        ));
+        assert_eq!(log.count(), 7);
+        assert_eq!(log.events_by_type("chain-authenticated").len(), 1);
+        assert_eq!(log.events_by_type("storage-compacted").len(), 1);
+        assert_eq!(log.events_by_type("index-rebuilt").len(), 1);
+        assert_eq!(log.events_by_type("event-enriched").len(), 1);
+        assert_eq!(log.events_by_type("archive-completed").len(), 1);
+        assert_eq!(log.events_by_type("retention-validated").len(), 1);
+        assert_eq!(log.events_by_type("export-validated").len(), 1);
     }
 }

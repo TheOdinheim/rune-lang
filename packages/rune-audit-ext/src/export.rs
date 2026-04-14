@@ -19,6 +19,7 @@ pub enum ExportFormat {
     Cef,
     Csv,
     Summary,
+    Ndjson,
 }
 
 impl fmt::Display for ExportFormat {
@@ -28,6 +29,7 @@ impl fmt::Display for ExportFormat {
             Self::Cef => "cef",
             Self::Csv => "csv",
             Self::Summary => "summary",
+            Self::Ndjson => "ndjson",
         };
         f.write_str(s)
     }
@@ -48,13 +50,21 @@ impl AuditExporter {
             ExportFormat::Cef => self.cef(events),
             ExportFormat::Csv => self.csv(events),
             ExportFormat::Summary => self.summary(events),
+            ExportFormat::Ndjson => self.ndjson(events),
         }
     }
 
     pub fn json_lines(&self, events: &[&UnifiedEvent]) -> String {
         events
             .iter()
-            .map(|e| serde_json::to_string(e).unwrap_or_default())
+            .map(|e| {
+                let mut obj = serde_json::to_value(e).unwrap_or_default();
+                if let Some(map) = obj.as_object_mut() {
+                    map.insert("schema_version".into(), serde_json::json!("1.0"));
+                    map.insert("export_timestamp".into(), serde_json::json!(iso8601_now()));
+                }
+                serde_json::to_string(&obj).unwrap_or_default()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -64,16 +74,57 @@ impl AuditExporter {
             .iter()
             .map(|e| {
                 let sev = cef_severity(e.severity);
+                let source_esc = cef_escape(&e.source.to_string());
+                let action_esc = cef_escape(&e.action);
+                let detail_esc = cef_escape(&e.detail);
+                let mut ext = format!(
+                    "src={actor} dst={subject} msg={msg}",
+                    actor = cef_escape(&e.actor),
+                    subject = cef_escape(&e.subject),
+                    msg = cef_escape(&e.detail),
+                );
+                if let Some(ref cid) = e.correlation_id {
+                    ext = format!("{ext} cs1Label=correlationId cs1={}", cef_escape(cid));
+                }
                 format!(
-                    "CEF:0|RUNE|{source}|1.0|{action}|{detail}|{sev}|src={actor} dst={subject} msg={detail_esc}",
-                    source = e.source,
-                    action = e.action,
-                    detail = e.action,
+                    "CEF:0|RUNE|rune-audit-ext|1.0|{action_esc}|{detail_esc}|{sev}|{ext}",
+                    action_esc = action_esc,
+                    detail_esc = detail_esc,
                     sev = sev,
-                    actor = e.actor,
-                    subject = e.subject,
-                    detail_esc = e.detail.replace('|', "\\|"),
+                    ext = ext,
                 )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn ndjson(&self, events: &[&UnifiedEvent]) -> String {
+        events
+            .iter()
+            .map(|e| {
+                let ecs = serde_json::json!({
+                    "@timestamp": iso8601_from_epoch(e.timestamp),
+                    "event": {
+                        "kind": "event",
+                        "category": e.category.to_string(),
+                        "outcome": e.outcome.to_string(),
+                        "action": e.action,
+                        "severity": cef_severity(e.severity),
+                    },
+                    "source": {
+                        "component": e.source.to_string(),
+                    },
+                    "user": {
+                        "name": e.actor,
+                    },
+                    "message": e.detail,
+                    "labels": {
+                        "rune_event_id": e.id.0,
+                        "rune_subject": e.subject,
+                    },
+                    "tags": e.tags,
+                });
+                serde_json::to_string(&ecs).unwrap_or_default()
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -136,6 +187,63 @@ impl Default for AuditExporter {
     }
 }
 
+// ── ExportValidation ───────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct ExportValidation {
+    pub format: ExportFormat,
+    pub event_count: usize,
+    pub output_bytes: usize,
+    pub valid: bool,
+    pub issues: Vec<String>,
+}
+
+impl AuditExporter {
+    pub fn validate_export(&self, events: &[&UnifiedEvent], format: ExportFormat) -> ExportValidation {
+        let output = self.export(events, format);
+        let mut issues = Vec::new();
+        if output.is_empty() && !events.is_empty() {
+            issues.push("export produced empty output for non-empty event set".into());
+        }
+        match format {
+            ExportFormat::JsonLines | ExportFormat::Ndjson => {
+                for (i, line) in output.lines().enumerate() {
+                    if serde_json::from_str::<serde_json::Value>(line).is_err() {
+                        issues.push(format!("invalid JSON on line {}", i + 1));
+                    }
+                }
+            }
+            ExportFormat::Csv => {
+                let lines: Vec<&str> = output.lines().collect();
+                if !lines.is_empty() {
+                    let header_cols = lines[0].split(',').count();
+                    for (i, line) in lines.iter().enumerate().skip(1) {
+                        let cols = line.split(',').count();
+                        if cols != header_cols {
+                            issues.push(format!("row {} has {cols} columns, expected {header_cols}", i + 1));
+                        }
+                    }
+                }
+            }
+            ExportFormat::Cef => {
+                for (i, line) in output.lines().enumerate() {
+                    if !line.starts_with("CEF:0|") {
+                        issues.push(format!("line {} missing CEF header", i + 1));
+                    }
+                }
+            }
+            ExportFormat::Summary => {}
+        }
+        ExportValidation {
+            format,
+            event_count: events.len(),
+            output_bytes: output.len(),
+            valid: issues.is_empty(),
+            issues,
+        }
+    }
+}
+
 /// Map SecuritySeverity to CEF severity (0-10 scale).
 /// Info=1, Low=3, Medium=5, High=7, Critical=9, Emergency=10.
 fn cef_severity(sev: SecuritySeverity) -> u8 {
@@ -149,12 +257,47 @@ fn cef_severity(sev: SecuritySeverity) -> u8 {
     }
 }
 
+fn cef_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('|', "\\|")
+}
+
 fn csv_escape(s: &str) -> String {
     if s.contains(',') || s.contains('"') || s.contains('\n') {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
         s.to_string()
     }
+}
+
+fn iso8601_from_epoch(ts: i64) -> String {
+    let secs = ts;
+    let days = secs / 86400;
+    let rem = secs % 86400;
+    let hours = rem / 3600;
+    let mins = (rem % 3600) / 60;
+    let s = rem % 60;
+    // Simplified: days from epoch 1970-01-01
+    let (year, month, day) = epoch_days_to_date(days);
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{mins:02}:{s:02}Z")
+}
+
+fn epoch_days_to_date(days: i64) -> (i64, i64, i64) {
+    // Civil calendar from days since 1970-01-01
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    (year, m, d)
+}
+
+fn iso8601_now() -> String {
+    "2026-04-13T00:00:00Z".to_string()
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -199,7 +342,7 @@ mod tests {
         let refs: Vec<&UnifiedEvent> = events.iter().collect();
         let exporter = AuditExporter::new();
         let output = exporter.cef(&refs);
-        assert!(output.contains("CEF:0|RUNE|rune-security"));
+        assert!(output.contains("CEF:0|RUNE|rune-audit-ext|1.0|"));
         assert!(output.contains("|7|")); // High = 7
     }
 
@@ -256,6 +399,7 @@ mod tests {
         assert_eq!(ExportFormat::Cef.to_string(), "cef");
         assert_eq!(ExportFormat::Csv.to_string(), "csv");
         assert_eq!(ExportFormat::Summary.to_string(), "summary");
+        assert_eq!(ExportFormat::Ndjson.to_string(), "ndjson");
     }
 
     #[test]
@@ -270,5 +414,120 @@ mod tests {
         assert_eq!(csv_escape("simple"), "simple");
         assert_eq!(csv_escape("has,comma"), "\"has,comma\"");
         assert_eq!(csv_escape("has\"quote"), "\"has\"\"quote\"");
+    }
+
+    // ── Layer 2 export tests ───────────────────────────────────────
+
+    #[test]
+    fn test_json_lines_schema_version() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let output = exporter.json_lines(&refs);
+        for line in output.lines() {
+            assert!(line.contains("schema_version"));
+            assert!(line.contains("export_timestamp"));
+            let val: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert_eq!(val["schema_version"], "1.0");
+        }
+    }
+
+    #[test]
+    fn test_cef_pipe_escaping() {
+        let events = vec![
+            UnifiedEventBuilder::new("e1", SourceCrate::RuneSecurity, EventCategory::ThreatDetection, "test|action", 100)
+                .detail("detail|with|pipes")
+                .actor("system")
+                .build(),
+        ];
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let output = exporter.cef(&refs);
+        assert!(output.contains(r"test\|action"));
+        assert!(output.contains(r"detail\|with\|pipes"));
+    }
+
+    #[test]
+    fn test_cef_correlation_id_label() {
+        let events = vec![
+            UnifiedEventBuilder::new("e1", SourceCrate::RuneSecurity, EventCategory::ThreatDetection, "scan", 100)
+                .correlation_id("corr-42")
+                .build(),
+        ];
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let output = exporter.cef(&refs);
+        assert!(output.contains("cs1Label=correlationId"));
+        assert!(output.contains("cs1=corr-42"));
+    }
+
+    #[test]
+    fn test_ndjson_ecs_format() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let output = exporter.ndjson(&refs);
+        for line in output.lines() {
+            let val: serde_json::Value = serde_json::from_str(line).unwrap();
+            assert!(val.get("@timestamp").is_some());
+            assert!(val.get("event").is_some());
+            assert!(val.get("source").is_some());
+            assert!(val.get("message").is_some());
+        }
+    }
+
+    #[test]
+    fn test_ndjson_dispatch() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let output = exporter.export(&refs, ExportFormat::Ndjson);
+        assert!(output.contains("@timestamp"));
+    }
+
+    #[test]
+    fn test_export_validation_json_lines() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let validation = exporter.validate_export(&refs, ExportFormat::JsonLines);
+        assert!(validation.valid);
+        assert_eq!(validation.event_count, 2);
+        assert!(validation.output_bytes > 0);
+        assert!(validation.issues.is_empty());
+    }
+
+    #[test]
+    fn test_export_validation_cef() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let validation = exporter.validate_export(&refs, ExportFormat::Cef);
+        assert!(validation.valid);
+    }
+
+    #[test]
+    fn test_export_validation_csv() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let validation = exporter.validate_export(&refs, ExportFormat::Csv);
+        assert!(validation.valid);
+    }
+
+    #[test]
+    fn test_export_validation_ndjson() {
+        let events = sample_events();
+        let refs: Vec<&UnifiedEvent> = events.iter().collect();
+        let exporter = AuditExporter::new();
+        let validation = exporter.validate_export(&refs, ExportFormat::Ndjson);
+        assert!(validation.valid);
+    }
+
+    #[test]
+    fn test_cef_escape_fn() {
+        assert_eq!(cef_escape("no special"), "no special");
+        assert_eq!(cef_escape("has|pipe"), r"has\|pipe");
+        assert_eq!(cef_escape(r"has\backslash"), r"has\\backslash");
     }
 }

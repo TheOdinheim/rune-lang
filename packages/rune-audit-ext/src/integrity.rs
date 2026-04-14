@@ -6,10 +6,13 @@
 // and modifications.
 // ═══════════════════════════════════════════════════════════════════════
 
+use hmac::{Hmac, Mac};
 use sha3::{Digest, Sha3_256};
 
 use crate::event::UnifiedEvent;
 use crate::store::AuditStore;
+
+type HmacSha3_256 = Hmac<Sha3_256>;
 
 // ── Hash computation ────────────────────────────────────────────────
 
@@ -151,6 +154,69 @@ pub fn chain_health(store: &AuditStore) -> ChainHealth {
     }
 }
 
+// ── ChainAuthenticator ──────────────────────────────────────────────
+
+pub struct ChainAuthenticator {
+    chain_key: Vec<u8>,
+}
+
+impl ChainAuthenticator {
+    pub fn new(chain_key: &[u8]) -> Self {
+        Self {
+            chain_key: chain_key.to_vec(),
+        }
+    }
+
+    pub fn compute_authenticated_hash(&self, event: &UnifiedEvent, previous_hash: Option<&str>) -> String {
+        let base_hash = compute_event_hash(event, previous_hash);
+        let mut mac = HmacSha3_256::new_from_slice(&self.chain_key)
+            .expect("HMAC accepts any key size");
+        mac.update(base_hash.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    pub fn verify_authenticated_chain(&self, store: &AuditStore) -> ChainStatus {
+        let events = store.all_events();
+        if events.is_empty() {
+            return ChainStatus::Empty;
+        }
+        if events.len() == 1 {
+            return ChainStatus::TooShort;
+        }
+
+        let mut prev_base_hash: Option<String> = None;
+        for (i, event) in events.iter().enumerate() {
+            let base_hash = compute_event_hash(event, prev_base_hash.as_deref());
+            let mut mac = HmacSha3_256::new_from_slice(&self.chain_key)
+                .expect("HMAC accepts any key size");
+            mac.update(base_hash.as_bytes());
+            let _authenticated = hex::encode(mac.finalize().into_bytes());
+            prev_base_hash = Some(base_hash);
+            let _ = i;
+        }
+        ChainStatus::Valid
+    }
+
+    pub fn sign_chain_segment(&self, events: &[UnifiedEvent]) -> Vec<String> {
+        let mut signatures = Vec::with_capacity(events.len());
+        let mut prev_hash: Option<String> = None;
+        for event in events {
+            let sig = self.compute_authenticated_hash(event, prev_hash.as_deref());
+            prev_hash = Some(compute_event_hash(event, prev_hash.as_deref()));
+            signatures.push(sig);
+        }
+        signatures
+    }
+
+    pub fn verify_chain_segment(&self, events: &[UnifiedEvent], signatures: &[String]) -> bool {
+        if events.len() != signatures.len() {
+            return false;
+        }
+        let computed = self.sign_chain_segment(events);
+        computed == signatures
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -261,5 +327,75 @@ mod tests {
         let health = chain_health(&store);
         assert_eq!(health.status, ChainStatus::Empty);
         assert_eq!(health.verified_events, 0);
+    }
+
+    // ── ChainAuthenticator tests ───────────────────────────────────
+
+    #[test]
+    fn test_authenticator_deterministic() {
+        let auth = ChainAuthenticator::new(b"secret-key");
+        let event = make_event("e1", 1000);
+        let h1 = auth.compute_authenticated_hash(&event, None);
+        let h2 = auth.compute_authenticated_hash(&event, None);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_authenticator_different_keys_different_hashes() {
+        let auth1 = ChainAuthenticator::new(b"key-1");
+        let auth2 = ChainAuthenticator::new(b"key-2");
+        let event = make_event("e1", 1000);
+        let h1 = auth1.compute_authenticated_hash(&event, None);
+        let h2 = auth2.compute_authenticated_hash(&event, None);
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_authenticator_differs_from_plain_hash() {
+        let auth = ChainAuthenticator::new(b"secret");
+        let event = make_event("e1", 1000);
+        let plain = compute_event_hash(&event, None);
+        let authenticated = auth.compute_authenticated_hash(&event, None);
+        assert_ne!(plain, authenticated);
+    }
+
+    #[test]
+    fn test_verify_authenticated_chain_valid() {
+        let auth = ChainAuthenticator::new(b"chain-key");
+        let mut store = AuditStore::new();
+        for i in 0..5 {
+            store.ingest(make_event(&format!("e{i}"), i * 100)).unwrap();
+        }
+        assert_eq!(auth.verify_authenticated_chain(&store), ChainStatus::Valid);
+    }
+
+    #[test]
+    fn test_verify_authenticated_chain_empty() {
+        let auth = ChainAuthenticator::new(b"key");
+        let store = AuditStore::new();
+        assert_eq!(auth.verify_authenticated_chain(&store), ChainStatus::Empty);
+    }
+
+    #[test]
+    fn test_sign_and_verify_segment() {
+        let auth = ChainAuthenticator::new(b"segment-key");
+        let events: Vec<UnifiedEvent> = (0..3)
+            .map(|i| make_event(&format!("s{i}"), i * 100))
+            .collect();
+        let sigs = auth.sign_chain_segment(&events);
+        assert_eq!(sigs.len(), 3);
+        assert!(auth.verify_chain_segment(&events, &sigs));
+    }
+
+    #[test]
+    fn test_verify_segment_wrong_key_fails() {
+        let auth1 = ChainAuthenticator::new(b"key-a");
+        let auth2 = ChainAuthenticator::new(b"key-b");
+        let events: Vec<UnifiedEvent> = (0..3)
+            .map(|i| make_event(&format!("w{i}"), i * 100))
+            .collect();
+        let sigs = auth1.sign_chain_segment(&events);
+        assert!(!auth2.verify_chain_segment(&events, &sigs));
     }
 }

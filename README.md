@@ -6,7 +6,7 @@
 [![Rust 2024 Edition](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/)
 [![Tests: 3,000+](https://img.shields.io/badge/Tests-3%2C000%2B-green.svg)](#current-status)
 
-> M10 Complete | 3,000+ Tests | 21 Governance Libraries | Rust 2024 Edition
+> M10 Complete | 3,000+ Tests | 19 Governance Libraries | Rust 2024 Edition
 
 ---
 
