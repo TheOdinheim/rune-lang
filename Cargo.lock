@@ -1793,10 +1793,15 @@ dependencies = [
 name = "rune-web"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "hmac",
+ "rand",
+ "regex",
  "rune-lang",
  "rune-security",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]

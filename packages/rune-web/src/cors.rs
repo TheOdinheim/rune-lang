@@ -241,6 +241,104 @@ impl CorsChecker {
     }
 }
 
+// ── Origin validation (Layer 2) ────────────────────────────────────
+
+pub fn is_valid_origin(origin: &str) -> bool {
+    if origin.is_empty() || origin == "null" {
+        return false;
+    }
+    // Must start with http:// or https://
+    if !origin.starts_with("http://") && !origin.starts_with("https://") {
+        return false;
+    }
+    let after_scheme = if origin.starts_with("https://") {
+        &origin[8..]
+    } else {
+        &origin[7..]
+    };
+    if after_scheme.is_empty() {
+        return false;
+    }
+    // No path, query, or fragment allowed
+    if after_scheme.contains('/') || after_scheme.contains('?') || after_scheme.contains('#') {
+        return false;
+    }
+    true
+}
+
+// ── CorsViolation (Layer 2) ────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CorsViolation {
+    pub origin: String,
+    pub reason: String,
+    pub timestamp: i64,
+}
+
+// ── PreflightCache (Layer 2) ───────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct PreflightCacheEntry {
+    result: CorsResult,
+    expires_at: i64,
+}
+
+pub struct PreflightCache {
+    entries: HashMap<String, PreflightCacheEntry>,
+    ttl_ms: i64,
+}
+
+impl PreflightCache {
+    pub fn new(ttl_ms: i64) -> Self {
+        Self {
+            entries: HashMap::new(),
+            ttl_ms,
+        }
+    }
+
+    pub fn get(&self, origin: &str, method: &HttpMethod, now: i64) -> Option<&CorsResult> {
+        let key = format!("{origin}:{method}");
+        self.entries.get(&key).and_then(|entry| {
+            if entry.expires_at > now {
+                Some(&entry.result)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn put(&mut self, origin: &str, method: &HttpMethod, result: CorsResult, now: i64) {
+        let key = format!("{origin}:{method}");
+        self.entries.insert(key, PreflightCacheEntry {
+            result,
+            expires_at: now + self.ttl_ms,
+        });
+    }
+
+    pub fn cleanup_expired(&mut self, now: i64) -> usize {
+        let before = self.entries.len();
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        before - self.entries.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// Returns Vary: Origin header value when the policy is not wildcard
+pub fn vary_origin_header(policy: &CorsPolicy) -> Option<(&'static str, &'static str)> {
+    if !policy.allowed_origins.contains(&"*".to_string()) {
+        Some(("Vary", "Origin"))
+    } else {
+        None
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -343,5 +441,84 @@ mod tests {
         let headers = checker.response_headers("https://example.com");
         assert_eq!(headers.get("Access-Control-Allow-Origin").unwrap(), "*");
         assert!(!headers.contains_key("Access-Control-Allow-Credentials"));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_valid_origin_accepts_valid() {
+        assert!(is_valid_origin("https://example.com"));
+        assert!(is_valid_origin("http://localhost:3000"));
+        assert!(is_valid_origin("https://sub.domain.example.com"));
+    }
+
+    #[test]
+    fn test_is_valid_origin_rejects_invalid() {
+        assert!(!is_valid_origin(""));
+        assert!(!is_valid_origin("null"));
+        assert!(!is_valid_origin("ftp://example.com"));
+        assert!(!is_valid_origin("https://example.com/path"));
+        assert!(!is_valid_origin("https://example.com?query"));
+        assert!(!is_valid_origin("https://"));
+    }
+
+    #[test]
+    fn test_preflight_cache_hit_and_miss() {
+        let mut cache = PreflightCache::new(60_000);
+        let result = CorsResult {
+            allowed: true,
+            headers: HashMap::new(),
+            reason: None,
+        };
+        cache.put("https://example.com", &HttpMethod::Get, result, 1000);
+
+        // Cache hit
+        assert!(cache.get("https://example.com", &HttpMethod::Get, 2000).is_some());
+        // Cache miss (different method)
+        assert!(cache.get("https://example.com", &HttpMethod::Post, 2000).is_none());
+        // Cache miss (expired)
+        assert!(cache.get("https://example.com", &HttpMethod::Get, 62_000).is_none());
+    }
+
+    #[test]
+    fn test_preflight_cache_cleanup() {
+        let mut cache = PreflightCache::new(1000);
+        let result = CorsResult { allowed: true, headers: HashMap::new(), reason: None };
+        cache.put("https://a.com", &HttpMethod::Get, result.clone(), 1000);
+        cache.put("https://b.com", &HttpMethod::Get, result, 2000);
+        assert_eq!(cache.len(), 2);
+        let removed = cache.cleanup_expired(2500);
+        assert_eq!(removed, 1);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_cors_violation_struct() {
+        let v = CorsViolation {
+            origin: "https://evil.com".into(),
+            reason: "Origin not allowed".into(),
+            timestamp: 1000,
+        };
+        assert_eq!(v.origin, "https://evil.com");
+    }
+
+    #[test]
+    fn test_vary_origin_header_strict() {
+        let policy = CorsPolicy::strict(vec!["https://example.com".into()]);
+        assert!(vary_origin_header(&policy).is_some());
+        assert_eq!(vary_origin_header(&policy).unwrap(), ("Vary", "Origin"));
+    }
+
+    #[test]
+    fn test_vary_origin_header_permissive() {
+        let policy = CorsPolicy::permissive();
+        assert!(vary_origin_header(&policy).is_none());
+    }
+
+    #[test]
+    fn test_preflight_cache_empty() {
+        let cache = PreflightCache::new(60_000);
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
     }
 }

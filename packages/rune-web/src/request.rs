@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::endpoint::{EndpointClassification, HttpMethod};
@@ -96,6 +97,7 @@ pub struct RequestValidator {
     pub max_body_size: u64,
     pub blocked_paths: Vec<String>,
     pub required_headers: Vec<String>,
+    pub blocked_patterns: Vec<(String, Regex)>,
 }
 
 impl RequestValidator {
@@ -114,6 +116,7 @@ impl RequestValidator {
                 "/wp-login".into(),
             ],
             required_headers: vec!["host".into()],
+            blocked_patterns: Vec::new(),
         }
     }
 
@@ -325,6 +328,113 @@ impl RequestValidator {
     }
 }
 
+impl RequestValidator {
+    // ── Layer 2 additions ────────────────────────────────────────────
+
+    pub fn with_default_blocked_patterns(mut self) -> Self {
+        let patterns = [
+            ("null_byte_injection", r"\x00|%00"),
+            ("unicode_normalization_attack", r"%c0%ae|%e0%80%ae|%c0%af"),
+            ("http_response_splitting", r"%0d%0a|%0d|%0a|\r\n"),
+            ("ssti", r"\{\{.*\}\}|\$\{.*\}|<%.*%>"),
+        ];
+        for (name, pat) in &patterns {
+            if let Ok(re) = Regex::new(pat) {
+                self.blocked_patterns.push((name.to_string(), re));
+            }
+        }
+        self
+    }
+
+    pub fn add_blocked_pattern(&mut self, name: &str, pattern: &str) -> Result<(), String> {
+        let re = Regex::new(pattern).map_err(|e| format!("Invalid regex: {e}"))?;
+        self.blocked_patterns.push((name.to_string(), re));
+        Ok(())
+    }
+
+    pub fn check_blocked_patterns(&self, input: &str) -> Option<String> {
+        for (name, re) in &self.blocked_patterns {
+            if re.is_match(input) {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
+
+    pub fn validate_body_content_type(
+        &self,
+        request: &WebRequest,
+        allowed_types: &[&str],
+    ) -> bool {
+        if request.body.is_none() {
+            return true;
+        }
+        let ct = request
+            .headers
+            .iter()
+            .find(|(k, _)| k.to_lowercase() == "content-type")
+            .map(|(_, v)| v.to_lowercase());
+        match ct {
+            Some(ct_val) => allowed_types.iter().any(|t| ct_val.contains(&t.to_lowercase())),
+            None => false,
+        }
+    }
+
+    pub fn validate_body_size_by_method(&self, request: &WebRequest) -> bool {
+        match request.method {
+            HttpMethod::Get | HttpMethod::Head | HttpMethod::Delete | HttpMethod::Options => {
+                request.body.is_none() || request.body_size_bytes == 0
+            }
+            _ => request.body_size_bytes <= self.max_body_size,
+        }
+    }
+}
+
+// ── IP validation helpers ────────────────────────────────────────────
+
+pub fn is_valid_ipv4(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    parts.iter().all(|p| {
+        if p.is_empty() || (p.len() > 1 && p.starts_with('0')) {
+            return false;
+        }
+        p.parse::<u8>().is_ok()
+    })
+}
+
+pub fn is_private_ip(s: &str) -> bool {
+    if !is_valid_ipv4(s) {
+        return false;
+    }
+    let parts: Vec<u8> = s.split('.').filter_map(|p| p.parse().ok()).collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    // 10.0.0.0/8
+    if parts[0] == 10 {
+        return true;
+    }
+    // 172.16.0.0/12
+    if parts[0] == 172 && (16..=31).contains(&parts[1]) {
+        return true;
+    }
+    // 192.168.0.0/16
+    if parts[0] == 192 && parts[1] == 168 {
+        return true;
+    }
+    false
+}
+
+pub fn is_loopback(s: &str) -> bool {
+    if !is_valid_ipv4(s) {
+        return false;
+    }
+    s.starts_with("127.")
+}
+
 impl Default for RequestValidator {
     fn default() -> Self {
         Self::new()
@@ -461,5 +571,101 @@ mod tests {
         let critical = RequestValidator::with_defaults(EndpointClassification::Critical);
         assert!(public.max_body_size > critical.max_body_size);
         assert!(public.max_path_length > critical.max_path_length);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_blocked_pattern_null_byte() {
+        let v = RequestValidator::new().with_default_blocked_patterns();
+        let matched = v.check_blocked_patterns("/api/test%00admin");
+        assert_eq!(matched, Some("null_byte_injection".into()));
+    }
+
+    #[test]
+    fn test_blocked_pattern_ssti() {
+        let v = RequestValidator::new().with_default_blocked_patterns();
+        let matched = v.check_blocked_patterns("{{config.__class__}}");
+        assert_eq!(matched, Some("ssti".into()));
+    }
+
+    #[test]
+    fn test_blocked_pattern_http_response_splitting() {
+        let v = RequestValidator::new().with_default_blocked_patterns();
+        let matched = v.check_blocked_patterns("value%0d%0aInjected-Header: evil");
+        assert_eq!(matched, Some("http_response_splitting".into()));
+    }
+
+    #[test]
+    fn test_blocked_pattern_clean_input() {
+        let v = RequestValidator::new().with_default_blocked_patterns();
+        let matched = v.check_blocked_patterns("/api/v1/users/123");
+        assert!(matched.is_none());
+    }
+
+    #[test]
+    fn test_add_custom_blocked_pattern() {
+        let mut v = RequestValidator::new();
+        v.add_blocked_pattern("sql_union", r"(?i)union\s+select").unwrap();
+        assert!(v.check_blocked_patterns("1 UNION SELECT * FROM users").is_some());
+        assert!(v.check_blocked_patterns("normal query").is_none());
+    }
+
+    #[test]
+    fn test_validate_body_content_type() {
+        let v = RequestValidator::new();
+        let req = WebRequest::new("r1", HttpMethod::Post, "/api", "1.2.3.4", 1000)
+            .with_header("Host", "example.com")
+            .with_header("Content-Type", "application/json")
+            .with_body(r#"{"key":"value"}"#);
+        assert!(v.validate_body_content_type(&req, &["application/json", "text/plain"]));
+        assert!(!v.validate_body_content_type(&req, &["text/xml"]));
+    }
+
+    #[test]
+    fn test_validate_body_size_by_method() {
+        let v = RequestValidator::new();
+        let get_with_body = WebRequest::new("r1", HttpMethod::Get, "/api", "1.2.3.4", 1000)
+            .with_header("Host", "example.com")
+            .with_body("should not have body");
+        assert!(!v.validate_body_size_by_method(&get_with_body));
+
+        let post_with_body = WebRequest::new("r2", HttpMethod::Post, "/api", "1.2.3.4", 1000)
+            .with_header("Host", "example.com")
+            .with_header("Content-Type", "text/plain")
+            .with_body("valid body");
+        assert!(v.validate_body_size_by_method(&post_with_body));
+    }
+
+    #[test]
+    fn test_is_valid_ipv4() {
+        assert!(is_valid_ipv4("192.168.1.1"));
+        assert!(is_valid_ipv4("10.0.0.1"));
+        assert!(is_valid_ipv4("255.255.255.255"));
+        assert!(!is_valid_ipv4("256.1.1.1"));
+        assert!(!is_valid_ipv4("1.2.3"));
+        assert!(!is_valid_ipv4("abc.def.ghi.jkl"));
+        assert!(!is_valid_ipv4("01.02.03.04")); // leading zeros
+    }
+
+    #[test]
+    fn test_is_private_ip() {
+        use super::is_private_ip;
+        assert!(is_private_ip("10.0.0.1"));
+        assert!(is_private_ip("172.16.0.1"));
+        assert!(is_private_ip("172.31.255.255"));
+        assert!(is_private_ip("192.168.0.1"));
+        assert!(!is_private_ip("8.8.8.8"));
+        assert!(!is_private_ip("172.15.0.1"));
+        assert!(!is_private_ip("172.32.0.1"));
+    }
+
+    #[test]
+    fn test_is_loopback() {
+        use super::is_loopback;
+        assert!(is_loopback("127.0.0.1"));
+        assert!(is_loopback("127.255.255.255"));
+        assert!(!is_loopback("128.0.0.1"));
+        assert!(!is_loopback("10.0.0.1"));
     }
 }

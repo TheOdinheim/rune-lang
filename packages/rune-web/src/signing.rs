@@ -6,7 +6,11 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+
+type HmacSha3_256 = Hmac<Sha3_256>;
 
 // ── SigningAlgorithm ─────────────────────────────────────────────────
 
@@ -55,6 +59,17 @@ pub struct SignatureVerification {
     pub reason: Option<String>,
     pub clock_skew_ms: i64,
     pub key_id: String,
+}
+
+// ── SignatureMetadata ────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SignatureMetadata {
+    pub algorithm: String,
+    pub signed_headers: Vec<String>,
+    pub timestamp: i64,
+    pub key_id: String,
+    pub body_hash: String,
 }
 
 // ── RequestSigner ────────────────────────────────────────────────────
@@ -173,17 +188,24 @@ impl RequestSigner {
         canonical.push_str(path);
         canonical.push('\n');
 
-        // Signed headers sorted by name, lowercased
+        // Signed headers sorted by name, lowercased, values trimmed
         let mut signed: Vec<(String, String)> = self
             .config
             .signed_headers
             .iter()
             .filter_map(|h| {
                 let lower = h.to_lowercase();
-                headers
+                // Collect all matching headers (handles duplicates)
+                let values: Vec<String> = headers
                     .iter()
-                    .find(|(k, _)| k.to_lowercase() == lower)
-                    .map(|(_, v)| (lower, v.clone()))
+                    .filter(|(k, _)| k.to_lowercase() == lower)
+                    .map(|(_, v)| v.trim().to_string())
+                    .collect();
+                if values.is_empty() {
+                    None
+                } else {
+                    Some((lower, values.join(",")))
+                }
             })
             .collect();
         signed.sort_by(|a, b| a.0.cmp(&b.0));
@@ -194,38 +216,57 @@ impl RequestSigner {
             canonical.push('\n');
         }
 
-        // Body hash
-        let body_hash = simple_hash(body.unwrap_or("").as_bytes());
+        // Body hash using SHA3-256
+        let body_hash = sha3_256_hex(body.unwrap_or("").as_bytes());
         canonical.push_str(&body_hash);
 
         canonical
     }
 
     fn hmac_sign(&self, key: &[u8], message: &[u8]) -> String {
-        // Simplified HMAC: H(key || message) for Layer 1.
-        // A proper HMAC implementation (with ipad/opad) would be used in
-        // production; this captures the API shape and determinism.
-        let mut combined = Vec::with_capacity(key.len() + message.len());
-        combined.extend_from_slice(key);
-        combined.extend_from_slice(message);
-        simple_hash(&combined)
+        let mut mac = HmacSha3_256::new_from_slice(key)
+            .expect("HMAC accepts any key size");
+        mac.update(message);
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    pub fn sign_with_metadata(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &HashMap<String, String>,
+        body: Option<&str>,
+        key: &[u8],
+        key_id: &str,
+        now: i64,
+    ) -> (SignedRequest, SignatureMetadata) {
+        let signed_request = self.sign(method, path, headers, body, key, key_id, now);
+        let body_hash = sha3_256_hex(body.unwrap_or("").as_bytes());
+        let signed_headers: Vec<String> = self.config.signed_headers.iter().map(|h| h.to_lowercase()).collect();
+        let metadata = SignatureMetadata {
+            algorithm: "HMAC-SHA3-256".into(),
+            signed_headers,
+            timestamp: now,
+            key_id: key_id.into(),
+            body_hash,
+        };
+        (signed_request, metadata)
     }
 }
 
-/// Simple hash function for Layer 1 (captures API shape).
-/// Production would use SHA3-256 from a crypto crate.
-fn simple_hash(data: &[u8]) -> String {
-    // DJB2-inspired hash, output as hex — deterministic and sufficient for
-    // testing the signing API surface.
-    let mut h: u64 = 5381;
-    for &b in data {
-        h = h.wrapping_mul(33).wrapping_add(b as u64);
-    }
-    let mut h2: u64 = 0x517cc1b727220a95;
-    for &b in data {
-        h2 = h2.wrapping_mul(6364136223846793005).wrapping_add(b as u64);
-    }
-    format!("{h:016x}{h2:016x}")
+/// SHA3-256 hash, returned as hex.
+fn sha3_256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
+/// Derive a purpose-specific signing key from a master key using HMAC-SHA3-256.
+pub fn derive_signing_key(master_key: &[u8], context: &str) -> Vec<u8> {
+    let mut mac = HmacSha3_256::new_from_slice(master_key)
+        .expect("HMAC accepts any key size");
+    mac.update(context.as_bytes());
+    mac.finalize().into_bytes().to_vec()
 }
 
 /// Constant-time byte comparison.
@@ -345,5 +386,94 @@ mod tests {
     fn test_default_config_uses_hmac_sha3() {
         let config = RequestSigner::default_config();
         assert_eq!(config.algorithm, SigningAlgorithm::HmacSha3_256);
+    }
+
+    // ── Layer 2 signing tests ──────────────────────────────────────
+
+    #[test]
+    fn test_real_hmac_sha3_256_produces_64_char_hex() {
+        let signer = test_signer();
+        let headers = test_headers();
+        let signed = signer.sign("POST", "/api", &headers, Some("body"), b"key", "k1", 1000);
+        assert_eq!(signed.signature.len(), 64);
+        assert!(signed.signature.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_different_bodies_different_signatures() {
+        let signer = test_signer();
+        let headers = test_headers();
+        let key = b"secret-key";
+        let s1 = signer.sign("POST", "/api", &headers, Some("body-a"), key, "k1", 1000);
+        let s2 = signer.sign("POST", "/api", &headers, Some("body-b"), key, "k1", 1000);
+        assert_ne!(s1.signature, s2.signature);
+    }
+
+    #[test]
+    fn test_derive_signing_key_different_contexts() {
+        let master = b"master-secret";
+        let k1 = derive_signing_key(master, "api-signing");
+        let k2 = derive_signing_key(master, "webhook-signing");
+        assert_ne!(k1, k2);
+        assert_eq!(k1.len(), 32); // SHA3-256 output
+    }
+
+    #[test]
+    fn test_derive_signing_key_deterministic() {
+        let master = b"master";
+        let k1 = derive_signing_key(master, "ctx");
+        let k2 = derive_signing_key(master, "ctx");
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn test_sign_with_metadata() {
+        let signer = test_signer();
+        let headers = test_headers();
+        let (signed, metadata) = signer.sign_with_metadata(
+            "POST", "/api", &headers, Some("body"), b"key", "k1", 1000,
+        );
+        assert_eq!(metadata.algorithm, "HMAC-SHA3-256");
+        assert!(!metadata.signed_headers.is_empty());
+        assert_eq!(metadata.key_id, "k1");
+        assert_eq!(metadata.timestamp, 1000);
+        assert_eq!(metadata.body_hash.len(), 64);
+        assert_eq!(signed.signature.len(), 64);
+    }
+
+    #[test]
+    fn test_canonical_normalizes_header_names() {
+        let signer = test_signer();
+        let mut h1 = HashMap::new();
+        h1.insert("HOST".into(), "example.com".into());
+        h1.insert("CONTENT-TYPE".into(), "application/json".into());
+        h1.insert("X-DATE".into(), "1000".into());
+
+        let mut h2 = HashMap::new();
+        h2.insert("host".into(), "example.com".into());
+        h2.insert("content-type".into(), "application/json".into());
+        h2.insert("x-date".into(), "1000".into());
+
+        let s1 = signer.sign("GET", "/api", &h1, None, b"key", "k1", 1000);
+        let s2 = signer.sign("GET", "/api", &h2, None, b"key", "k1", 1000);
+        assert_eq!(s1.signature, s2.signature);
+    }
+
+    #[test]
+    fn test_canonical_trims_header_whitespace() {
+        let signer = test_signer();
+        let mut h1 = HashMap::new();
+        h1.insert("Host".into(), "  example.com  ".into());
+        h1.insert("Content-Type".into(), "application/json".into());
+        h1.insert("X-Date".into(), "1000".into());
+
+        let mut h2 = HashMap::new();
+        h2.insert("Host".into(), "example.com".into());
+        h2.insert("Content-Type".into(), "application/json".into());
+        h2.insert("X-Date".into(), "1000".into());
+
+        let s1 = signer.sign("GET", "/api", &h1, None, b"key", "k1", 1000);
+        let s2 = signer.sign("GET", "/api", &h2, None, b"key", "k1", 1000);
+        assert_eq!(s1.signature, s2.signature);
     }
 }

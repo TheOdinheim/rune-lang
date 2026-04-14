@@ -28,6 +28,15 @@ pub enum WebEventType {
     CorsBlocked { origin: String },
     DeprecatedEndpointAccessed { endpoint: String, successor: String },
     ResponseGoverned { headers_added: usize, leaks_found: usize },
+    // Layer 2 additions
+    HmacSignatureVerified { key_id: String, algorithm: String },
+    SessionTokenHashed { session_id: String },
+    RegexPatternBlocked { pattern_name: String, input_snippet: String },
+    SlidingWindowLimited { key: String, window_ms: i64 },
+    DataLeakageRegexMatch { leak_type: String, pattern: String },
+    CorsViolationLogged { origin: String, reason: String },
+    MiddlewareExecuted { middleware_name: String, result: String },
+    GatewayTimingRecorded { total_us: i64 },
 }
 
 impl fmt::Display for WebEventType {
@@ -69,6 +78,30 @@ impl fmt::Display for WebEventType {
             }
             Self::ResponseGoverned { headers_added, leaks_found } => {
                 write!(f, "ResponseGoverned(+{headers_added} headers, {leaks_found} leaks)")
+            }
+            Self::HmacSignatureVerified { key_id, algorithm } => {
+                write!(f, "HmacSignatureVerified({key_id}, {algorithm})")
+            }
+            Self::SessionTokenHashed { session_id } => {
+                write!(f, "SessionTokenHashed({session_id})")
+            }
+            Self::RegexPatternBlocked { pattern_name, input_snippet } => {
+                write!(f, "RegexPatternBlocked({pattern_name}: {input_snippet})")
+            }
+            Self::SlidingWindowLimited { key, window_ms } => {
+                write!(f, "SlidingWindowLimited({key}, window={window_ms}ms)")
+            }
+            Self::DataLeakageRegexMatch { leak_type, pattern } => {
+                write!(f, "DataLeakageRegexMatch({leak_type}: {pattern})")
+            }
+            Self::CorsViolationLogged { origin, reason } => {
+                write!(f, "CorsViolationLogged({origin}: {reason})")
+            }
+            Self::MiddlewareExecuted { middleware_name, result } => {
+                write!(f, "MiddlewareExecuted({middleware_name}: {result})")
+            }
+            Self::GatewayTimingRecorded { total_us } => {
+                write!(f, "GatewayTimingRecorded({total_us}us)")
             }
         }
     }
@@ -307,10 +340,19 @@ mod tests {
             WebEventType::CorsBlocked { origin: "evil.com".into() },
             WebEventType::DeprecatedEndpointAccessed { endpoint: "/old".into(), successor: "/new".into() },
             WebEventType::ResponseGoverned { headers_added: 5, leaks_found: 0 },
+            // Layer 2
+            WebEventType::HmacSignatureVerified { key_id: "k1".into(), algorithm: "HMAC-SHA3-256".into() },
+            WebEventType::SessionTokenHashed { session_id: "s1".into() },
+            WebEventType::RegexPatternBlocked { pattern_name: "ssti".into(), input_snippet: "{{".into() },
+            WebEventType::SlidingWindowLimited { key: "user1".into(), window_ms: 60_000 },
+            WebEventType::DataLeakageRegexMatch { leak_type: "PrivateKey".into(), pattern: "BEGIN".into() },
+            WebEventType::CorsViolationLogged { origin: "evil.com".into(), reason: "not allowed".into() },
+            WebEventType::MiddlewareExecuted { middleware_name: "auth".into(), result: "continue".into() },
+            WebEventType::GatewayTimingRecorded { total_us: 1500 },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 15);
+        assert_eq!(types.len(), 23);
     }
 }

@@ -120,6 +120,240 @@ impl Default for RateLimiter {
     }
 }
 
+// ── SlidingWindowLimiter (Layer 2) ──────────────────────────────────
+
+pub struct SlidingWindowLimiter {
+    windows: HashMap<String, Vec<i64>>,
+    pub window_ms: i64,
+    pub max_requests: usize,
+}
+
+impl SlidingWindowLimiter {
+    pub fn new(window_ms: i64, max_requests: usize) -> Self {
+        Self {
+            windows: HashMap::new(),
+            window_ms,
+            max_requests,
+        }
+    }
+
+    pub fn check(&mut self, key: &str, now: i64) -> RateLimitResult {
+        let timestamps = self.windows.entry(key.to_string()).or_default();
+        let cutoff = now - self.window_ms;
+        timestamps.retain(|&ts| ts > cutoff);
+
+        if timestamps.len() < self.max_requests {
+            timestamps.push(now);
+            RateLimitResult {
+                allowed: true,
+                remaining: (self.max_requests - timestamps.len()) as u64,
+                retry_after_ms: None,
+                detail: format!("{} remaining in window", self.max_requests - timestamps.len()),
+            }
+        } else {
+            let oldest = timestamps.first().copied().unwrap_or(now);
+            let retry_after = (oldest + self.window_ms - now).max(1) as u64;
+            RateLimitResult {
+                allowed: false,
+                remaining: 0,
+                retry_after_ms: Some(retry_after),
+                detail: format!("Sliding window limit exceeded, retry after {retry_after}ms"),
+            }
+        }
+    }
+
+    pub fn reset(&mut self, key: &str) {
+        self.windows.remove(key);
+    }
+
+    pub fn active_keys(&self) -> usize {
+        self.windows.len()
+    }
+}
+
+// ── RateLimitHeaders (Layer 2) ─────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct RateLimitHeaders {
+    pub x_ratelimit_limit: u64,
+    pub x_ratelimit_remaining: u64,
+    pub x_ratelimit_reset: i64,
+    pub retry_after: Option<u64>,
+}
+
+impl RateLimitHeaders {
+    pub fn from_result(result: &RateLimitResult, limit: u64, reset_at: i64) -> Self {
+        Self {
+            x_ratelimit_limit: limit,
+            x_ratelimit_remaining: result.remaining,
+            x_ratelimit_reset: reset_at,
+            retry_after: result.retry_after_ms,
+        }
+    }
+
+    pub fn to_header_map(&self) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+        headers.insert("X-RateLimit-Limit".into(), self.x_ratelimit_limit.to_string());
+        headers.insert("X-RateLimit-Remaining".into(), self.x_ratelimit_remaining.to_string());
+        headers.insert("X-RateLimit-Reset".into(), self.x_ratelimit_reset.to_string());
+        if let Some(retry) = self.retry_after {
+            headers.insert("Retry-After".into(), (retry / 1000).max(1).to_string());
+        }
+        headers
+    }
+}
+
+// ── EndpointRateLimiter (Layer 2) ──────────────────────────────────
+
+pub struct EndpointRateLimiter {
+    limiters: HashMap<String, SlidingWindowLimiter>,
+    default_window_ms: i64,
+    default_max_requests: usize,
+}
+
+impl EndpointRateLimiter {
+    pub fn new(default_window_ms: i64, default_max_requests: usize) -> Self {
+        Self {
+            limiters: HashMap::new(),
+            default_window_ms,
+            default_max_requests,
+        }
+    }
+
+    pub fn set_endpoint_limit(&mut self, endpoint: &str, window_ms: i64, max_requests: usize) {
+        self.limiters.insert(
+            endpoint.to_string(),
+            SlidingWindowLimiter::new(window_ms, max_requests),
+        );
+    }
+
+    pub fn check(&mut self, endpoint: &str, key: &str, now: i64) -> RateLimitResult {
+        let limiter = self.limiters.entry(endpoint.to_string()).or_insert_with(|| {
+            SlidingWindowLimiter::new(self.default_window_ms, self.default_max_requests)
+        });
+        limiter.check(key, now)
+    }
+
+    pub fn stats(&self) -> RateLimiterStats {
+        let total_keys: usize = self.limiters.values().map(|l| l.active_keys()).sum();
+        RateLimiterStats {
+            endpoints_tracked: self.limiters.len(),
+            total_active_keys: total_keys,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RateLimiterStats {
+    pub endpoints_tracked: usize,
+    pub total_active_keys: usize,
+}
+
+// ── MiddlewareFn / GatewayContext / GatewayTiming (Layer 2) ────────
+
+#[derive(Debug, Clone)]
+pub struct GatewayContext {
+    pub request_id: String,
+    pub source_ip: String,
+    pub identity: Option<String>,
+    pub timestamp: i64,
+    pub metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MiddlewareResult {
+    Continue,
+    Block { reason: String },
+}
+
+pub type MiddlewareFn = fn(&mut GatewayContext) -> MiddlewareResult;
+
+#[derive(Debug, Clone)]
+pub struct GatewayTiming {
+    pub request_received_us: i64,
+    pub auth_check_us: i64,
+    pub rate_limit_us: i64,
+    pub validation_us: i64,
+    pub total_us: i64,
+}
+
+impl GatewayTiming {
+    pub fn new() -> Self {
+        Self {
+            request_received_us: 0,
+            auth_check_us: 0,
+            rate_limit_us: 0,
+            validation_us: 0,
+            total_us: 0,
+        }
+    }
+}
+
+impl Default for GatewayTiming {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GatewayHealthMetrics {
+    pub total_requests: u64,
+    pub latencies_us: Vec<i64>,
+}
+
+impl GatewayHealthMetrics {
+    pub fn new() -> Self {
+        Self {
+            total_requests: 0,
+            latencies_us: Vec::new(),
+        }
+    }
+
+    pub fn record(&mut self, latency_us: i64) {
+        self.total_requests += 1;
+        self.latencies_us.push(latency_us);
+        if self.latencies_us.len() > 10_000 {
+            self.latencies_us.drain(..self.latencies_us.len() - 10_000);
+        }
+    }
+
+    pub fn p50_latency_us(&self) -> Option<i64> {
+        self.percentile(50)
+    }
+
+    pub fn p99_latency_us(&self) -> Option<i64> {
+        self.percentile(99)
+    }
+
+    pub fn requests_per_second(&self, window_count: usize) -> f64 {
+        if self.latencies_us.is_empty() {
+            return 0.0;
+        }
+        let count = self.latencies_us.len().min(window_count);
+        let total_us: i64 = self.latencies_us[self.latencies_us.len() - count..].iter().sum();
+        if total_us <= 0 {
+            return 0.0;
+        }
+        count as f64 / (total_us as f64 / 1_000_000.0)
+    }
+
+    fn percentile(&self, pct: usize) -> Option<i64> {
+        if self.latencies_us.is_empty() {
+            return None;
+        }
+        let mut sorted = self.latencies_us.clone();
+        sorted.sort();
+        let idx = (pct * sorted.len() / 100).min(sorted.len() - 1);
+        Some(sorted[idx])
+    }
+}
+
+impl Default for GatewayHealthMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ── GatewayOutcome ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -670,5 +904,141 @@ mod tests {
         let decision = gw.process_request(&req, 1000);
         // Deprecated endpoints still allow access
         assert!(decision.outcome.is_allowed());
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_sliding_window_allows_within_limit() {
+        let mut limiter = SlidingWindowLimiter::new(60_000, 5);
+        for _ in 0..5 {
+            let result = limiter.check("user1", 1000);
+            assert!(result.allowed);
+        }
+    }
+
+    #[test]
+    fn test_sliding_window_denies_over_limit() {
+        let mut limiter = SlidingWindowLimiter::new(60_000, 3);
+        for _ in 0..3 {
+            limiter.check("user1", 1000);
+        }
+        let result = limiter.check("user1", 1000);
+        assert!(!result.allowed);
+        assert!(result.retry_after_ms.is_some());
+    }
+
+    #[test]
+    fn test_sliding_window_expires_old_entries() {
+        let mut limiter = SlidingWindowLimiter::new(1000, 2);
+        limiter.check("user1", 1000);
+        limiter.check("user1", 1000);
+        // Window expires after 1000ms
+        let result = limiter.check("user1", 2001);
+        assert!(result.allowed);
+    }
+
+    #[test]
+    fn test_rate_limit_headers() {
+        let result = RateLimitResult {
+            allowed: true,
+            remaining: 8,
+            retry_after_ms: None,
+            detail: "ok".into(),
+        };
+        let headers = RateLimitHeaders::from_result(&result, 10, 1060);
+        let map = headers.to_header_map();
+        assert_eq!(map.get("X-RateLimit-Limit").unwrap(), "10");
+        assert_eq!(map.get("X-RateLimit-Remaining").unwrap(), "8");
+        assert_eq!(map.get("X-RateLimit-Reset").unwrap(), "1060");
+        assert!(!map.contains_key("Retry-After"));
+    }
+
+    #[test]
+    fn test_rate_limit_headers_with_retry() {
+        let result = RateLimitResult {
+            allowed: false,
+            remaining: 0,
+            retry_after_ms: Some(5000),
+            detail: "limited".into(),
+        };
+        let headers = RateLimitHeaders::from_result(&result, 10, 1060);
+        let map = headers.to_header_map();
+        assert_eq!(map.get("Retry-After").unwrap(), "5");
+    }
+
+    #[test]
+    fn test_endpoint_rate_limiter_default_and_override() {
+        let mut erl = EndpointRateLimiter::new(60_000, 100);
+        erl.set_endpoint_limit("/api/sensitive", 60_000, 2);
+
+        // Default endpoint allows many
+        let r1 = erl.check("/api/data", "user1", 1000);
+        assert!(r1.allowed);
+
+        // Sensitive endpoint limited to 2
+        erl.check("/api/sensitive", "user1", 1000);
+        erl.check("/api/sensitive", "user1", 1000);
+        let r2 = erl.check("/api/sensitive", "user1", 1000);
+        assert!(!r2.allowed);
+    }
+
+    #[test]
+    fn test_endpoint_rate_limiter_stats() {
+        let mut erl = EndpointRateLimiter::new(60_000, 100);
+        erl.check("/api/a", "user1", 1000);
+        erl.check("/api/b", "user1", 1000);
+        let stats = erl.stats();
+        assert_eq!(stats.endpoints_tracked, 2);
+    }
+
+    #[test]
+    fn test_middleware_result_variants() {
+        assert_eq!(MiddlewareResult::Continue, MiddlewareResult::Continue);
+        let block = MiddlewareResult::Block { reason: "denied".into() };
+        assert_ne!(block, MiddlewareResult::Continue);
+    }
+
+    #[test]
+    fn test_gateway_timing_default() {
+        let timing = GatewayTiming::new();
+        assert_eq!(timing.total_us, 0);
+        assert_eq!(timing.auth_check_us, 0);
+    }
+
+    #[test]
+    fn test_gateway_context() {
+        let ctx = GatewayContext {
+            request_id: "r1".into(),
+            source_ip: "1.2.3.4".into(),
+            identity: Some("user1".into()),
+            timestamp: 1000,
+            metadata: HashMap::new(),
+        };
+        assert_eq!(ctx.request_id, "r1");
+        assert_eq!(ctx.identity, Some("user1".into()));
+    }
+
+    #[test]
+    fn test_gateway_health_metrics() {
+        let mut metrics = GatewayHealthMetrics::new();
+        metrics.record(100);
+        metrics.record(200);
+        metrics.record(300);
+        metrics.record(400);
+        metrics.record(500);
+        assert_eq!(metrics.total_requests, 5);
+        assert!(metrics.p50_latency_us().is_some());
+        assert!(metrics.p99_latency_us().is_some());
+        let p50 = metrics.p50_latency_us().unwrap();
+        assert!(p50 >= 100 && p50 <= 500);
+    }
+
+    #[test]
+    fn test_gateway_health_metrics_empty() {
+        let metrics = GatewayHealthMetrics::new();
+        assert!(metrics.p50_latency_us().is_none());
+        assert!(metrics.p99_latency_us().is_none());
+        assert_eq!(metrics.requests_per_second(100), 0.0);
     }
 }

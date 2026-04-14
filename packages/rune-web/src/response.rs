@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use rune_security::SecuritySeverity;
@@ -52,6 +53,11 @@ pub enum DataLeakageType {
     InternalPath,
     SecretExposure,
     DebugInformation,
+    // Layer 2 additions
+    DatabaseConnectionString,
+    AwsCredential,
+    PrivateKey,
+    ErrorDetail,
 }
 
 impl fmt::Display for DataLeakageType {
@@ -62,6 +68,10 @@ impl fmt::Display for DataLeakageType {
             Self::InternalPath => write!(f, "InternalPath"),
             Self::SecretExposure => write!(f, "SecretExposure"),
             Self::DebugInformation => write!(f, "DebugInformation"),
+            Self::DatabaseConnectionString => write!(f, "DatabaseConnectionString"),
+            Self::AwsCredential => write!(f, "AwsCredential"),
+            Self::PrivateKey => write!(f, "PrivateKey"),
+            Self::ErrorDetail => write!(f, "ErrorDetail"),
         }
     }
 }
@@ -281,7 +291,7 @@ impl ResponseGovernor {
         findings
     }
 
-    fn is_internal_ip(s: &str) -> bool {
+    pub fn is_internal_ip(s: &str) -> bool {
         let parts: Vec<&str> = s.split('.').collect();
         if parts.len() != 4 {
             return false;
@@ -301,6 +311,89 @@ impl ResponseGovernor {
                 }
                 false
             }
+    }
+}
+
+// ── DataLeakageScanner (Layer 2) ────────────────────────────────────
+
+pub struct DataLeakageScanner {
+    patterns: Vec<(DataLeakageType, Regex, SecuritySeverity)>,
+}
+
+impl DataLeakageScanner {
+    pub fn new() -> Self {
+        let patterns = vec![
+            (
+                DataLeakageType::InternalIpAddress,
+                Regex::new(r"\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b").unwrap(),
+                SecuritySeverity::Medium,
+            ),
+            (
+                DataLeakageType::StackTrace,
+                Regex::new(r"(?i)(at\s+line\s+\d+|traceback\s*\(most recent|stack\s*trace|panic\b|rust_backtrace|\.go:\d+|\.java:\d+|\.py:\d+|\.rs:\d+)").unwrap(),
+                SecuritySeverity::High,
+            ),
+            (
+                DataLeakageType::InternalPath,
+                Regex::new(r"(/home/\w+|/var/(log|www|lib)|/usr/local/|/opt/\w+|/etc/(passwd|shadow|nginx)|[Cc]:\\[Uu]sers\\)").unwrap(),
+                SecuritySeverity::Medium,
+            ),
+            (
+                DataLeakageType::SecretExposure,
+                Regex::new(r"(?i)(api[_-]?key|secret[_-]?key|password|bearer\s+[a-zA-Z0-9._\-]+|authorization:\s*\S+)").unwrap(),
+                SecuritySeverity::Critical,
+            ),
+            (
+                DataLeakageType::DebugInformation,
+                Regex::new(r"(?i)(debug\s*mode|development\s*mode|debug\s*=\s*true|stack_trace|verbose\s*error)").unwrap(),
+                SecuritySeverity::Low,
+            ),
+            (
+                DataLeakageType::DatabaseConnectionString,
+                Regex::new(r"(?i)(mongodb://|postgres://|mysql://|redis://|jdbc:)").unwrap(),
+                SecuritySeverity::Critical,
+            ),
+            (
+                DataLeakageType::AwsCredential,
+                Regex::new(r"(AKIA[0-9A-Z]{16}|aws_secret_access_key|aws_access_key_id)").unwrap(),
+                SecuritySeverity::Critical,
+            ),
+            (
+                DataLeakageType::PrivateKey,
+                Regex::new(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap(),
+                SecuritySeverity::Critical,
+            ),
+            (
+                DataLeakageType::ErrorDetail,
+                Regex::new(r"(?i)(internal server error.*detail|exception\s*in\s*thread|unhandled\s*exception|fatal\s*error)").unwrap(),
+                SecuritySeverity::Medium,
+            ),
+        ];
+        Self { patterns }
+    }
+
+    pub fn scan(&self, body: &str) -> Vec<DataLeakageFind> {
+        let mut findings = Vec::new();
+        for (leak_type, re, severity) in &self.patterns {
+            if re.is_match(body) {
+                findings.push(DataLeakageFind {
+                    leak_type: leak_type.clone(),
+                    detail: format!("{} detected via regex pattern", leak_type),
+                    severity: severity.clone(),
+                });
+            }
+        }
+        findings
+    }
+
+    pub fn pattern_count(&self) -> usize {
+        self.patterns.len()
+    }
+}
+
+impl Default for DataLeakageScanner {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -428,10 +521,79 @@ mod tests {
             DataLeakageType::InternalPath,
             DataLeakageType::SecretExposure,
             DataLeakageType::DebugInformation,
+            DataLeakageType::DatabaseConnectionString,
+            DataLeakageType::AwsCredential,
+            DataLeakageType::PrivateKey,
+            DataLeakageType::ErrorDetail,
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 5);
+        assert_eq!(types.len(), 9);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_scanner_detects_internal_ip() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("connecting to 10.0.1.5 on port 8080");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::InternalIpAddress));
+    }
+
+    #[test]
+    fn test_scanner_detects_stack_trace() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("error at line 42 in main.rs");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::StackTrace));
+    }
+
+    #[test]
+    fn test_scanner_detects_db_connection_string() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("connecting to postgres://user:pass@host/db");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::DatabaseConnectionString));
+    }
+
+    #[test]
+    fn test_scanner_detects_aws_credential() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("key=AKIAIOSFODNN7EXAMPLE");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::AwsCredential));
+    }
+
+    #[test]
+    fn test_scanner_detects_private_key() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("-----BEGIN RSA PRIVATE KEY-----\nMIIE...");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::PrivateKey));
+    }
+
+    #[test]
+    fn test_scanner_detects_error_detail() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan("unhandled exception in request handler");
+        assert!(findings.iter().any(|f| f.leak_type == DataLeakageType::ErrorDetail));
+    }
+
+    #[test]
+    fn test_scanner_clean_body() {
+        let scanner = DataLeakageScanner::new();
+        let findings = scanner.scan(r#"{"status":"ok","count":42}"#);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn test_scanner_multiple_findings() {
+        let scanner = DataLeakageScanner::new();
+        let body = "connecting to postgres://admin:secret_key@10.0.1.5/mydb";
+        let findings = scanner.scan(body);
+        assert!(findings.len() >= 2);
+    }
+
+    #[test]
+    fn test_scanner_pattern_count() {
+        let scanner = DataLeakageScanner::new();
+        assert_eq!(scanner.pattern_count(), 9);
     }
 }

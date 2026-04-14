@@ -136,3 +136,113 @@ cargo test --workspace
 | Assumed Breach | Chain authentication detects tampered audit trails; archive preserves evidence |
 | No Single Points of Failure | Storage snapshot/restore enables audit store replication; merge supports distributed collection |
 | Zero Trust Throughout | HMAC requires explicit key; enrichment conditions are declarative and auditable |
+
+---
+
+## rune-web — Layer 2 Upgrade
+
+**Date:** 2026-04-14
+**Type:** Layer 2 (internal upgrade, backward-compatible)
+**Tests:** 163 (114 existing + 49 new)
+**Dependencies added:** (already present from Layer 1: sha3, hmac, rand, hex, regex)
+
+### Overview
+
+Upgraded `rune-web` with real HMAC-SHA3-256 request signing, cryptographic
+session IDs with token hashing, regex-based request validation patterns,
+sliding window rate limiting, regex-based data leakage scanning, CORS
+hardening with preflight caching, gateway middleware and health metrics,
+and 8 new audit event types.
+
+### Changes by Module
+
+#### signing.rs — Real HMAC-SHA3-256 Signing (PART 1)
+
+- Replaced DJB2-based `simple_hash()` with real SHA3-256 via `Sha3_256`
+- Replaced placeholder `hmac_sign()` with real `HmacSha3_256` HMAC
+- Added `SignatureMetadata` struct (algorithm, signed_headers, timestamp,
+  key_id, body_hash)
+- Added `sign_with_metadata()` returning `(SignedRequest, SignatureMetadata)`
+- Added `derive_signing_key()` for purpose-specific HMAC key derivation
+- Canonical string: headers now lowercased/trimmed, duplicates concatenated
+- 7 new tests
+
+#### session.rs — Cryptographic Session IDs (PART 2)
+
+- `generate_session_id()`: 32 crypto-random bytes, hex-encoded with `sess_` prefix
+- `SessionTokenHasher::hash_token()`: SHA3-256 hash for storage
+- Sessions stored by hashed key internally, raw ID returned to caller
+- `resolve_key()` for transparent raw-or-hashed lookup
+- `SessionBinding` struct with `bind_to_ip()` / `bind_to_user_agent()`
+- `validate_with_binding()` checks IP and User-Agent bindings
+- `record_request()` / `session_request_count()` / `session_request_rate()`
+- Fixed `invalidate_all_for_identity` and `cleanup_expired` to use HashMap keys
+- 10 new tests
+
+#### request.rs — Regex Request Validation (PART 3)
+
+- Added `blocked_patterns: Vec<(String, Regex)>` to `RequestValidator`
+- `with_default_blocked_patterns()`: null byte, unicode normalization,
+  HTTP response splitting, SSTI
+- `add_blocked_pattern()` / `check_blocked_patterns()`
+- `validate_body_content_type()` with allowed types list
+- `validate_body_size_by_method()` (GET/HEAD/DELETE/OPTIONS reject bodies)
+- `is_valid_ipv4()` / `is_private_ip()` / `is_loopback()` helpers
+- 10 new tests
+
+#### gateway.rs — Sliding Window Rate Limiting & Middleware (PARTS 4 & 7)
+
+- `SlidingWindowLimiter`: timestamp-based sliding window with `check()`/`reset()`
+- `RateLimitHeaders`: X-RateLimit-Limit/Remaining/Reset, Retry-After
+- `EndpointRateLimiter`: per-endpoint overrides with default fallback
+- `RateLimiterStats` struct
+- `MiddlewareFn` type alias, `MiddlewareResult` enum, `GatewayContext` struct
+- `GatewayTiming` struct (request_received/auth_check/rate_limit/validation/total)
+- `GatewayHealthMetrics` with `p50_latency_us()`, `p99_latency_us()`,
+  `requests_per_second()`
+- 14 new tests
+
+#### response.rs — Regex Data Leakage Scanner (PART 5)
+
+- `DataLeakageScanner` with 9 compiled regex patterns: internal IPs,
+  stack traces, file paths, secrets, debug info, database connection
+  strings, AWS credentials, private keys, error details
+- 4 new `DataLeakageType` variants: DatabaseConnectionString, AwsCredential,
+  PrivateKey, ErrorDetail
+- Made `is_internal_ip` public
+- 9 new tests (including existing display test updated 5→9 variants)
+
+#### cors.rs — CORS Hardening (PART 6)
+
+- `is_valid_origin()`: validates scheme, no path/query/fragment
+- `PreflightCache` with TTL-based expiry, `get()`/`put()`/`cleanup_expired()`
+- `CorsViolation` struct for logging
+- `vary_origin_header()`: returns `Vary: Origin` for non-wildcard policies
+- 8 new tests
+
+#### audit.rs — New Audit Event Types (PART 8)
+
+- 8 new `WebEventType` variants: HmacSignatureVerified, SessionTokenHashed,
+  RegexPatternBlocked, SlidingWindowLimited, DataLeakageRegexMatch,
+  CorsViolationLogged, MiddlewareExecuted, GatewayTimingRecorded
+- Display implementations for all 23 variants
+- Existing variant count test updated from 15 to 23
+
+### Test Summary
+
+```
+cargo test -p rune-web
+  163 passed; 0 failed
+
+cargo test --workspace
+  3,159 passed; 0 failed
+```
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Real HMAC-SHA3-256 replaces placeholder hashing; regex patterns catch injection at the gate |
+| Assumed Breach | Session token hashing prevents stolen-database replay; IP/UA binding detects hijacking |
+| No Single Points of Failure | Sliding window + endpoint rate limiting provide layered throttling; preflight caching reduces CORS overhead |
+| Zero Trust Throughout | Cryptographic session IDs resist guessing; data leakage scanner with 9 regex patterns catches secrets before they leave |
