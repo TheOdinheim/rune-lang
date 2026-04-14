@@ -340,3 +340,149 @@ contains_sensitive_json_keys
 ```toml
 regex = "1"  # Regex-based pattern matching for injection/token detection
 ```
+
+---
+
+## rune-detection — Layer 2 Upgrade
+
+**Date:** 2026-04-13
+**Type:** Layer 2 (internal upgrade, backward-compatible)
+**Tests:** 155 (103 existing + 52 new)
+**Dependencies added:** regex = "1"
+
+### Overview
+
+Upgraded `rune-detection` from keyword-based heuristics and basic
+statistics to production-grade Welford online algorithms, compiled regex
+pattern matching, behavioral baselines with sensitivity controls, alert
+correlation, and weighted multi-signal detection scoring. All 103
+existing tests continue to pass unchanged.
+
+### Changes by Module
+
+#### anomaly.rs — StatisticalDetector (PART 1)
+
+New `StatisticalDetector` using Welford's online algorithm:
+
+- Running mean/variance updated incrementally (no recomputation)
+- Sliding window (default 1000) for percentile/IQR
+- `min_observations` gate (default 30) prevents premature detection
+- `z_score()`, `detect_zscore()`, `detect_iqr()`, `detect()` (combined)
+- `has_sufficient_data()`, `percentile()`, `window_len()`, `count()`
+
+11 new tests.
+
+#### pattern.rs — RegexPatternMatcher (PART 2)
+
+New compiled-regex pattern matching alongside existing keyword scanner:
+
+- `DetectionPattern`: compiled Regex, severity, category, enable/disable,
+  hit_count tracking
+- `builtin_detection_patterns()`: 12 compiled patterns for SQLi (union
+  select, OR tautology), XSS (script tag, event handlers), command
+  injection (semicolon chains), path traversal (repeated ../), LDAP
+  injection, log injection, double URL encoding, suspicious user agents
+  (sqlmap/nikto/nmap/etc), DNS exfiltration, credential stuffing
+- `RegexPatternMatcher`: scan with hit counting, enable/disable per
+  pattern, `top_patterns(n)`, `total_hits()`
+- `RegexPatternMatch` result type with pattern_id, severity, detail
+
+13 new tests.
+
+#### behavioral.rs — BehavioralBaseline (PART 3)
+
+New `BehavioralBaseline` with configurable per-metric sensitivity:
+
+- `NormalRange` (min/max override), `MetricConfig` (sensitivity + range)
+- `BehavioralBaseline`: per-metric baselines using `MetricBaseline`
+  (Welford), configurable `default_sensitivity`, `deviation_threshold`,
+  `min_observations`
+- `is_anomalous()`: checks normal_range override, then z-score with
+  sensitivity-adjusted threshold (effective = threshold / sensitivity)
+- `anomalous_metrics()`, `metric_stats()` (returns `MetricStats`),
+  `has_sufficient_data()`
+
+9 new tests.
+
+#### alert.rs — AlertCorrelator (PART 4)
+
+New time-windowed alert correlation:
+
+- `CorrelationCondition`: SameSource, SameCategory, SameTarget,
+  CountExceeds, RapidSuccession, Custom
+- `CorrelationRule`: conditions, window_ms, min_alerts
+- `CorrelatedAlert`: rule_id, alert_ids, correlation_time, detail
+- `AlertCorrelator`: evaluates rules against windowed alerts,
+  source_key() helper for AlertSource comparison
+
+8 new tests.
+
+#### scoring.rs — DetectionScorer (NEW, PART 5)
+
+New weighted multi-signal detection scoring:
+
+- `DetectionWeights`: statistical=0.25, pattern=0.35, behavioral=0.20,
+  correlation=0.20 (default, sums to 1.0)
+- `ScoreComponent`: raw_score, weight, weighted_score, detail
+- `DetectionScore`: total (capped 1.0), components, is_threat, detail
+- `DetectionScorer`: configurable weights and threshold, `score()`
+  method taking four signal scores (each 0.0-1.0), clamping, and
+  weighted aggregation
+
+9 new tests.
+
+#### audit.rs — New Event Types (PART 6)
+
+Added 6 new DetectionEventType variants:
+- `StatisticalAnomalyDetected { method, z_score }`
+- `RegexPatternMatched { pattern_id, score }`
+- `BaselineDeviation { metric, deviation }`
+- `AlertsCorrelated { rule_id, alert_count }`
+- `DetectionScoreComputed { total, is_threat }`
+- `BehavioralBaselineEstablished { metric, sample_count }`
+
+New `is_correlation()` method. Updated kind(), Display, existing
+display-all test expanded. 2 new tests.
+
+#### lib.rs — Updated Module and Re-exports
+
+New module: `pub mod scoring`
+
+New public exports: StatisticalDetector, DetectionPattern,
+RegexPatternMatch, RegexPatternMatcher, builtin_detection_patterns,
+BehavioralBaseline, MetricConfig, MetricStats, NormalRange,
+AlertCorrelator, CorrelatedAlert, CorrelationCondition, CorrelationRule,
+DetectionScore, DetectionScorer, DetectionWeights, ScoreComponent
+
+### Test Summary
+
+| Module | Existing | New | Total |
+|---|---|---|---|
+| anomaly.rs | 15 | 11 | 26 |
+| pattern.rs | 20 | 13 | 33 |
+| behavioral.rs | 9 | 9 | 18 |
+| alert.rs | 12 | 8 | 20 |
+| scoring.rs | 0 | 9 | 9 |
+| audit.rs | 5 | 2 | 7 |
+| signal.rs | 8 | 0 | 8 |
+| indicator.rs | 9 | 0 | 9 |
+| rule.rs | 15 | 0 | 15 |
+| pipeline.rs | 10 | 0 | 10 |
+| error.rs | 0 | 0 | 0 |
+| **Total** | **103** | **52** | **155** |
+
+### Backward Compatibility
+
+- All 103 existing tests pass unchanged
+- All public function signatures unchanged
+- All public type names unchanged
+- Existing PatternScanner, AnomalyDetector, BehaviorAnalyzer, AlertManager
+  APIs fully preserved
+- New components are additive only: StatisticalDetector, RegexPatternMatcher,
+  BehavioralBaseline, AlertCorrelator, DetectionScorer are new types
+
+### Dependencies
+
+```toml
+regex = "1"  # Compiled regex for production-grade pattern matching
+```

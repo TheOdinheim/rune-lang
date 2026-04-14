@@ -20,6 +20,13 @@ pub enum DetectionEventType {
     AlertResolved { alert_id: String },
     AlertFalsePositive { alert_id: String },
     PipelineProcessed { pipeline_id: String, detections: usize },
+    // Layer 2 event types
+    StatisticalAnomalyDetected { method: String, z_score: f64 },
+    RegexPatternMatched { pattern_id: String, score: f64 },
+    BaselineDeviation { metric: String, deviation: f64 },
+    AlertsCorrelated { rule_id: String, alert_count: usize },
+    DetectionScoreComputed { total: f64, is_threat: bool },
+    BehavioralBaselineEstablished { metric: String, sample_count: u64 },
 }
 
 impl DetectionEventType {
@@ -35,6 +42,12 @@ impl DetectionEventType {
             Self::AlertResolved { .. } => "AlertResolved",
             Self::AlertFalsePositive { .. } => "AlertFalsePositive",
             Self::PipelineProcessed { .. } => "PipelineProcessed",
+            Self::StatisticalAnomalyDetected { .. } => "StatisticalAnomalyDetected",
+            Self::RegexPatternMatched { .. } => "RegexPatternMatched",
+            Self::BaselineDeviation { .. } => "BaselineDeviation",
+            Self::AlertsCorrelated { .. } => "AlertsCorrelated",
+            Self::DetectionScoreComputed { .. } => "DetectionScoreComputed",
+            Self::BehavioralBaselineEstablished { .. } => "BehavioralBaselineEstablished",
         }
     }
 
@@ -46,6 +59,9 @@ impl DetectionEventType {
                 | Self::BehaviorDeviation { .. }
                 | Self::IoCFound { .. }
                 | Self::RuleTriggered { .. }
+                | Self::StatisticalAnomalyDetected { .. }
+                | Self::RegexPatternMatched { .. }
+                | Self::BaselineDeviation { .. }
         )
     }
 
@@ -56,6 +72,13 @@ impl DetectionEventType {
                 | Self::AlertAcknowledged { .. }
                 | Self::AlertResolved { .. }
                 | Self::AlertFalsePositive { .. }
+        )
+    }
+
+    pub fn is_correlation(&self) -> bool {
+        matches!(
+            self,
+            Self::AlertsCorrelated { .. } | Self::DetectionScoreComputed { .. }
         )
     }
 }
@@ -86,6 +109,24 @@ impl fmt::Display for DetectionEventType {
             Self::AlertFalsePositive { alert_id } => write!(f, "AlertFalsePositive({alert_id})"),
             Self::PipelineProcessed { pipeline_id, detections } => {
                 write!(f, "PipelineProcessed({pipeline_id}, {detections})")
+            }
+            Self::StatisticalAnomalyDetected { method, z_score } => {
+                write!(f, "StatisticalAnomalyDetected({method}, {z_score:.3})")
+            }
+            Self::RegexPatternMatched { pattern_id, score } => {
+                write!(f, "RegexPatternMatched({pattern_id}, {score:.3})")
+            }
+            Self::BaselineDeviation { metric, deviation } => {
+                write!(f, "BaselineDeviation({metric}, {deviation:.3})")
+            }
+            Self::AlertsCorrelated { rule_id, alert_count } => {
+                write!(f, "AlertsCorrelated({rule_id}, {alert_count})")
+            }
+            Self::DetectionScoreComputed { total, is_threat } => {
+                write!(f, "DetectionScoreComputed({total:.3}, threat={is_threat})")
+            }
+            Self::BehavioralBaselineEstablished { metric, sample_count } => {
+                write!(f, "BehavioralBaselineEstablished({metric}, n={sample_count})")
             }
         }
     }
@@ -273,10 +314,64 @@ mod tests {
                 pipeline_id: "p".into(),
                 detections: 3,
             },
+            DetectionEventType::StatisticalAnomalyDetected {
+                method: "welford".into(),
+                z_score: 4.5,
+            },
+            DetectionEventType::RegexPatternMatched {
+                pattern_id: "rx-01".into(),
+                score: 0.9,
+            },
+            DetectionEventType::BaselineDeviation {
+                metric: "latency".into(),
+                deviation: 3.2,
+            },
+            DetectionEventType::AlertsCorrelated {
+                rule_id: "r1".into(),
+                alert_count: 5,
+            },
+            DetectionEventType::DetectionScoreComputed {
+                total: 0.75,
+                is_threat: true,
+            },
+            DetectionEventType::BehavioralBaselineEstablished {
+                metric: "req_rate".into(),
+                sample_count: 100,
+            },
         ];
         for e in &events {
             assert!(!e.to_string().is_empty());
             assert!(!e.kind().is_empty());
         }
+    }
+
+    #[test]
+    fn test_layer2_detection_events_classified() {
+        let stat = DetectionEventType::StatisticalAnomalyDetected {
+            method: "z".into(),
+            z_score: 4.0,
+        };
+        let regex = DetectionEventType::RegexPatternMatched {
+            pattern_id: "rx".into(),
+            score: 0.8,
+        };
+        let baseline = DetectionEventType::BaselineDeviation {
+            metric: "m".into(),
+            deviation: 3.0,
+        };
+        let correlated = DetectionEventType::AlertsCorrelated {
+            rule_id: "r".into(),
+            alert_count: 3,
+        };
+        let scored = DetectionEventType::DetectionScoreComputed {
+            total: 0.7,
+            is_threat: true,
+        };
+        assert!(stat.is_detection());
+        assert!(regex.is_detection());
+        assert!(baseline.is_detection());
+        assert!(correlated.is_correlation());
+        assert!(scored.is_correlation());
+        assert!(!stat.is_alert());
     }
 }

@@ -289,6 +289,163 @@ impl AlertManager {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Alert Correlation
+//
+// Time-windowed correlation of alerts by source, category, target,
+// count, and rapid succession. CorrelationRules define conditions;
+// AlertCorrelator evaluates them against a set of alerts.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── CorrelationCondition ─────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum CorrelationCondition {
+    SameSource,
+    SameCategory,
+    SameTarget { target_key: String },
+    CountExceeds { threshold: usize },
+    RapidSuccession { max_interval_ms: i64 },
+    Custom { key: String, value: String },
+}
+
+// ── CorrelationRule ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CorrelationRule {
+    pub id: String,
+    pub name: String,
+    pub conditions: Vec<CorrelationCondition>,
+    pub window_ms: i64,
+    pub min_alerts: usize,
+}
+
+// ── CorrelatedAlert ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CorrelatedAlert {
+    pub rule_id: String,
+    pub rule_name: String,
+    pub alert_ids: Vec<AlertId>,
+    pub correlation_time: i64,
+    pub detail: String,
+}
+
+// ── AlertCorrelator ──────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct AlertCorrelator {
+    rules: Vec<CorrelationRule>,
+}
+
+impl AlertCorrelator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_rule(&mut self, rule: CorrelationRule) {
+        self.rules.push(rule);
+    }
+
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
+    pub fn correlate(&self, alerts: &[&Alert], now: i64) -> Vec<CorrelatedAlert> {
+        let mut results = Vec::new();
+
+        for rule in &self.rules {
+            // Filter alerts within the time window
+            let cutoff = now - rule.window_ms;
+            let windowed: Vec<&Alert> = alerts
+                .iter()
+                .filter(|a| a.created_at >= cutoff)
+                .copied()
+                .collect();
+
+            if windowed.len() < rule.min_alerts {
+                continue;
+            }
+
+            // Check all conditions
+            let mut passes = true;
+            for cond in &rule.conditions {
+                match cond {
+                    CorrelationCondition::SameSource => {
+                        if windowed.len() >= 2 {
+                            let first_src = source_key(&windowed[0].source);
+                            passes = passes && windowed.iter().all(|a| source_key(&a.source) == first_src);
+                        }
+                    }
+                    CorrelationCondition::SameCategory => {
+                        if windowed.len() >= 2 {
+                            let first_cat = &windowed[0].category;
+                            passes = passes && windowed.iter().all(|a| &a.category == first_cat);
+                        }
+                    }
+                    CorrelationCondition::SameTarget { target_key } => {
+                        if windowed.len() >= 2 {
+                            let first_val = windowed[0].metadata.get(target_key);
+                            passes = passes && windowed.iter().all(|a| a.metadata.get(target_key) == first_val && first_val.is_some());
+                        }
+                    }
+                    CorrelationCondition::CountExceeds { threshold } => {
+                        passes = passes && windowed.len() > *threshold;
+                    }
+                    CorrelationCondition::RapidSuccession { max_interval_ms } => {
+                        if windowed.len() >= 2 {
+                            let mut timestamps: Vec<i64> = windowed.iter().map(|a| a.created_at).collect();
+                            timestamps.sort();
+                            let rapid = timestamps.windows(2).any(|w| (w[1] - w[0]) <= *max_interval_ms);
+                            passes = passes && rapid;
+                        }
+                    }
+                    CorrelationCondition::Custom { key, value } => {
+                        passes = passes && windowed.iter().any(|a| a.metadata.get(key).map(|v| v == value).unwrap_or(false));
+                    }
+                }
+            }
+
+            if passes {
+                let ids: Vec<AlertId> = windowed.iter().map(|a| a.id.clone()).collect();
+                let detail = format!(
+                    "rule '{}' correlated {} alerts within {}ms",
+                    rule.name, ids.len(), rule.window_ms
+                );
+                results.push(CorrelatedAlert {
+                    rule_id: rule.id.clone(),
+                    rule_name: rule.name.clone(),
+                    alert_ids: ids,
+                    correlation_time: now,
+                    detail,
+                });
+            }
+        }
+
+        results
+    }
+}
+
+fn source_key(source: &AlertSource) -> String {
+    match source {
+        AlertSource::AnomalyDetector { .. } => "anomaly".into(),
+        AlertSource::PatternScanner { .. } => "pattern".into(),
+        AlertSource::BehaviorAnalyzer { .. } => "behavior".into(),
+        AlertSource::IoC { indicator_type, .. } => format!("ioc:{indicator_type}"),
+        AlertSource::Rule { rule_id } => format!("rule:{rule_id}"),
+        AlertSource::Pipeline { pipeline_id } => format!("pipeline:{pipeline_id}"),
+        AlertSource::External { source } => format!("external:{source}"),
+    }
+}
+
+impl fmt::Debug for AlertCorrelator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AlertCorrelator")
+            .field("rule_count", &self.rules.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,5 +613,167 @@ mod tests {
         let id2 = raise_one(&mut m, "t2", 2000);
         assert_eq!(id1.as_str(), "alert-1");
         assert_eq!(id2.as_str(), "alert-2");
+    }
+
+    // ── Layer 2: AlertCorrelator tests ──────────────────────────────────
+
+    fn make_alert(id: &str, source: AlertSource, category: ThreatCategory, ts: i64) -> Alert {
+        Alert {
+            id: AlertId(id.into()),
+            title: format!("alert {id}"),
+            description: "test".into(),
+            severity: SecuritySeverity::High,
+            category,
+            source,
+            status: AlertStatus::New,
+            created_at: ts,
+            acknowledged_at: None,
+            resolved_at: None,
+            assignee: None,
+            evidence: Vec::new(),
+            related_alerts: Vec::new(),
+            false_positive: false,
+            metadata: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_correlator_same_source() {
+        let c = {
+            let mut c = AlertCorrelator::new();
+            c.add_rule(CorrelationRule {
+                id: "r1".into(),
+                name: "same-source".into(),
+                conditions: vec![CorrelationCondition::SameSource],
+                window_ms: 5000,
+                min_alerts: 2,
+            });
+            c
+        };
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1000);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Tampering, 2000);
+        let results = c.correlate(&[&a1, &a2], 3000);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].alert_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_correlator_same_category() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "same-cat".into(),
+            conditions: vec![CorrelationCondition::SameCategory],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::PromptInjection, 1000);
+        let a2 = make_alert("2", AlertSource::AnomalyDetector { method: "zscore".into(), score: 4.5 }, ThreatCategory::PromptInjection, 2000);
+        let results = c.correlate(&[&a1, &a2], 3000);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_correlator_different_category_no_match() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "same-cat".into(),
+            conditions: vec![CorrelationCondition::SameCategory],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::PromptInjection, 1000);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 2000);
+        let results = c.correlate(&[&a1, &a2], 3000);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_correlator_count_exceeds() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "count".into(),
+            conditions: vec![CorrelationCondition::CountExceeds { threshold: 2 }],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1000);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 2000);
+        let a3 = make_alert("3", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 3000);
+        let results = c.correlate(&[&a1, &a2, &a3], 4000);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_correlator_rapid_succession() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "rapid".into(),
+            conditions: vec![CorrelationCondition::RapidSuccession { max_interval_ms: 100 }],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1000);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1050);
+        let results = c.correlate(&[&a1, &a2], 2000);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_correlator_outside_window() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "same-source".into(),
+            conditions: vec![CorrelationCondition::SameSource],
+            window_ms: 100,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 100);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 5000);
+        let results = c.correlate(&[&a1, &a2], 5100);
+        // a1 is outside the window (5100-100=5000, a1 at 100 < 5000)
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_correlator_min_alerts_not_met() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "high-count".into(),
+            conditions: vec![CorrelationCondition::CountExceeds { threshold: 0 }],
+            window_ms: 5000,
+            min_alerts: 5,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1000);
+        let results = c.correlate(&[&a1], 2000);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_correlator_multiple_rules() {
+        let mut c = AlertCorrelator::new();
+        c.add_rule(CorrelationRule {
+            id: "r1".into(),
+            name: "same-source".into(),
+            conditions: vec![CorrelationCondition::SameSource],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        c.add_rule(CorrelationRule {
+            id: "r2".into(),
+            name: "same-cat".into(),
+            conditions: vec![CorrelationCondition::SameCategory],
+            window_ms: 5000,
+            min_alerts: 2,
+        });
+        let a1 = make_alert("1", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 1000);
+        let a2 = make_alert("2", AlertSource::PatternScanner { category: "test".into(), confidence: 0.8 }, ThreatCategory::Spoofing, 2000);
+        let results = c.correlate(&[&a1, &a2], 3000);
+        assert_eq!(results.len(), 2); // both rules match
     }
 }

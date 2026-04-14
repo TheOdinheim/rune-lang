@@ -7,9 +7,10 @@
 // case-insensitive keyword detection.
 // ═══════════════════════════════════════════════════════════════════════
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 // ── PatternCategory ───────────────────────────────────────────────────
@@ -431,6 +432,282 @@ pub fn detect_encoded_payload(text: &str) -> Vec<PatternMatch> {
     }]
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Regex-Based Pattern Matching
+//
+// Production-grade compiled regex patterns for attack detection.
+// Replaces keyword matching with configurable, scored regex patterns
+// with hit counting and enable/disable per pattern.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── DetectionPattern ─────────────────────────────────────────────────
+
+pub struct DetectionPattern {
+    pub id: String,
+    pub name: String,
+    pub pattern_str: String,
+    compiled: Regex,
+    pub category: PatternCategory,
+    pub severity: f64,
+    pub description: String,
+    pub enabled: bool,
+    hit_count: u64,
+}
+
+impl DetectionPattern {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        pattern: &str,
+        category: PatternCategory,
+        severity: f64,
+        description: impl Into<String>,
+    ) -> Result<Self, regex::Error> {
+        let compiled = Regex::new(pattern)?;
+        Ok(Self {
+            id: id.into(),
+            name: name.into(),
+            pattern_str: pattern.to_string(),
+            compiled,
+            category,
+            severity,
+            description: description.into(),
+            enabled: true,
+            hit_count: 0,
+        })
+    }
+
+    pub fn is_match(&self, input: &str) -> bool {
+        self.enabled && self.compiled.is_match(input)
+    }
+
+    pub fn hit_count(&self) -> u64 {
+        self.hit_count
+    }
+}
+
+impl Clone for DetectionPattern {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            pattern_str: self.pattern_str.clone(),
+            compiled: Regex::new(&self.pattern_str).unwrap(),
+            category: self.category.clone(),
+            severity: self.severity,
+            description: self.description.clone(),
+            enabled: self.enabled,
+            hit_count: self.hit_count,
+        }
+    }
+}
+
+impl fmt::Debug for DetectionPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DetectionPattern")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("category", &self.category)
+            .field("severity", &self.severity)
+            .field("enabled", &self.enabled)
+            .field("hit_count", &self.hit_count)
+            .finish()
+    }
+}
+
+// ── Built-in detection patterns ──────────────────────────────────────
+
+pub fn builtin_detection_patterns() -> Vec<DetectionPattern> {
+    let defs: Vec<(&str, &str, &str, PatternCategory, f64, &str)> = vec![
+        (
+            "rx-sqli-01", "sql-union-select",
+            r"(?i)\bunion\s+(all\s+)?select\b",
+            PatternCategory::SqlInjection, 0.9,
+            "UNION SELECT SQL injection",
+        ),
+        (
+            "rx-sqli-02", "sql-or-tautology",
+            r"(?i)'\s+or\s+['\d]",
+            PatternCategory::SqlInjection, 0.85,
+            "SQL OR tautology injection",
+        ),
+        (
+            "rx-xss-01", "xss-script-tag",
+            r"(?i)<script[\s>]",
+            PatternCategory::XssAttempt, 0.9,
+            "Script tag injection",
+        ),
+        (
+            "rx-xss-02", "xss-event-handler",
+            r"(?i)\bon(error|load|click|mouseover)\s*=",
+            PatternCategory::XssAttempt, 0.85,
+            "Event handler XSS",
+        ),
+        (
+            "rx-cmd-01", "command-injection-semicolon",
+            r";\s*(rm|cat|wget|curl|chmod|chown|bash|sh)\s",
+            PatternCategory::CommandInjection, 0.9,
+            "Semicolon command injection",
+        ),
+        (
+            "rx-path-01", "path-traversal-dotdot",
+            r"(\.\./|\.\.\\|%2e%2e[/\\]){2,}",
+            PatternCategory::PathTraversal, 0.9,
+            "Repeated path traversal sequences",
+        ),
+        (
+            "rx-ldap-01", "ldap-injection",
+            r"(?i)[)(|*\\]\s*(uid|cn|objectclass)\s*=",
+            PatternCategory::SqlInjection, 0.8,
+            "LDAP injection attempt",
+        ),
+        (
+            "rx-log-01", "log-injection",
+            r"[\r\n]+(INFO|WARN|ERROR|DEBUG|FATAL)\s",
+            PatternCategory::DataExfiltration, 0.7,
+            "Log injection via newlines",
+        ),
+        (
+            "rx-enc-01", "encoded-payload-double-url",
+            r"%25[0-9a-fA-F]{2}",
+            PatternCategory::EncodedPayload, 0.75,
+            "Double URL-encoded payload",
+        ),
+        (
+            "rx-ua-01", "suspicious-user-agent",
+            r"(?i)(sqlmap|nikto|nmap|masscan|zgrab|gobuster|dirbuster|hydra)",
+            PatternCategory::CredentialStuffing, 0.85,
+            "Known attack tool user agent",
+        ),
+        (
+            "rx-dns-01", "dns-exfiltration",
+            r"[a-zA-Z0-9]{30,}\.[a-zA-Z0-9]{10,}\.\w{2,6}$",
+            PatternCategory::DataExfiltration, 0.7,
+            "Possible DNS exfiltration (long subdomain labels)",
+        ),
+        (
+            "rx-cred-01", "credential-stuffing",
+            r"(?i)(password|passwd|pwd)\s*[=:]\s*\S{4,}",
+            PatternCategory::CredentialStuffing, 0.8,
+            "Credential parameter in input",
+        ),
+    ];
+
+    defs.into_iter()
+        .map(|(id, name, pat, cat, sev, desc)| {
+            DetectionPattern::new(id, name, pat, cat, sev, desc).unwrap()
+        })
+        .collect()
+}
+
+// ── RegexPatternMatch ────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct RegexPatternMatch {
+    pub pattern_id: String,
+    pub pattern_name: String,
+    pub category: PatternCategory,
+    pub severity: f64,
+    pub detail: String,
+}
+
+// ── RegexPatternMatcher ──────────────────────────────────────────────
+
+pub struct RegexPatternMatcher {
+    patterns: Vec<DetectionPattern>,
+    pub min_confidence: f64,
+}
+
+impl Default for RegexPatternMatcher {
+    fn default() -> Self {
+        Self::with_builtin_patterns()
+    }
+}
+
+impl RegexPatternMatcher {
+    pub fn new() -> Self {
+        Self {
+            patterns: Vec::new(),
+            min_confidence: 0.3,
+        }
+    }
+
+    pub fn with_builtin_patterns() -> Self {
+        Self {
+            patterns: builtin_detection_patterns(),
+            min_confidence: 0.3,
+        }
+    }
+
+    pub fn add_pattern(&mut self, pattern: DetectionPattern) {
+        self.patterns.push(pattern);
+    }
+
+    pub fn pattern_count(&self) -> usize {
+        self.patterns.len()
+    }
+
+    pub fn enable_pattern(&mut self, id: &str) -> bool {
+        if let Some(p) = self.patterns.iter_mut().find(|p| p.id == id) {
+            p.enabled = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn disable_pattern(&mut self, id: &str) -> bool {
+        if let Some(p) = self.patterns.iter_mut().find(|p| p.id == id) {
+            p.enabled = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn scan(&mut self, input: &str) -> Vec<RegexPatternMatch> {
+        let mut matches = Vec::new();
+        for p in &mut self.patterns {
+            if p.enabled && p.severity >= self.min_confidence && p.compiled.is_match(input) {
+                p.hit_count += 1;
+                matches.push(RegexPatternMatch {
+                    pattern_id: p.id.clone(),
+                    pattern_name: p.name.clone(),
+                    category: p.category.clone(),
+                    severity: p.severity,
+                    detail: format!("regex pattern '{}' matched", p.name),
+                });
+            }
+        }
+        matches
+    }
+
+    pub fn top_patterns(&self, n: usize) -> Vec<(&str, u64)> {
+        let mut sorted: Vec<_> = self.patterns.iter()
+            .filter(|p| p.hit_count > 0)
+            .map(|p| (p.id.as_str(), p.hit_count))
+            .collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.truncate(n);
+        sorted
+    }
+
+    pub fn total_hits(&self) -> u64 {
+        self.patterns.iter().map(|p| p.hit_count).sum()
+    }
+}
+
+impl fmt::Debug for RegexPatternMatcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RegexPatternMatcher")
+            .field("pattern_count", &self.patterns.len())
+            .field("min_confidence", &self.min_confidence)
+            .finish()
+    }
+}
+
+// ── Helper ───────────────────────────────────────────────────────────
+
 fn longest_run<F: Fn(char) -> bool>(text: &str, predicate: F) -> usize {
     let mut max = 0usize;
     let mut cur = 0usize;
@@ -593,5 +870,128 @@ mod tests {
             confidence: 0.9,
         };
         assert!(!p.matches("only xmrig mentioned"));
+    }
+
+    // ── Layer 2: RegexPatternMatcher tests ──────────────────────────────
+
+    #[test]
+    fn test_builtin_detection_patterns_count() {
+        let patterns = builtin_detection_patterns();
+        assert!(patterns.len() >= 10);
+    }
+
+    #[test]
+    fn test_regex_matcher_sql_union() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("SELECT * FROM users UNION SELECT password FROM admin");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|h| h.category == PatternCategory::SqlInjection));
+    }
+
+    #[test]
+    fn test_regex_matcher_xss_script() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("<script>alert(document.cookie)</script>");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|h| h.category == PatternCategory::XssAttempt));
+    }
+
+    #[test]
+    fn test_regex_matcher_command_injection() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("filename; rm -rf /tmp/data");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|h| h.category == PatternCategory::CommandInjection));
+    }
+
+    #[test]
+    fn test_regex_matcher_path_traversal() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("../../etc/passwd");
+        assert!(!hits.is_empty());
+    }
+
+    #[test]
+    fn test_regex_matcher_clean_input() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("The weather today is sunny and warm.");
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn test_regex_matcher_hit_count() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        m.scan("UNION SELECT password FROM users");
+        m.scan("UNION ALL SELECT credit_card FROM payments");
+        assert!(m.total_hits() >= 2);
+    }
+
+    #[test]
+    fn test_regex_matcher_top_patterns() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        m.scan("UNION SELECT a");
+        m.scan("UNION SELECT b");
+        m.scan("<script>x</script>");
+        let top = m.top_patterns(5);
+        assert!(!top.is_empty());
+        assert!(top[0].1 >= 2); // union select hit twice
+    }
+
+    #[test]
+    fn test_regex_matcher_enable_disable() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        assert!(m.disable_pattern("rx-sqli-01"));
+        let hits = m.scan("UNION SELECT password");
+        // The specific pattern is disabled, may still hit rx-sqli-02 or not
+        let has_union = hits.iter().any(|h| h.pattern_id == "rx-sqli-01");
+        assert!(!has_union);
+        assert!(m.enable_pattern("rx-sqli-01"));
+    }
+
+    #[test]
+    fn test_regex_matcher_suspicious_user_agent() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("User-Agent: sqlmap/1.5");
+        assert!(!hits.is_empty());
+    }
+
+    #[test]
+    fn test_regex_matcher_credential_stuffing() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("password=hunter2");
+        assert!(!hits.is_empty());
+        assert!(hits.iter().any(|h| h.category == PatternCategory::CredentialStuffing));
+    }
+
+    #[test]
+    fn test_regex_matcher_encoded_payload() {
+        let mut m = RegexPatternMatcher::with_builtin_patterns();
+        let hits = m.scan("%253cscript%253e");
+        assert!(!hits.is_empty());
+    }
+
+    #[test]
+    fn test_regex_matcher_custom_pattern() {
+        let mut m = RegexPatternMatcher::new();
+        m.add_pattern(
+            DetectionPattern::new(
+                "custom-01", "test-pattern",
+                r"(?i)magic\s+word",
+                PatternCategory::PromptInjection, 0.8,
+                "custom test pattern",
+            ).unwrap(),
+        );
+        let hits = m.scan("say the magic word please");
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn test_detection_pattern_clone() {
+        let p = DetectionPattern::new(
+            "id", "name", r"test", PatternCategory::SqlInjection, 0.5, "desc",
+        ).unwrap();
+        let p2 = p.clone();
+        assert_eq!(p2.id, "id");
+        assert!(p2.is_match("test"));
     }
 }

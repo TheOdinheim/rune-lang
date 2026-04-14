@@ -265,6 +265,171 @@ impl BehaviorAnalyzer {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Layer 2: BehavioralBaseline
+//
+// Per-metric baselines with configurable sensitivity thresholds and
+// normal range overrides. Uses the existing MetricBaseline (Welford's)
+// for online statistics, adding anomaly classification per metric.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── NormalRange ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct NormalRange {
+    pub min: f64,
+    pub max: f64,
+}
+
+impl NormalRange {
+    pub fn contains(&self, value: f64) -> bool {
+        value >= self.min && value <= self.max
+    }
+}
+
+// ── MetricConfig ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct MetricConfig {
+    pub sensitivity: f64,
+    pub normal_range: Option<NormalRange>,
+}
+
+impl Default for MetricConfig {
+    fn default() -> Self {
+        Self {
+            sensitivity: 1.0,
+            normal_range: None,
+        }
+    }
+}
+
+// ── MetricStats ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct MetricStats {
+    pub mean: f64,
+    pub std_dev: f64,
+    pub min: f64,
+    pub max: f64,
+    pub count: u64,
+    pub last_updated: i64,
+}
+
+// ── BehavioralBaseline ───────────────────────────────────────────────
+
+pub struct BehavioralBaseline {
+    metrics: HashMap<String, MetricBaseline>,
+    configs: HashMap<String, MetricConfig>,
+    pub default_sensitivity: f64,
+    pub deviation_threshold: f64,
+    pub min_observations: u64,
+}
+
+impl Default for BehavioralBaseline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BehavioralBaseline {
+    pub fn new() -> Self {
+        Self {
+            metrics: HashMap::new(),
+            configs: HashMap::new(),
+            default_sensitivity: 1.0,
+            deviation_threshold: 2.0,
+            min_observations: 10,
+        }
+    }
+
+    pub fn with_sensitivity(sensitivity: f64) -> Self {
+        Self {
+            metrics: HashMap::new(),
+            configs: HashMap::new(),
+            default_sensitivity: sensitivity,
+            deviation_threshold: 2.0,
+            min_observations: 10,
+        }
+    }
+
+    pub fn configure_metric(&mut self, name: &str, config: MetricConfig) {
+        self.configs.insert(name.into(), config);
+    }
+
+    pub fn observe(&mut self, metric: &str, value: f64, timestamp: i64) {
+        let baseline = self
+            .metrics
+            .entry(metric.into())
+            .or_insert_with(|| MetricBaseline::new(metric));
+        baseline.update(value, timestamp);
+    }
+
+    pub fn is_anomalous(&self, metric: &str, value: f64) -> bool {
+        let baseline = match self.metrics.get(metric) {
+            Some(b) => b,
+            None => return false,
+        };
+        if baseline.sample_count < self.min_observations {
+            return false;
+        }
+        let config = self.configs.get(metric);
+        // Check normal range override first
+        if let Some(cfg) = config {
+            if let Some(ref range) = cfg.normal_range {
+                return !range.contains(value);
+            }
+        }
+        let sensitivity = config.map(|c| c.sensitivity).unwrap_or(self.default_sensitivity);
+        let effective_threshold = self.deviation_threshold / sensitivity;
+        let sd = baseline.std_dev;
+        if sd == 0.0 {
+            return (value - baseline.mean).abs() > 0.0;
+        }
+        let z = ((value - baseline.mean) / sd).abs();
+        z > effective_threshold
+    }
+
+    pub fn anomalous_metrics(&self, observations: &[(&str, f64)]) -> Vec<String> {
+        observations
+            .iter()
+            .filter(|(name, val)| self.is_anomalous(name, *val))
+            .map(|(name, _)| (*name).to_string())
+            .collect()
+    }
+
+    pub fn metric_stats(&self, name: &str) -> Option<MetricStats> {
+        self.metrics.get(name).map(|b| MetricStats {
+            mean: b.mean,
+            std_dev: b.std_dev,
+            min: b.min_observed,
+            max: b.max_observed,
+            count: b.sample_count,
+            last_updated: b.last_updated,
+        })
+    }
+
+    pub fn metric_count(&self) -> usize {
+        self.metrics.len()
+    }
+
+    pub fn has_sufficient_data(&self, metric: &str) -> bool {
+        self.metrics
+            .get(metric)
+            .map(|b| b.sample_count >= self.min_observations)
+            .unwrap_or(false)
+    }
+}
+
+impl fmt::Debug for BehavioralBaseline {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BehavioralBaseline")
+            .field("metric_count", &self.metrics.len())
+            .field("default_sensitivity", &self.default_sensitivity)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +526,113 @@ mod tests {
             a.observe("u", "m", 1.0, 0);
         }
         assert!(a.is_baseline_stable("u"));
+    }
+
+    // ── Layer 2: BehavioralBaseline tests ───────────────────────────────
+
+    #[test]
+    fn test_behavioral_baseline_observe_and_stats() {
+        let mut b = BehavioralBaseline::new();
+        for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
+            b.observe("latency", v, 100);
+        }
+        let stats = b.metric_stats("latency").unwrap();
+        assert!((stats.mean - 3.0).abs() < 0.001);
+        assert_eq!(stats.count, 5);
+        assert_eq!(stats.min, 1.0);
+        assert_eq!(stats.max, 5.0);
+    }
+
+    #[test]
+    fn test_behavioral_baseline_anomalous() {
+        let mut b = BehavioralBaseline::new();
+        b.min_observations = 5;
+        for v in [10.0, 10.1, 9.9, 10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.1] {
+            b.observe("req_rate", v, 100);
+        }
+        assert!(!b.is_anomalous("req_rate", 10.05));
+        assert!(b.is_anomalous("req_rate", 100.0));
+    }
+
+    #[test]
+    fn test_behavioral_baseline_insufficient_data() {
+        let mut b = BehavioralBaseline::new();
+        b.observe("m", 1.0, 0);
+        b.observe("m", 2.0, 0);
+        assert!(!b.is_anomalous("m", 100.0)); // insufficient data returns false
+    }
+
+    #[test]
+    fn test_behavioral_baseline_normal_range_override() {
+        let mut b = BehavioralBaseline::new();
+        b.min_observations = 3;
+        for v in [50.0, 51.0, 49.0, 50.5, 50.0] {
+            b.observe("temp", v, 0);
+        }
+        b.configure_metric("temp", MetricConfig {
+            sensitivity: 1.0,
+            normal_range: Some(NormalRange { min: 0.0, max: 100.0 }),
+        });
+        assert!(!b.is_anomalous("temp", 99.0));
+        assert!(b.is_anomalous("temp", 101.0));
+    }
+
+    #[test]
+    fn test_behavioral_baseline_sensitivity() {
+        let mut b = BehavioralBaseline::new();
+        b.min_observations = 5;
+        for v in [10.0, 10.1, 9.9, 10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.1] {
+            b.observe("m", v, 0);
+        }
+        // Default sensitivity=1.0: deviation_threshold=2.0
+        let val = 10.5; // moderate deviation
+        let normal_result = b.is_anomalous("m", val);
+        // Higher sensitivity=2.0: effective_threshold=1.0 — more sensitive
+        b.configure_metric("m", MetricConfig {
+            sensitivity: 2.0,
+            normal_range: None,
+        });
+        let sensitive_result = b.is_anomalous("m", val);
+        // Higher sensitivity should detect more anomalies
+        assert!(sensitive_result || !normal_result);
+    }
+
+    #[test]
+    fn test_behavioral_baseline_anomalous_metrics() {
+        let mut b = BehavioralBaseline::new();
+        b.min_observations = 5;
+        for v in [10.0, 10.1, 9.9, 10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.1] {
+            b.observe("m1", v, 0);
+            b.observe("m2", v * 2.0, 0);
+        }
+        let anomalous = b.anomalous_metrics(&[("m1", 100.0), ("m2", 20.0)]);
+        assert!(anomalous.contains(&"m1".to_string()));
+    }
+
+    #[test]
+    fn test_behavioral_baseline_metric_count() {
+        let mut b = BehavioralBaseline::new();
+        b.observe("a", 1.0, 0);
+        b.observe("b", 2.0, 0);
+        b.observe("c", 3.0, 0);
+        assert_eq!(b.metric_count(), 3);
+    }
+
+    #[test]
+    fn test_behavioral_baseline_has_sufficient_data() {
+        let mut b = BehavioralBaseline::new();
+        b.min_observations = 5;
+        assert!(!b.has_sufficient_data("m"));
+        for i in 0..5 {
+            b.observe("m", i as f64, 0);
+        }
+        assert!(b.has_sufficient_data("m"));
+    }
+
+    #[test]
+    fn test_behavioral_baseline_unknown_metric() {
+        let b = BehavioralBaseline::new();
+        assert!(!b.is_anomalous("nonexistent", 42.0));
+        assert!(b.metric_stats("nonexistent").is_none());
     }
 }

@@ -16,13 +16,21 @@ pub mod indicator;
 pub mod pattern;
 pub mod pipeline;
 pub mod rule;
+pub mod scoring;
 pub mod signal;
 
 pub use alert::{Alert, AlertId, AlertManager, AlertSource, AlertStatus};
+pub use alert::{
+    AlertCorrelator, CorrelatedAlert, CorrelationCondition, CorrelationRule,
+};
 pub use anomaly::{AnomalyDetector, AnomalyMethod, AnomalyResult};
+pub use anomaly::StatisticalDetector;
 pub use audit::{DetectionAuditEvent, DetectionAuditLog, DetectionEventType};
 pub use behavioral::{
     BehaviorAnalyzer, BehaviorProfile, BehaviorResult, BehaviorStatus, MetricBaseline,
+};
+pub use behavioral::{
+    BehavioralBaseline, MetricConfig, MetricStats, NormalRange,
 };
 pub use error::DetectionError;
 pub use indicator::{IoC, IoCDatabase, IoCType};
@@ -31,8 +39,12 @@ pub use pattern::{
     detect_path_traversal, detect_prompt_injection, detect_sql_injection, detect_xss,
     CustomPattern, PatternCategory, PatternLocation, PatternMatch, PatternScanner,
 };
+pub use pattern::{
+    builtin_detection_patterns, DetectionPattern, RegexPatternMatch, RegexPatternMatcher,
+};
 pub use pipeline::{DetectionPipeline, PipelineResult, PipelineStage, StageType};
 pub use rule::{
     evaluate_rule, DetectionRule, RuleCondition, RuleEvalContext, RuleSet,
 };
+pub use scoring::{DetectionScore, DetectionScorer, DetectionWeights, ScoreComponent};
 pub use signal::{Signal, SignalBatch, SignalSource, SignalType, SignalValue};
