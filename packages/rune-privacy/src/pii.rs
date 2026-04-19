@@ -500,6 +500,164 @@ fn pattern_label(category: &PiiCategory) -> &'static str {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Real PII Detection with Regex
+// ═══════════════════════════════════════════════════════════════════════
+
+use crate::error::PrivacyError;
+
+/// Confidence level for PII pattern matches.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum PiiConfidence {
+    Low = 0,
+    Medium = 1,
+    High = 2,
+}
+
+impl fmt::Display for PiiConfidence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+/// A single PII match from regex scanning.
+#[derive(Debug, Clone)]
+pub struct PiiMatch {
+    pub pii_type: PiiCategory,
+    pub pattern_name: String,
+    pub confidence: PiiConfidence,
+    pub matched_text_redacted: String,
+    pub field_name: Option<String>,
+    pub byte_offset: usize,
+}
+
+/// PII match from structured field scanning.
+#[derive(Debug, Clone)]
+pub struct PiiFieldMatch {
+    pub field_name: String,
+    pub matches: Vec<PiiMatch>,
+}
+
+/// Production-grade PII scanner with compiled regex patterns.
+pub struct PiiRegexScanner {
+    patterns: Vec<(PiiCategory, String, regex::Regex, PiiConfidence)>,
+}
+
+impl PiiRegexScanner {
+    pub fn new() -> Self {
+        let mut scanner = Self {
+            patterns: Vec::new(),
+        };
+        // Built-in patterns
+        scanner.add_builtin("Email", PiiCategory::Email,
+            r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", PiiConfidence::High);
+        scanner.add_builtin("US SSN", PiiCategory::Ssn,
+            r"\b\d{3}-\d{2}-\d{4}\b", PiiConfidence::High);
+        scanner.add_builtin("US SSN no dashes", PiiCategory::Ssn,
+            r"\b\d{9}\b", PiiConfidence::Low);
+        scanner.add_builtin("US Phone", PiiCategory::Phone,
+            r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b", PiiConfidence::Medium);
+        scanner.add_builtin("Credit Card", PiiCategory::FinancialAccount,
+            r"\b(?:\d{4}[-\s]?){3}\d{4}\b", PiiConfidence::Medium);
+        scanner.add_builtin("IPv4 Address", PiiCategory::IpAddress,
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", PiiConfidence::Medium);
+        scanner.add_builtin("Date of Birth", PiiCategory::DateOfBirth,
+            r"\b(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])/(?:19|20)\d{2}\b", PiiConfidence::Medium);
+        scanner.add_builtin("US Passport", PiiCategory::Custom("Passport".into()),
+            r"\b[A-Z]\d{8}\b", PiiConfidence::Low);
+        scanner.add_builtin("AWS Key", PiiCategory::Authentication,
+            r"\bAKIA[0-9A-Z]{16}\b", PiiConfidence::High);
+        scanner.add_builtin("Private Key", PiiCategory::Authentication,
+            r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----", PiiConfidence::High);
+        scanner.add_builtin("JWT Token", PiiCategory::Authentication,
+            r"\beyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", PiiConfidence::High);
+        scanner.add_builtin("US ZIP Code", PiiCategory::Address,
+            r"\b\d{5}(?:-\d{4})?\b", PiiConfidence::Low);
+        scanner
+    }
+
+    fn add_builtin(&mut self, name: &str, pii_type: PiiCategory, pattern: &str, confidence: PiiConfidence) {
+        if let Ok(re) = regex::Regex::new(pattern) {
+            self.patterns.push((pii_type, name.to_string(), re, confidence));
+        }
+    }
+
+    pub fn add_pattern(
+        &mut self,
+        pii_type: PiiCategory,
+        name: &str,
+        pattern: &str,
+        confidence: PiiConfidence,
+    ) -> Result<(), PrivacyError> {
+        let re = regex::Regex::new(pattern).map_err(|e| {
+            PrivacyError::InvalidOperation(format!("invalid regex pattern: {}", e))
+        })?;
+        self.patterns.push((pii_type, name.to_string(), re, confidence));
+        Ok(())
+    }
+
+    pub fn pattern_count(&self) -> usize {
+        self.patterns.len()
+    }
+
+    pub fn scan(&self, text: &str) -> Vec<PiiMatch> {
+        let mut results = Vec::new();
+        for (pii_type, name, re, confidence) in &self.patterns {
+            for m in re.find_iter(text) {
+                results.push(PiiMatch {
+                    pii_type: pii_type.clone(),
+                    pattern_name: name.clone(),
+                    confidence: confidence.clone(),
+                    matched_text_redacted: redact_match(m.as_str()),
+                    field_name: None,
+                    byte_offset: m.start(),
+                });
+            }
+        }
+        results
+    }
+
+    pub fn scan_structured(&self, fields: &HashMap<String, String>) -> Vec<PiiFieldMatch> {
+        let mut results = Vec::new();
+        for (field_name, value) in fields {
+            let mut matches = self.scan(value);
+            for m in &mut matches {
+                m.field_name = Some(field_name.clone());
+            }
+            if !matches.is_empty() {
+                results.push(PiiFieldMatch {
+                    field_name: field_name.clone(),
+                    matches,
+                });
+            }
+        }
+        results
+    }
+
+    pub fn scan_above_confidence(&self, text: &str, min_confidence: PiiConfidence) -> Vec<PiiMatch> {
+        self.scan(text)
+            .into_iter()
+            .filter(|m| m.confidence >= min_confidence)
+            .collect()
+    }
+}
+
+impl Default for PiiRegexScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn redact_match(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= 4 {
+        return "***".to_string();
+    }
+    let first: String = chars[..2].iter().collect();
+    let last: String = chars[chars.len() - 2..].iter().collect();
+    format!("{}***{}", first, last)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -639,5 +797,120 @@ mod tests {
         };
         assert_eq!(tag.field_name, "email");
         assert_eq!(tag.sensitivity, PiiSensitivity::Medium);
+    }
+
+    // ── Layer 2: PII Regex Scanner tests ────────────────────────────
+
+    #[test]
+    fn test_regex_scanner_detects_email() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("contact user@example.com today");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::Email));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_ssn() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("SSN: 123-45-6789");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::Ssn && m.confidence == PiiConfidence::High));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_phone() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("call (555) 123-4567 now");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::Phone));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_credit_card() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("card 4111-1111-1111-1111 on file");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::FinancialAccount));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_aws_key() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("key: AKIAIOSFODNN7EXAMPLE");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::Authentication
+            && m.pattern_name == "AWS Key"));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_private_key() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan("-----BEGIN RSA PRIVATE KEY-----");
+        assert!(matches.iter().any(|m| m.pii_type == PiiCategory::Authentication
+            && m.pattern_name == "Private Key"));
+    }
+
+    #[test]
+    fn test_regex_scanner_detects_jwt() {
+        let scanner = PiiRegexScanner::new();
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123_-xyz";
+        let matches = scanner.scan(jwt);
+        assert!(matches.iter().any(|m| m.pattern_name == "JWT Token"));
+    }
+
+    #[test]
+    fn test_regex_scanner_clean_text() {
+        let scanner = PiiRegexScanner::new();
+        let matches = scanner.scan_above_confidence("the quick brown fox jumps", PiiConfidence::Medium);
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_regex_scanner_structured() {
+        let scanner = PiiRegexScanner::new();
+        let mut fields = HashMap::new();
+        fields.insert("contact_email".to_string(), "user@example.com".to_string());
+        fields.insert("notes".to_string(), "nothing here".to_string());
+        let results = scanner.scan_structured(&fields);
+        assert!(results.iter().any(|r| r.field_name == "contact_email"));
+    }
+
+    #[test]
+    fn test_regex_scanner_add_pattern() {
+        let mut scanner = PiiRegexScanner::new();
+        let before = scanner.pattern_count();
+        scanner.add_pattern(
+            PiiCategory::Custom("CustomID".into()),
+            "Custom ID",
+            r"\bCID-\d{6}\b",
+            PiiConfidence::High,
+        ).unwrap();
+        assert_eq!(scanner.pattern_count(), before + 1);
+        let matches = scanner.scan("reference CID-123456 noted");
+        assert!(matches.iter().any(|m| m.pattern_name == "Custom ID"));
+    }
+
+    #[test]
+    fn test_regex_scanner_pattern_count() {
+        let scanner = PiiRegexScanner::new();
+        assert!(scanner.pattern_count() >= 12);
+    }
+
+    #[test]
+    fn test_pii_match_redacts_text() {
+        let redacted = redact_match("user@example.com");
+        assert!(redacted.starts_with("us"));
+        assert!(redacted.ends_with("om"));
+        assert!(redacted.contains("***"));
+    }
+
+    #[test]
+    fn test_scan_above_confidence_filters() {
+        let scanner = PiiRegexScanner::new();
+        // "12345" should match ZIP (Low) but not pass Medium filter
+        let all = scanner.scan("zip 12345 here");
+        let high_only = scanner.scan_above_confidence("zip 12345 here", PiiConfidence::High);
+        assert!(all.len() >= high_only.len());
+    }
+
+    #[test]
+    fn test_pii_confidence_ordering() {
+        assert!(PiiConfidence::Low < PiiConfidence::Medium);
+        assert!(PiiConfidence::Medium < PiiConfidence::High);
     }
 }

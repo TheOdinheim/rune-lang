@@ -103,7 +103,7 @@ pub fn pseudonymize(value: &str, key: &[u8]) -> String {
 // ── Noise mechanisms ──────────────────────────────────────────────────
 
 /// Deterministic pseudo-random number in [0, 1) derived from a seed.
-fn deterministic_uniform(seed: u64) -> f64 {
+pub(crate) fn deterministic_uniform(seed: u64) -> f64 {
     // SplitMix64 step
     let mut z = seed.wrapping_add(0x9E3779B97F4A7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
@@ -113,7 +113,7 @@ fn deterministic_uniform(seed: u64) -> f64 {
     (z >> 11) as f64 / (1u64 << 53) as f64
 }
 
-fn seed_from_value(value: f64) -> u64 {
+pub(crate) fn seed_from_value(value: f64) -> u64 {
     value.to_bits() ^ 0xDEADBEEFCAFEBABE
 }
 
@@ -424,6 +424,303 @@ fn apply_method(value: &str, method: &AnonymizationMethod) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Anonymization Hardening
+// ═══════════════════════════════════════════════════════════════════════
+
+use serde::{Deserialize, Serialize};
+
+/// A group of records sharing the same quasi-identifier values.
+#[derive(Debug, Clone)]
+pub struct AnonymizationGroup {
+    pub quasi_identifier_values: HashMap<String, String>,
+    pub sensitive_values: Vec<String>,
+    pub count: usize,
+}
+
+/// Standalone l-diversity check across pre-built groups.
+pub fn check_l_diversity(groups: &[AnonymizationGroup], l: usize) -> LDiversityResult {
+    if groups.is_empty() {
+        return LDiversityResult {
+            satisfied: l == 0,
+            l,
+            total_groups: 0,
+            violating_groups: 0,
+            min_diversity: 0,
+        };
+    }
+    let mut min_div = usize::MAX;
+    let mut violating = 0;
+    for group in groups {
+        let distinct: HashSet<&String> = group.sensitive_values.iter().collect();
+        let d = distinct.len();
+        if d < l {
+            violating += 1;
+        }
+        if d < min_div {
+            min_div = d;
+        }
+    }
+    LDiversityResult {
+        satisfied: violating == 0,
+        l,
+        total_groups: groups.len(),
+        violating_groups: violating,
+        min_diversity: min_div,
+    }
+}
+
+/// Standalone t-closeness check across pre-built groups using EMD.
+pub fn check_t_closeness(groups: &[AnonymizationGroup], t: f64) -> TClosenessResult {
+    if groups.is_empty() {
+        return TClosenessResult {
+            satisfied: true,
+            t_threshold: t,
+            max_distance: 0.0,
+            violating_groups: 0,
+        };
+    }
+    // Build overall distribution from all groups
+    let mut overall_counts: HashMap<String, f64> = HashMap::new();
+    let mut total = 0usize;
+    for group in groups {
+        for val in &group.sensitive_values {
+            *overall_counts.entry(val.clone()).or_insert(0.0) += 1.0;
+            total += 1;
+        }
+    }
+    if total > 0 {
+        for v in overall_counts.values_mut() {
+            *v /= total as f64;
+        }
+    }
+
+    let mut max_dist: f64 = 0.0;
+    let mut violating = 0;
+    for group in groups {
+        let n = group.sensitive_values.len();
+        if n == 0 {
+            continue;
+        }
+        let mut local: HashMap<String, f64> = HashMap::new();
+        for val in &group.sensitive_values {
+            *local.entry(val.clone()).or_insert(0.0) += 1.0;
+        }
+        for v in local.values_mut() {
+            *v /= n as f64;
+        }
+        let dist = emd_distance(&overall_counts, &local);
+        if dist > t {
+            violating += 1;
+        }
+        if dist > max_dist {
+            max_dist = dist;
+        }
+    }
+    TClosenessResult {
+        satisfied: violating == 0,
+        t_threshold: t,
+        max_distance: max_dist,
+        violating_groups: violating,
+    }
+}
+
+/// Risk level for re-identification assessment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RiskLevel {
+    Negligible,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl fmt::Display for RiskLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+/// Re-identification risk assessment result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReidentificationRisk {
+    pub risk_level: RiskLevel,
+    pub score: f64,
+    pub smallest_group: usize,
+    pub unique_records: usize,
+    pub total_records: usize,
+    pub recommendations: Vec<String>,
+}
+
+/// Assess re-identification risk from quasi-identifier groups.
+pub fn reidentification_risk(
+    records: &[HashMap<String, String>],
+    quasi_identifiers: &[String],
+) -> ReidentificationRisk {
+    let groups = group_by_qi(records, quasi_identifiers);
+    let total = records.len();
+    if total == 0 {
+        return ReidentificationRisk {
+            risk_level: RiskLevel::Negligible,
+            score: 0.0,
+            smallest_group: 0,
+            unique_records: 0,
+            total_records: 0,
+            recommendations: Vec::new(),
+        };
+    }
+    let sizes: Vec<usize> = groups.values().map(|v| v.len()).collect();
+    let smallest = *sizes.iter().min().unwrap_or(&0);
+    let unique = sizes.iter().filter(|&&s| s == 1).count();
+    let uniqueness_ratio = unique as f64 / total as f64;
+
+    // Score: higher = more risk. Based on uniqueness ratio and smallest group.
+    let score = if smallest == 0 {
+        0.0
+    } else {
+        (uniqueness_ratio * 0.6 + (1.0 / smallest as f64) * 0.4).min(1.0)
+    };
+
+    let risk_level = if score < 0.05 {
+        RiskLevel::Negligible
+    } else if score < 0.2 {
+        RiskLevel::Low
+    } else if score < 0.5 {
+        RiskLevel::Medium
+    } else if score < 0.8 {
+        RiskLevel::High
+    } else {
+        RiskLevel::Critical
+    };
+
+    let mut recommendations = Vec::new();
+    if smallest < 5 {
+        recommendations.push("Increase k-anonymity to at least k=5".into());
+    }
+    if uniqueness_ratio > 0.1 {
+        recommendations.push("Generalize quasi-identifiers to reduce uniqueness".into());
+    }
+    if score > 0.5 {
+        recommendations.push("Apply differential privacy or suppress small groups".into());
+    }
+
+    ReidentificationRisk {
+        risk_level,
+        score,
+        smallest_group: smallest,
+        unique_records: unique,
+        total_records: total,
+        recommendations,
+    }
+}
+
+/// Generalization hierarchy for progressive data generalization.
+pub struct GeneralizationHierarchy {
+    pub name: String,
+    levels: Vec<Box<dyn Fn(&str) -> String + Send + Sync>>,
+}
+
+impl fmt::Debug for GeneralizationHierarchy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GeneralizationHierarchy")
+            .field("name", &self.name)
+            .field("levels", &self.levels.len())
+            .finish()
+    }
+}
+
+impl GeneralizationHierarchy {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.into(),
+            levels: Vec::new(),
+        }
+    }
+
+    pub fn add_level(&mut self, f: impl Fn(&str) -> String + Send + Sync + 'static) -> &mut Self {
+        self.levels.push(Box::new(f));
+        self
+    }
+
+    pub fn generalize(&self, value: &str, level: usize) -> String {
+        if level == 0 || level > self.levels.len() {
+            return value.to_string();
+        }
+        (self.levels[level - 1])(value)
+    }
+
+    pub fn max_level(&self) -> usize {
+        self.levels.len()
+    }
+
+    /// Built-in age hierarchy: level 1 → 5-year bucket, level 2 → 10-year bucket, level 3 → "*"
+    pub fn age() -> Self {
+        let mut h = Self::new("age");
+        h.add_level(|v| {
+            if let Ok(n) = v.parse::<i64>() {
+                let lower = (n / 5) * 5;
+                format!("{}-{}", lower, lower + 4)
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|v| {
+            if let Ok(n) = v.parse::<i64>() {
+                let lower = (n / 10) * 10;
+                format!("{}-{}", lower, lower + 9)
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|_| "*".to_string());
+        h
+    }
+
+    /// Built-in ZIP hierarchy: level 1 → first 3 digits + "**", level 2 → first 1 digit + "****", level 3 → "*****"
+    pub fn zip_code() -> Self {
+        let mut h = Self::new("zip_code");
+        h.add_level(|v| {
+            if v.len() >= 3 {
+                format!("{}**", &v[..3])
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|v| {
+            if !v.is_empty() {
+                format!("{}****", &v[..1])
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|_| "*****".to_string());
+        h
+    }
+
+    /// Built-in date hierarchy: level 1 → year-month, level 2 → year, level 3 → "*"
+    pub fn date() -> Self {
+        let mut h = Self::new("date");
+        h.add_level(|v| {
+            // "2024-03-15" → "2024-03"
+            if v.len() >= 7 {
+                v[..7].to_string()
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|v| {
+            // "2024-03-15" → "2024"
+            if v.len() >= 4 {
+                v[..4].to_string()
+            } else {
+                v.to_string()
+            }
+        });
+        h.add_level(|_| "*".to_string());
+        h
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -614,5 +911,141 @@ mod tests {
             AnonymizationMethod::Bucketing { bucket_size: 10 }.to_string(),
             "Bucketing(10)"
         );
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_check_l_diversity_standalone_satisfied() {
+        let groups = vec![
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10001".into())].into(),
+                sensitive_values: vec!["flu".into(), "cold".into(), "asthma".into()],
+                count: 3,
+            },
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10002".into())].into(),
+                sensitive_values: vec!["flu".into(), "cold".into()],
+                count: 2,
+            },
+        ];
+        let result = check_l_diversity(&groups, 2);
+        assert!(result.satisfied);
+        assert_eq!(result.min_diversity, 2);
+    }
+
+    #[test]
+    fn test_check_l_diversity_standalone_violated() {
+        let groups = vec![AnonymizationGroup {
+            quasi_identifier_values: [("zip".into(), "10001".into())].into(),
+            sensitive_values: vec!["flu".into(), "flu".into()],
+            count: 2,
+        }];
+        let result = check_l_diversity(&groups, 2);
+        assert!(!result.satisfied);
+        assert_eq!(result.violating_groups, 1);
+    }
+
+    #[test]
+    fn test_check_t_closeness_standalone_satisfied() {
+        let groups = vec![
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10001".into())].into(),
+                sensitive_values: vec!["flu".into(), "cold".into()],
+                count: 2,
+            },
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10002".into())].into(),
+                sensitive_values: vec!["flu".into(), "cold".into()],
+                count: 2,
+            },
+        ];
+        let result = check_t_closeness(&groups, 0.5);
+        assert!(result.satisfied);
+    }
+
+    #[test]
+    fn test_check_t_closeness_standalone_violated() {
+        let groups = vec![
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10001".into())].into(),
+                sensitive_values: vec!["flu".into(), "flu".into()],
+                count: 2,
+            },
+            AnonymizationGroup {
+                quasi_identifier_values: [("zip".into(), "10002".into())].into(),
+                sensitive_values: vec!["cold".into(), "cold".into()],
+                count: 2,
+            },
+        ];
+        let result = check_t_closeness(&groups, 0.1);
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn test_reidentification_risk_low() {
+        let records = vec![
+            make_record(&[("zip", "10001"), ("age", "30")]),
+            make_record(&[("zip", "10001"), ("age", "30")]),
+            make_record(&[("zip", "10001"), ("age", "30")]),
+            make_record(&[("zip", "10002"), ("age", "40")]),
+            make_record(&[("zip", "10002"), ("age", "40")]),
+            make_record(&[("zip", "10002"), ("age", "40")]),
+        ];
+        let risk = reidentification_risk(&records, &["zip".into(), "age".into()]);
+        assert_eq!(risk.unique_records, 0);
+        assert!(risk.score < 0.5);
+    }
+
+    #[test]
+    fn test_reidentification_risk_high() {
+        let records = vec![
+            make_record(&[("zip", "10001"), ("age", "25")]),
+            make_record(&[("zip", "10002"), ("age", "30")]),
+            make_record(&[("zip", "10003"), ("age", "35")]),
+        ];
+        let risk = reidentification_risk(&records, &["zip".into(), "age".into()]);
+        assert_eq!(risk.unique_records, 3);
+        assert!(risk.score >= 0.5);
+        assert!(!risk.recommendations.is_empty());
+    }
+
+    #[test]
+    fn test_reidentification_risk_empty() {
+        let risk = reidentification_risk(&[], &["zip".into()]);
+        assert_eq!(risk.risk_level, RiskLevel::Negligible);
+        assert_eq!(risk.total_records, 0);
+    }
+
+    #[test]
+    fn test_generalization_hierarchy_age() {
+        let h = GeneralizationHierarchy::age();
+        assert_eq!(h.generalize("34", 0), "34");
+        assert_eq!(h.generalize("34", 1), "30-34");
+        assert_eq!(h.generalize("34", 2), "30-39");
+        assert_eq!(h.generalize("34", 3), "*");
+        assert_eq!(h.max_level(), 3);
+    }
+
+    #[test]
+    fn test_generalization_hierarchy_zip() {
+        let h = GeneralizationHierarchy::zip_code();
+        assert_eq!(h.generalize("10001", 1), "100**");
+        assert_eq!(h.generalize("10001", 2), "1****");
+        assert_eq!(h.generalize("10001", 3), "*****");
+    }
+
+    #[test]
+    fn test_generalization_hierarchy_date() {
+        let h = GeneralizationHierarchy::date();
+        assert_eq!(h.generalize("2024-03-15", 1), "2024-03");
+        assert_eq!(h.generalize("2024-03-15", 2), "2024");
+        assert_eq!(h.generalize("2024-03-15", 3), "*");
+    }
+
+    #[test]
+    fn test_risk_level_display() {
+        assert_eq!(RiskLevel::Negligible.to_string(), "Negligible");
+        assert_eq!(RiskLevel::Critical.to_string(), "Critical");
     }
 }

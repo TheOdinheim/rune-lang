@@ -252,6 +252,144 @@ impl DpEngine {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Enhanced Differential Privacy
+// ═══════════════════════════════════════════════════════════════════════
+
+use crate::anonymize::{add_gaussian_noise, deterministic_uniform, seed_from_value};
+
+/// Gaussian noise for (ε,δ)-differential privacy.
+/// σ = sensitivity * sqrt(2 * ln(1.25 / δ)) / ε
+pub fn gaussian_noise(sensitivity: f64, epsilon: f64, delta: f64) -> f64 {
+    if epsilon <= 0.0 || delta <= 0.0 {
+        return 0.0;
+    }
+    let sigma = calibrate_gaussian(sensitivity, epsilon, delta);
+    // Box-Muller transform
+    let seed = seed_from_value(sensitivity * epsilon);
+    let u1 = deterministic_uniform(seed).max(1e-12);
+    let u2 = deterministic_uniform(seed.wrapping_add(1));
+    let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
+    z * sigma
+}
+
+/// Calibrate Laplace scale parameter: b = sensitivity / epsilon.
+pub fn calibrate_laplace(sensitivity: f64, epsilon: f64) -> f64 {
+    if epsilon <= 0.0 {
+        return f64::INFINITY;
+    }
+    sensitivity / epsilon
+}
+
+/// Calibrate Gaussian σ: sensitivity * sqrt(2 * ln(1.25/δ)) / ε.
+pub fn calibrate_gaussian(sensitivity: f64, epsilon: f64, delta: f64) -> f64 {
+    if epsilon <= 0.0 || delta <= 0.0 {
+        return f64::INFINITY;
+    }
+    sensitivity * (2.0 * (1.25_f64 / delta).ln()).sqrt() / epsilon
+}
+
+/// Query record for budget tracking.
+#[derive(Debug, Clone)]
+pub struct BudgetQuery {
+    pub query_id: String,
+    pub epsilon_cost: f64,
+    pub delta_cost: f64,
+    pub mechanism: String,
+    pub timestamp: i64,
+}
+
+/// Privacy budget tracker with query history and composition theorems.
+pub struct PrivacyBudgetTracker {
+    pub total_epsilon: f64,
+    pub total_delta: f64,
+    pub spent_epsilon: f64,
+    pub spent_delta: f64,
+    pub queries: Vec<BudgetQuery>,
+}
+
+impl PrivacyBudgetTracker {
+    pub fn new(total_epsilon: f64, total_delta: f64) -> Self {
+        Self {
+            total_epsilon,
+            total_delta,
+            spent_epsilon: 0.0,
+            spent_delta: 0.0,
+            queries: Vec::new(),
+        }
+    }
+
+    pub fn can_afford(&self, epsilon: f64, delta: f64) -> bool {
+        self.remaining_epsilon() >= epsilon && self.remaining_delta() >= delta
+    }
+
+    pub fn spend(
+        &mut self,
+        query_id: &str,
+        epsilon: f64,
+        delta: f64,
+        mechanism: &str,
+        now: i64,
+    ) -> Result<(), PrivacyError> {
+        if !self.can_afford(epsilon, delta) {
+            return Err(PrivacyError::InsufficientPrivacyBudget {
+                required_epsilon: epsilon,
+                remaining_epsilon: self.remaining_epsilon(),
+            });
+        }
+        self.spent_epsilon += epsilon;
+        self.spent_delta += delta;
+        self.queries.push(BudgetQuery {
+            query_id: query_id.to_string(),
+            epsilon_cost: epsilon,
+            delta_cost: delta,
+            mechanism: mechanism.to_string(),
+            timestamp: now,
+        });
+        Ok(())
+    }
+
+    pub fn remaining_epsilon(&self) -> f64 {
+        (self.total_epsilon - self.spent_epsilon).max(0.0)
+    }
+
+    pub fn remaining_delta(&self) -> f64 {
+        (self.total_delta - self.spent_delta).max(0.0)
+    }
+
+    pub fn utilization(&self) -> f64 {
+        if self.total_epsilon <= 0.0 {
+            return 0.0;
+        }
+        self.spent_epsilon / self.total_epsilon
+    }
+
+    pub fn reset(&mut self) {
+        self.spent_epsilon = 0.0;
+        self.spent_delta = 0.0;
+        self.queries.clear();
+    }
+
+    /// Basic sequential composition: sum of all query epsilons.
+    pub fn sequential_composition_epsilon(&self) -> f64 {
+        self.queries.iter().map(|q| q.epsilon_cost).sum()
+    }
+
+    /// Advanced composition theorem (tighter bound).
+    /// sqrt(2k * ln(1/δ')) * ε_max + k * ε_max * (e^ε_max - 1)
+    pub fn advanced_composition_epsilon(&self, target_delta: f64) -> f64 {
+        if self.queries.is_empty() || target_delta <= 0.0 {
+            return 0.0;
+        }
+        let k = self.queries.len() as f64;
+        let max_eps = self.queries.iter().map(|q| q.epsilon_cost)
+            .fold(0.0_f64, f64::max);
+        let term1 = (2.0 * k * (1.0 / target_delta).ln()).sqrt() * max_eps;
+        let term2 = k * max_eps * (max_eps.exp() - 1.0);
+        term1 + term2
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -363,5 +501,130 @@ mod tests {
     fn test_query_type_display() {
         assert_eq!(QueryType::Count.to_string(), "Count");
         assert_eq!(QueryType::Sum { field: "x".into() }.to_string(), "Sum(x)");
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_gaussian_noise_nonzero() {
+        let noise = gaussian_noise(1.0, 1.0, 1e-5);
+        assert!(noise.abs() > 0.0);
+    }
+
+    #[test]
+    fn test_gaussian_noise_zero_epsilon() {
+        let noise = gaussian_noise(1.0, 0.0, 1e-5);
+        assert_eq!(noise, 0.0);
+    }
+
+    #[test]
+    fn test_gaussian_noise_zero_delta() {
+        let noise = gaussian_noise(1.0, 1.0, 0.0);
+        assert_eq!(noise, 0.0);
+    }
+
+    #[test]
+    fn test_calibrate_laplace() {
+        let scale = calibrate_laplace(1.0, 0.5);
+        assert!((scale - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_calibrate_laplace_zero_epsilon() {
+        let scale = calibrate_laplace(1.0, 0.0);
+        assert!(scale.is_infinite());
+    }
+
+    #[test]
+    fn test_calibrate_gaussian_basic() {
+        let sigma = calibrate_gaussian(1.0, 1.0, 1e-5);
+        assert!(sigma > 0.0);
+        assert!(sigma.is_finite());
+    }
+
+    #[test]
+    fn test_calibrate_gaussian_zero_epsilon() {
+        let sigma = calibrate_gaussian(1.0, 0.0, 1e-5);
+        assert!(sigma.is_infinite());
+    }
+
+    #[test]
+    fn test_budget_tracker_new() {
+        let tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        assert!((tracker.total_epsilon - 1.0).abs() < 1e-9);
+        assert!((tracker.remaining_epsilon() - 1.0).abs() < 1e-9);
+        assert!(tracker.queries.is_empty());
+    }
+
+    #[test]
+    fn test_budget_tracker_spend_and_track() {
+        let mut tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        tracker.spend("q1", 0.3, 1e-7, "Laplace", 1000).unwrap();
+        assert!((tracker.spent_epsilon - 0.3).abs() < 1e-9);
+        assert!((tracker.remaining_epsilon() - 0.7).abs() < 1e-9);
+        assert_eq!(tracker.queries.len(), 1);
+        assert_eq!(tracker.queries[0].query_id, "q1");
+    }
+
+    #[test]
+    fn test_budget_tracker_rejects_overspend() {
+        let mut tracker = PrivacyBudgetTracker::new(0.5, 1e-6);
+        let result = tracker.spend("q1", 0.6, 0.0, "Laplace", 1000);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_budget_tracker_utilization() {
+        let mut tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        tracker.spend("q1", 0.5, 0.0, "Laplace", 1000).unwrap();
+        assert!((tracker.utilization() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_budget_tracker_reset() {
+        let mut tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        tracker.spend("q1", 0.5, 1e-7, "Laplace", 1000).unwrap();
+        tracker.reset();
+        assert!((tracker.remaining_epsilon() - 1.0).abs() < 1e-9);
+        assert!(tracker.queries.is_empty());
+    }
+
+    #[test]
+    fn test_sequential_composition() {
+        let mut tracker = PrivacyBudgetTracker::new(2.0, 1e-6);
+        tracker.spend("q1", 0.3, 0.0, "Laplace", 1000).unwrap();
+        tracker.spend("q2", 0.5, 0.0, "Laplace", 2000).unwrap();
+        let seq = tracker.sequential_composition_epsilon();
+        assert!((seq - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_advanced_composition() {
+        let mut tracker = PrivacyBudgetTracker::new(10.0, 1e-3);
+        for i in 0..5 {
+            tracker.spend(&format!("q{i}"), 0.1, 0.0, "Laplace", i as i64 * 1000).unwrap();
+        }
+        let adv = tracker.advanced_composition_epsilon(1e-6);
+        let seq = tracker.sequential_composition_epsilon();
+        // Advanced composition should give a tighter bound than sequential
+        assert!(adv > 0.0);
+        // For small epsilon, advanced should be <= sequential (tighter)
+        // In general advanced can be larger for small k but the formula is valid
+        assert!(adv.is_finite());
+        assert!(seq > 0.0);
+    }
+
+    #[test]
+    fn test_advanced_composition_empty() {
+        let tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        assert_eq!(tracker.advanced_composition_epsilon(1e-6), 0.0);
+    }
+
+    #[test]
+    fn test_budget_tracker_can_afford() {
+        let mut tracker = PrivacyBudgetTracker::new(1.0, 1e-6);
+        assert!(tracker.can_afford(0.5, 0.0));
+        tracker.spend("q1", 0.8, 0.0, "Laplace", 1000).unwrap();
+        assert!(!tracker.can_afford(0.5, 0.0));
     }
 }

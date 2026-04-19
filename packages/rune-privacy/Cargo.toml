@@ -12,3 +12,5 @@ rune-identity = { path = "../rune-identity" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
+sha3 = "0.10"
+regex = "1"

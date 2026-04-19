@@ -234,6 +234,224 @@ impl ConsentStore {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Consent Lifecycle Enhancement
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// A versioned consent record with policy hash for change detection.
+#[derive(Debug, Clone)]
+pub struct ConsentVersion {
+    pub consent_id: ConsentId,
+    pub version: u32,
+    pub policy_text: String,
+    pub policy_hash: String,
+    pub created_at: i64,
+    pub supersedes: Option<u32>,
+}
+
+impl ConsentVersion {
+    fn compute_hash(text: &str) -> String {
+        let mut hasher = Sha3_256::new();
+        hasher.update(text.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+}
+
+/// Result of a cascade withdrawal.
+#[derive(Debug, Clone)]
+pub struct WithdrawalResult {
+    pub withdrawn_consent_id: ConsentId,
+    pub dependent_purposes_withdrawn: Vec<String>,
+    pub total_withdrawn: usize,
+}
+
+/// Cryptographic proof of consent for audit/legal purposes.
+#[derive(Debug, Clone)]
+pub struct ConsentProof {
+    pub consent_id: ConsentId,
+    pub subject_id: String,
+    pub purpose: String,
+    pub given_at: i64,
+    pub policy_hash: String,
+    pub proof_hash: String,
+}
+
+/// Graph of purpose dependencies for cascade operations.
+#[derive(Debug, Clone, Default)]
+pub struct PurposeDependencyGraph {
+    /// Maps purpose → list of purposes that depend on it
+    pub dependencies: HashMap<String, Vec<String>>,
+}
+
+impl PurposeDependencyGraph {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_dependency(&mut self, purpose: &str, depends_on: &str) {
+        self.dependencies
+            .entry(depends_on.to_string())
+            .or_default()
+            .push(purpose.to_string());
+    }
+
+    /// Get all purposes that directly depend on the given purpose.
+    pub fn dependents_of(&self, purpose: &str) -> Vec<String> {
+        self.dependencies.get(purpose).cloned().unwrap_or_default()
+    }
+
+    /// Get all purposes transitively required when withdrawing the given purpose.
+    pub fn all_required_for(&self, purpose: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut stack = vec![purpose.to_string()];
+        let mut visited = std::collections::HashSet::new();
+        while let Some(p) = stack.pop() {
+            if !visited.insert(p.clone()) {
+                continue;
+            }
+            if let Some(deps) = self.dependencies.get(&p) {
+                for dep in deps {
+                    result.push(dep.clone());
+                    stack.push(dep.clone());
+                }
+            }
+        }
+        result
+    }
+}
+
+/// Consent version store — manages versioned consent records.
+#[derive(Default)]
+pub struct ConsentVersionStore {
+    pub versions: HashMap<ConsentId, Vec<ConsentVersion>>,
+}
+
+impl ConsentVersionStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn create_version(
+        &mut self,
+        consent_id: &ConsentId,
+        policy_text: &str,
+        created_at: i64,
+    ) -> ConsentVersion {
+        let existing = self.versions.entry(consent_id.clone()).or_default();
+        let version_num = existing.len() as u32 + 1;
+        let supersedes = if existing.is_empty() { None } else { Some(version_num - 1) };
+        let version = ConsentVersion {
+            consent_id: consent_id.clone(),
+            version: version_num,
+            policy_text: policy_text.to_string(),
+            policy_hash: ConsentVersion::compute_hash(policy_text),
+            created_at,
+            supersedes,
+        };
+        existing.push(version.clone());
+        version
+    }
+
+    pub fn current_version(&self, consent_id: &ConsentId) -> Option<&ConsentVersion> {
+        self.versions.get(consent_id).and_then(|v| v.last())
+    }
+
+    pub fn is_consent_current(&self, consent_id: &ConsentId, policy_text: &str) -> bool {
+        if let Some(current) = self.current_version(consent_id) {
+            current.policy_hash == ConsentVersion::compute_hash(policy_text)
+        } else {
+            false
+        }
+    }
+
+    pub fn version_history(&self, consent_id: &ConsentId) -> Vec<&ConsentVersion> {
+        self.versions.get(consent_id).map(|v| v.iter().collect()).unwrap_or_default()
+    }
+}
+
+impl ConsentStore {
+    /// Withdraw consent and cascade to dependent purposes.
+    pub fn withdraw_consent_cascade(
+        &mut self,
+        id: &ConsentId,
+        withdrawn_at: i64,
+        dep_graph: &PurposeDependencyGraph,
+    ) -> Result<WithdrawalResult, PrivacyError> {
+        let consent = self
+            .consents
+            .get(id)
+            .ok_or_else(|| PrivacyError::ConsentNotFound(id.to_string()))?;
+        let purpose_id = consent.purpose.id.clone();
+        let subject = consent.data_subject.clone();
+
+        // Withdraw the primary consent
+        self.withdraw_consent(id, withdrawn_at)?;
+
+        // Find dependent purposes
+        let dependent_purposes = dep_graph.all_required_for(&purpose_id);
+
+        // Withdraw consents for dependent purposes
+        let mut withdrawn_ids = Vec::new();
+        for dep_purpose in &dependent_purposes {
+            let ids_to_withdraw: Vec<ConsentId> = self
+                .consents_for_subject(&subject)
+                .iter()
+                .filter(|c| {
+                    c.purpose.id == *dep_purpose && matches!(c.status, ConsentStatus::Active)
+                })
+                .map(|c| c.id.clone())
+                .collect();
+            for cid in ids_to_withdraw {
+                let _ = self.withdraw_consent(&cid, withdrawn_at);
+                withdrawn_ids.push(cid);
+            }
+        }
+
+        Ok(WithdrawalResult {
+            withdrawn_consent_id: id.clone(),
+            dependent_purposes_withdrawn: dependent_purposes,
+            total_withdrawn: 1 + withdrawn_ids.len(),
+        })
+    }
+
+    /// Generate a cryptographic proof of consent.
+    pub fn generate_consent_proof(
+        &self,
+        id: &ConsentId,
+    ) -> Result<ConsentProof, PrivacyError> {
+        let consent = self
+            .consents
+            .get(id)
+            .ok_or_else(|| PrivacyError::ConsentNotFound(id.to_string()))?;
+
+        let proof_input = format!(
+            "{}:{}:{}:{}",
+            consent.id,
+            consent.data_subject,
+            consent.purpose.id,
+            consent.given_at
+        );
+        let mut hasher = Sha3_256::new();
+        hasher.update(proof_input.as_bytes());
+        let proof_hash = hex::encode(hasher.finalize());
+
+        let mut policy_hasher = Sha3_256::new();
+        policy_hasher.update(consent.purpose.id.as_bytes());
+        let policy_hash = hex::encode(policy_hasher.finalize());
+
+        Ok(ConsentProof {
+            consent_id: id.clone(),
+            subject_id: consent.data_subject.to_string(),
+            purpose: consent.purpose.id.clone(),
+            given_at: consent.given_at,
+            policy_hash,
+            proof_hash,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -344,5 +562,111 @@ mod tests {
     fn test_legal_basis_display_coverage() {
         assert!(LegalBasis::Consent.to_string().contains("Art. 6"));
         assert!(LegalBasis::LegalObligation.to_string().contains("Art. 6"));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_consent_version_create() {
+        let mut vs = ConsentVersionStore::new();
+        let v1 = vs.create_version(&ConsentId::new("c1"), "Privacy Policy v1", 1000);
+        assert_eq!(v1.version, 1);
+        assert!(v1.supersedes.is_none());
+        assert!(!v1.policy_hash.is_empty());
+    }
+
+    #[test]
+    fn test_consent_version_supersedes() {
+        let mut vs = ConsentVersionStore::new();
+        vs.create_version(&ConsentId::new("c1"), "Policy v1", 1000);
+        let v2 = vs.create_version(&ConsentId::new("c1"), "Policy v2", 2000);
+        assert_eq!(v2.version, 2);
+        assert_eq!(v2.supersedes, Some(1));
+    }
+
+    #[test]
+    fn test_consent_version_current() {
+        let mut vs = ConsentVersionStore::new();
+        vs.create_version(&ConsentId::new("c1"), "Policy v1", 1000);
+        vs.create_version(&ConsentId::new("c1"), "Policy v2", 2000);
+        let current = vs.current_version(&ConsentId::new("c1")).unwrap();
+        assert_eq!(current.version, 2);
+    }
+
+    #[test]
+    fn test_is_consent_current_matches() {
+        let mut vs = ConsentVersionStore::new();
+        vs.create_version(&ConsentId::new("c1"), "Policy v1", 1000);
+        assert!(vs.is_consent_current(&ConsentId::new("c1"), "Policy v1"));
+        assert!(!vs.is_consent_current(&ConsentId::new("c1"), "Policy v2"));
+    }
+
+    #[test]
+    fn test_consent_version_hash_deterministic() {
+        let mut vs = ConsentVersionStore::new();
+        let v1 = vs.create_version(&ConsentId::new("c1"), "Same policy", 1000);
+        let mut vs2 = ConsentVersionStore::new();
+        let v2 = vs2.create_version(&ConsentId::new("c2"), "Same policy", 2000);
+        assert_eq!(v1.policy_hash, v2.policy_hash);
+    }
+
+    #[test]
+    fn test_purpose_dependency_graph() {
+        let mut graph = PurposeDependencyGraph::new();
+        graph.add_dependency("marketing", "analytics");
+        graph.add_dependency("profiling", "analytics");
+        let deps = graph.dependents_of("analytics");
+        assert_eq!(deps.len(), 2);
+        assert!(deps.contains(&"marketing".to_string()));
+        assert!(deps.contains(&"profiling".to_string()));
+    }
+
+    #[test]
+    fn test_purpose_dependency_transitive() {
+        let mut graph = PurposeDependencyGraph::new();
+        graph.add_dependency("marketing", "analytics");
+        graph.add_dependency("ads", "marketing");
+        let all = graph.all_required_for("analytics");
+        assert!(all.contains(&"marketing".to_string()));
+        assert!(all.contains(&"ads".to_string()));
+    }
+
+    #[test]
+    fn test_withdraw_consent_cascade() {
+        let mut store = ConsentStore::new();
+        store.record_consent(test_consent("c1", "user:alice", "analytics")).unwrap();
+        store.record_consent(test_consent("c2", "user:alice", "marketing")).unwrap();
+
+        let mut graph = PurposeDependencyGraph::new();
+        graph.add_dependency("marketing", "analytics");
+
+        let result = store.withdraw_consent_cascade(&ConsentId::new("c1"), 2000, &graph).unwrap();
+        assert_eq!(result.total_withdrawn, 2);
+        assert_eq!(result.dependent_purposes_withdrawn.len(), 1);
+
+        let c1 = store.get_consent(&ConsentId::new("c1")).unwrap();
+        assert_eq!(c1.status, ConsentStatus::Withdrawn);
+        let c2 = store.get_consent(&ConsentId::new("c2")).unwrap();
+        assert_eq!(c2.status, ConsentStatus::Withdrawn);
+    }
+
+    #[test]
+    fn test_generate_consent_proof() {
+        let mut store = ConsentStore::new();
+        store.record_consent(test_consent("c1", "user:alice", "p1")).unwrap();
+        let proof = store.generate_consent_proof(&ConsentId::new("c1")).unwrap();
+        assert_eq!(proof.consent_id, ConsentId::new("c1"));
+        assert!(!proof.proof_hash.is_empty());
+        assert!(!proof.policy_hash.is_empty());
+        assert_eq!(proof.purpose, "p1");
+    }
+
+    #[test]
+    fn test_consent_proof_deterministic() {
+        let mut store = ConsentStore::new();
+        store.record_consent(test_consent("c1", "user:alice", "p1")).unwrap();
+        let proof1 = store.generate_consent_proof(&ConsentId::new("c1")).unwrap();
+        let proof2 = store.generate_consent_proof(&ConsentId::new("c1")).unwrap();
+        assert_eq!(proof1.proof_hash, proof2.proof_hash);
     }
 }
