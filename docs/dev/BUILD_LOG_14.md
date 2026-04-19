@@ -435,3 +435,33 @@ Seven additive enhancements to the monitoring layer:
 | Assumed Breach | Burn rate tracking detects SLO erosion before budget exhaustion; degraded state detection provides early warning; incident response playbooks can trigger on correlated alerts |
 | No Single Points of Failure | Health check groups with weighted strategies tolerate partial failures; dependency-aware scheduling ensures correct evaluation order; dashboard status provides holistic system view |
 | Zero Trust Throughout | Alert deduplication prevents alert fatigue that could mask real incidents; suppression rules require explicit time bounds and reasons; derived metrics enable continuous verification of system invariants |
+
+---
+
+## rune-explainability Layer 2
+
+**Test count**: 88 → 159 (+71 tests, zero failures)
+
+### New Modules
+- `tree.rs` — Structured explanation trees with ExplanationNode (6 node types), ExplanationTree (critical path, evidence collection), ExplanationTreeBuilder (fluent API)
+- `attribution.rs` — Feature attribution scoring with 5 methods (Shapley/Gradient/Perturbation/RuleBased/Manual), top-k, well-distribution check
+- `l2_counterfactual.rs` — Enhanced counterfactuals with typed ChangeType, immutable feature constraints, feasibility ranking, distance metrics, CounterfactualSet with most_actionable
+- `template.rs` — Audience-targeted explanation templates (Technical/Business/Regulatory/EndUser), 6 section content types, 3 built-in templates, ExplanationRenderer (plain text/JSON/summary)
+- `compliance.rs` — Completeness scoring (6 boolean checks), EU AI Act Art 13/14 and GDPR Art 22 regulatory checks, L2ExplanationAuditLog with compliance rate tracking
+- `behavior.rs` — DecisionPatternTracker with outcome distribution, factor frequency, confidence trend detection (half-split comparison), FairnessIndicator with demographic parity difference
+
+### Modified Files
+- `audit.rs` — 15 new ExplainabilityEventType variants for Layer 2 operations, decision_id extraction for all new variants
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports
+
+### Rust 2024 Edition Fix
+- `gen` is a reserved keyword in Rust 2024 — renamed all `gen` variables to `generator` in l2_counterfactual.rs tests
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Regulatory compliance checks (EU AI Act, GDPR Art 22) built into explanation audit; completeness scoring ensures governance requirements are met; fairness indicators surface demographic parity issues |
+| Assumed Breach | Explanation trees provide full decision traceability; critical path analysis identifies highest-impact decision factors; counterfactual analysis supports contestation rights |
+| No Single Points of Failure | Multiple attribution methods (Shapley/Gradient/Perturbation) provide redundant explanation approaches; audience-targeted templates ensure explanations reach all stakeholders |
+| Zero Trust Throughout | Every explanation operation generates audit events (15 new types); compliance rate tracking ensures continuous verification; immutable feature constraints prevent infeasible counterfactuals |
