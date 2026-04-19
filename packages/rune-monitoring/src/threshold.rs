@@ -321,6 +321,202 @@ pub fn queue_depth(metric_id: &str, max: f64) -> ThresholdRule {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Alert deduplication, correlation, suppression
+// ═══════════════════════════════════════════════════════════════════════
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+// ── AlertDeduplicator ────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct AlertDeduplicator {
+    /// fingerprint → last fired timestamp
+    pub active: HashMap<u64, i64>,
+    pub dedup_window_ms: i64,
+}
+
+impl AlertDeduplicator {
+    pub fn new(dedup_window_ms: i64) -> Self {
+        Self {
+            active: HashMap::new(),
+            dedup_window_ms,
+        }
+    }
+
+    fn fingerprint(alert: &ThresholdAlert) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        alert.rule_id.hash(&mut hasher);
+        alert.metric_id.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Returns true if the alert is new (not a duplicate).
+    pub fn should_fire(&mut self, alert: &ThresholdAlert, now: i64) -> bool {
+        let fp = Self::fingerprint(alert);
+        if let Some(&last) = self.active.get(&fp) {
+            if now - last < self.dedup_window_ms {
+                return false;
+            }
+        }
+        self.active.insert(fp, now);
+        true
+    }
+
+    pub fn expire(&mut self, now: i64) {
+        self.active.retain(|_, &mut last| now - last < self.dedup_window_ms);
+    }
+
+    pub fn active_count(&self) -> usize {
+        self.active.len()
+    }
+}
+
+// ── CorrelationRule ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CorrelationRule {
+    pub id: String,
+    pub pattern: Vec<String>,
+    pub window_ms: i64,
+}
+
+impl CorrelationRule {
+    pub fn new(id: impl Into<String>, pattern: Vec<String>, window_ms: i64) -> Self {
+        Self {
+            id: id.into(),
+            pattern,
+            window_ms,
+        }
+    }
+}
+
+// ── CorrelatedAlert ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct CorrelatedAlert {
+    pub rule_id: String,
+    pub matched_rule_ids: Vec<String>,
+    pub detected_at: i64,
+}
+
+// ── AlertCorrelator ──────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct AlertCorrelator {
+    pub rules: Vec<CorrelationRule>,
+    /// (rule_id, timestamp) of recent alerts
+    pub recent_alerts: Vec<(String, i64)>,
+}
+
+impl AlertCorrelator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_rule(&mut self, rule: CorrelationRule) {
+        self.rules.push(rule);
+    }
+
+    pub fn record_alert(&mut self, rule_id: impl Into<String>, timestamp: i64) {
+        self.recent_alerts.push((rule_id.into(), timestamp));
+    }
+
+    pub fn check_correlations(&self, now: i64) -> Vec<CorrelatedAlert> {
+        let mut results = Vec::new();
+        for rule in &self.rules {
+            let within_window: Vec<&str> = self
+                .recent_alerts
+                .iter()
+                .filter(|(_, ts)| now - *ts <= rule.window_ms)
+                .map(|(id, _)| id.as_str())
+                .collect();
+
+            let all_match = rule
+                .pattern
+                .iter()
+                .all(|p| within_window.iter().any(|id| *id == p));
+
+            if all_match {
+                let matched: Vec<String> = rule
+                    .pattern
+                    .iter()
+                    .filter(|p| within_window.iter().any(|id2| *id2 == p.as_str()))
+                    .cloned()
+                    .collect();
+                results.push(CorrelatedAlert {
+                    rule_id: rule.id.clone(),
+                    matched_rule_ids: matched,
+                    detected_at: now,
+                });
+            }
+        }
+        results
+    }
+
+    pub fn expire(&mut self, now: i64, window_ms: i64) {
+        self.recent_alerts.retain(|(_, ts)| now - *ts <= window_ms);
+    }
+}
+
+// ── SuppressionRule ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SuppressionRule {
+    pub id: String,
+    pub pattern: String,
+    pub until: i64,
+    pub reason: String,
+}
+
+impl SuppressionRule {
+    pub fn new(
+        id: impl Into<String>,
+        pattern: impl Into<String>,
+        until: i64,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            pattern: pattern.into(),
+            until,
+            reason: reason.into(),
+        }
+    }
+}
+
+// ── AlertSuppressor ──────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct AlertSuppressor {
+    pub rules: Vec<SuppressionRule>,
+}
+
+impl AlertSuppressor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_rule(&mut self, rule: SuppressionRule) {
+        self.rules.push(rule);
+    }
+
+    pub fn should_suppress(&self, rule_id: &str, now: i64) -> bool {
+        self.rules
+            .iter()
+            .any(|r| r.until > now && (r.pattern == rule_id || r.pattern == "*"))
+    }
+
+    pub fn expire(&mut self, now: i64) {
+        self.rules.retain(|r| r.until > now);
+    }
+
+    pub fn active_count(&self, now: i64) -> usize {
+        self.rules.iter().filter(|r| r.until > now).count()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -552,5 +748,114 @@ mod tests {
             ThresholdCondition::Below { value: 2.0 }.to_string(),
             "below 2"
         );
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_alert_deduplication() {
+        let mut dedup = AlertDeduplicator::new(5000);
+        let alert = ThresholdAlert {
+            rule_id: "lat".into(),
+            metric_id: "latency_ms".into(),
+            severity: SecuritySeverity::High,
+            observed: 500.0,
+            condition: "above 100".into(),
+            fired_at: 1000,
+            status: ThresholdAlertStatus::Firing,
+        };
+        assert!(dedup.should_fire(&alert, 1000));
+        assert!(!dedup.should_fire(&alert, 1001)); // duplicate
+        assert!(!dedup.should_fire(&alert, 4999)); // still in window
+    }
+
+    #[test]
+    fn test_dedup_window_expiry() {
+        let mut dedup = AlertDeduplicator::new(1000);
+        let alert = ThresholdAlert {
+            rule_id: "lat".into(),
+            metric_id: "latency_ms".into(),
+            severity: SecuritySeverity::High,
+            observed: 500.0,
+            condition: "above 100".into(),
+            fired_at: 1000,
+            status: ThresholdAlertStatus::Firing,
+        };
+        assert!(dedup.should_fire(&alert, 1000));
+        assert!(dedup.should_fire(&alert, 2001)); // past window
+    }
+
+    #[test]
+    fn test_dedup_expire_cleanup() {
+        let mut dedup = AlertDeduplicator::new(1000);
+        let alert = ThresholdAlert {
+            rule_id: "lat".into(),
+            metric_id: "latency_ms".into(),
+            severity: SecuritySeverity::High,
+            observed: 500.0,
+            condition: "above 100".into(),
+            fired_at: 1000,
+            status: ThresholdAlertStatus::Firing,
+        };
+        dedup.should_fire(&alert, 100);
+        assert_eq!(dedup.active_count(), 1);
+        dedup.expire(2000);
+        assert_eq!(dedup.active_count(), 0);
+    }
+
+    #[test]
+    fn test_alert_correlation() {
+        let mut correlator = AlertCorrelator::new();
+        correlator.add_rule(CorrelationRule::new(
+            "db_cascade",
+            vec!["db_down".into(), "app_error".into()],
+            5000,
+        ));
+        correlator.record_alert("db_down", 1000);
+        correlator.record_alert("app_error", 1500);
+        let correlated = correlator.check_correlations(2000);
+        assert_eq!(correlated.len(), 1);
+        assert_eq!(correlated[0].rule_id, "db_cascade");
+        assert_eq!(correlated[0].matched_rule_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_alert_correlation_no_match() {
+        let mut correlator = AlertCorrelator::new();
+        correlator.add_rule(CorrelationRule::new(
+            "db_cascade",
+            vec!["db_down".into(), "app_error".into()],
+            5000,
+        ));
+        correlator.record_alert("db_down", 1000);
+        // app_error not recorded → no correlation
+        let correlated = correlator.check_correlations(2000);
+        assert!(correlated.is_empty());
+    }
+
+    #[test]
+    fn test_alert_suppression() {
+        let mut suppressor = AlertSuppressor::new();
+        suppressor.add_rule(SuppressionRule::new("deploy_maint", "lat", 5000, "deploy in progress"));
+        assert!(suppressor.should_suppress("lat", 1000));
+        assert!(!suppressor.should_suppress("lat", 6000));
+        assert!(!suppressor.should_suppress("other_rule", 1000));
+    }
+
+    #[test]
+    fn test_suppression_wildcard() {
+        let mut suppressor = AlertSuppressor::new();
+        suppressor.add_rule(SuppressionRule::new("maint", "*", 5000, "maintenance"));
+        assert!(suppressor.should_suppress("any_rule", 1000));
+        assert!(suppressor.should_suppress("another_rule", 1000));
+    }
+
+    #[test]
+    fn test_suppression_expire() {
+        let mut suppressor = AlertSuppressor::new();
+        suppressor.add_rule(SuppressionRule::new("s1", "lat", 100, "test"));
+        assert_eq!(suppressor.active_count(50), 1);
+        suppressor.expire(200);
+        assert_eq!(suppressor.rules.len(), 0);
     }
 }

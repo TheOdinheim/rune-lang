@@ -46,3 +46,21 @@ pub use threshold::{
     ThresholdAlertStatus, ThresholdCondition, ThresholdEngine, ThresholdRule,
 };
 pub use uptime::{ComponentStatus, ComponentUptime, StatusChange, UptimeTracker};
+
+// Layer 2 re-exports
+pub use health::{
+    DegradedStateDetector, DegradedThresholds, DependencyAwareScheduler, GroupHealthResult,
+    GroupStrategy, HealthCheckDependency, HealthCheckGroup, SystemHealthState,
+};
+pub use metric::{
+    AnomalyResult, DerivedFormula, DerivedMetric, Histogram, HistogramRegistry,
+    MetricAnomalyDetector, MetricPipeline, MetricTransform, RateMetric,
+};
+pub use threshold::{
+    AlertCorrelator, AlertDeduplicator, AlertSuppressor, CorrelatedAlert, CorrelationRule,
+    SuppressionRule,
+};
+pub use sla::{BurnRateAlert, BurnRateAlertLevel, BurnRateWindow, ErrorBudget};
+pub use status::{
+    DashboardComponent, DashboardStatus, StatusHistory, StatusHistoryEntry, StatusPageBuilder,
+};

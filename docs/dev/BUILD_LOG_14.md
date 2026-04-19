@@ -395,3 +395,43 @@ cargo test --workspace
 | Assumed Breach | Attack tree modeling with unmitigated leaf detection identifies gaps; incident response playbooks automate containment; escalation chains ensure no incident goes unaddressed |
 | No Single Points of Failure | Multi-dimensional posture scoring across 8 security domains prevents blind spots; SLA compliance checking catches degradation before it becomes critical |
 | Zero Trust Throughout | Context chain verification detects tampering at any point in the chain; MTTD/MTTR tracking with p95 ensures detection and response stay within bounds |
+
+---
+
+## rune-monitoring — Layer 2 Upgrade
+
+**Date:** 2026-04-19
+**Type:** Layer 2 (internal upgrade, backward-compatible)
+
+### What Changed
+
+Seven additive enhancements to the monitoring layer:
+
+1. **Enhanced health checks** — `HealthCheckDependency`, `DependencyAwareScheduler` with topological sort (Kahn's algorithm), `HealthCheckGroup` with 4 `GroupStrategy` variants (AllMustPass, MajorityMustPass, AnyMustPass, WeightedThreshold), `DegradedStateDetector` with configurable thresholds.
+
+2. **Histogram metrics** — `Histogram` with `max_samples` cap and percentile computation (p50/p90/p95/p99), `HistogramRegistry`, `RateMetric` with windowed event counting.
+
+3. **Alert correlation and deduplication** — `AlertDeduplicator` with fingerprint-based dedup windows, `AlertCorrelator` with `CorrelationRule` pattern co-occurrence, `AlertSuppressor` with time-based `SuppressionRule`.
+
+4. **SLA burn rate tracking** — `ErrorBudget` with SLO target and budget_remaining/budget_consumed, `BurnRateAlert` with Google SRE multi-window pattern (short+long windows, page vs ticket thresholds).
+
+5. **System status dashboard** — `DashboardStatus`, `StatusPageBuilder` with worst-of component aggregation, `StatusHistory` with `availability_percentage` computation.
+
+6. **Metric pipeline and transformation** — `MetricTransform` (5 variants: MovingAverage, RateOfChange, Threshold, Scale, Clamp), `MetricPipeline` with chained transforms, `DerivedMetric` with `DerivedFormula` (Ratio, Sum, Difference, Max, Min), `MetricAnomalyDetector` using z-score.
+
+7. **Audit enhancement** — 15 new `MonitoringEventType` variants covering all Layer 2 features.
+
+### Test Results
+
+- **Before:** 96 tests passing
+- **After:** 148 tests passing (+52 new)
+- **Workspace:** All tests pass
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Alert correlation detects cascading failures; anomaly detection catches abnormal metric behavior; comprehensive audit trail for all monitoring actions |
+| Assumed Breach | Burn rate tracking detects SLO erosion before budget exhaustion; degraded state detection provides early warning; incident response playbooks can trigger on correlated alerts |
+| No Single Points of Failure | Health check groups with weighted strategies tolerate partial failures; dependency-aware scheduling ensures correct evaluation order; dashboard status provides holistic system view |
+| Zero Trust Throughout | Alert deduplication prevents alert fatigue that could mask real incidents; suppression rules require explicit time bounds and reasons; derived metrics enable continuous verification of system invariants |

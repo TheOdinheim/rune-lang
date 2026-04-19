@@ -309,6 +309,309 @@ impl HealthSummary {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Dependency-aware scheduling, health check groups, degraded state
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── HealthCheckDependency ────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct HealthCheckDependency {
+    pub check_id: String,
+    pub depends_on: Vec<String>,
+}
+
+impl HealthCheckDependency {
+    pub fn new(check_id: impl Into<String>, depends_on: Vec<String>) -> Self {
+        Self {
+            check_id: check_id.into(),
+            depends_on,
+        }
+    }
+}
+
+// ── DependencyAwareScheduler ─────────────────────────────────────────
+
+#[derive(Default)]
+pub struct DependencyAwareScheduler {
+    pub dependencies: Vec<HealthCheckDependency>,
+}
+
+impl DependencyAwareScheduler {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_dependency(&mut self, dep: HealthCheckDependency) {
+        self.dependencies.push(dep);
+    }
+
+    /// Returns check IDs in topological order (dependencies first).
+    /// Returns Err if a cycle is detected.
+    pub fn schedule_order(&self) -> Result<Vec<String>, MonitoringError> {
+        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        let mut in_degree: HashMap<String, usize> = HashMap::new();
+
+        for dep in &self.dependencies {
+            adj.entry(dep.check_id.clone()).or_default();
+            in_degree.entry(dep.check_id.clone()).or_insert(0);
+            for d in &dep.depends_on {
+                adj.entry(d.clone()).or_default().push(dep.check_id.clone());
+                *in_degree.entry(dep.check_id.clone()).or_insert(0) += 1;
+                in_degree.entry(d.clone()).or_insert(0);
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: Vec<String> = in_degree
+            .iter()
+            .filter(|entry| *entry.1 == 0)
+            .map(|(id, _)| id.clone())
+            .collect();
+        queue.sort();
+
+        let mut result = Vec::new();
+        while let Some(node) = queue.first().cloned() {
+            queue.remove(0);
+            result.push(node.clone());
+            if let Some(neighbors) = adj.get(&node) {
+                for neighbor in neighbors {
+                    if let Some(deg) = in_degree.get_mut(neighbor) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(neighbor.clone());
+                            queue.sort();
+                        }
+                    }
+                }
+            }
+        }
+
+        if result.len() != in_degree.len() {
+            return Err(MonitoringError::InvalidConfiguration {
+                reason: "cycle detected in health check dependencies".into(),
+            });
+        }
+
+        Ok(result)
+    }
+}
+
+// ── GroupStrategy ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub enum GroupStrategy {
+    AllMustPass,
+    MajorityMustPass,
+    AnyMustPass,
+    WeightedThreshold(f64),
+}
+
+// ── HealthCheckGroup ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct HealthCheckGroup {
+    pub id: String,
+    pub name: String,
+    pub checks: Vec<String>,
+    pub strategy: GroupStrategy,
+    pub weights: HashMap<String, f64>,
+}
+
+impl HealthCheckGroup {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        strategy: GroupStrategy,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            checks: Vec::new(),
+            strategy,
+            weights: HashMap::new(),
+        }
+    }
+
+    pub fn add_check(&mut self, check_id: impl Into<String>) {
+        self.checks.push(check_id.into());
+    }
+
+    pub fn add_weighted_check(&mut self, check_id: impl Into<String>, weight: f64) {
+        let id = check_id.into();
+        self.checks.push(id.clone());
+        self.weights.insert(id, weight);
+    }
+
+    pub fn evaluate(&self, runner: &HealthCheckRunner) -> GroupHealthResult {
+        let mut passed = 0usize;
+        let mut failed = 0usize;
+        let mut weighted_score = 0.0;
+        let mut total_weight = 0.0;
+
+        for check_id in &self.checks {
+            let weight = self.weights.get(check_id).copied().unwrap_or(1.0);
+            total_weight += weight;
+            let healthy = runner
+                .get_result(check_id)
+                .map(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
+                .unwrap_or(false);
+            if healthy {
+                passed += 1;
+                weighted_score += weight;
+            } else {
+                failed += 1;
+            }
+        }
+
+        let total = self.checks.len();
+        let status = match &self.strategy {
+            GroupStrategy::AllMustPass => {
+                if failed == 0 {
+                    HealthStatus::Healthy
+                } else {
+                    HealthStatus::Unhealthy
+                }
+            }
+            GroupStrategy::MajorityMustPass => {
+                if passed > total / 2 {
+                    HealthStatus::Healthy
+                } else if passed > 0 {
+                    HealthStatus::Degraded
+                } else {
+                    HealthStatus::Unhealthy
+                }
+            }
+            GroupStrategy::AnyMustPass => {
+                if passed > 0 {
+                    HealthStatus::Healthy
+                } else {
+                    HealthStatus::Unhealthy
+                }
+            }
+            GroupStrategy::WeightedThreshold(threshold) => {
+                let ratio = if total_weight > 0.0 {
+                    weighted_score / total_weight
+                } else {
+                    0.0
+                };
+                if ratio >= *threshold {
+                    HealthStatus::Healthy
+                } else if ratio > 0.0 {
+                    HealthStatus::Degraded
+                } else {
+                    HealthStatus::Unhealthy
+                }
+            }
+        };
+
+        GroupHealthResult {
+            group_id: self.id.clone(),
+            status,
+            passed,
+            failed,
+            total,
+        }
+    }
+}
+
+// ── GroupHealthResult ────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct GroupHealthResult {
+    pub group_id: String,
+    pub status: HealthStatus,
+    pub passed: usize,
+    pub failed: usize,
+    pub total: usize,
+}
+
+// ── DegradedThresholds ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct DegradedThresholds {
+    pub healthy_above: f64,
+    pub degraded_above: f64,
+    pub critical_below: f64,
+}
+
+impl Default for DegradedThresholds {
+    fn default() -> Self {
+        Self {
+            healthy_above: 0.9,
+            degraded_above: 0.5,
+            critical_below: 0.2,
+        }
+    }
+}
+
+// ── SystemHealthState ────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SystemHealthState {
+    pub status: HealthStatus,
+    pub score: f64,
+    pub component_states: HashMap<String, HealthStatus>,
+}
+
+// ── DegradedStateDetector ────────────────────────────────────────────
+
+pub struct DegradedStateDetector {
+    pub thresholds: DegradedThresholds,
+}
+
+impl DegradedStateDetector {
+    pub fn new(thresholds: DegradedThresholds) -> Self {
+        Self { thresholds }
+    }
+
+    pub fn assess(&self, runner: &HealthCheckRunner) -> SystemHealthState {
+        let mut component_states: HashMap<String, HealthStatus> = HashMap::new();
+
+        for check in runner.checks.values() {
+            let status = runner
+                .get_result(&check.id.0)
+                .map(|r| r.status)
+                .unwrap_or(HealthStatus::Unknown);
+            let current = component_states
+                .entry(check.component.clone())
+                .or_insert(HealthStatus::Healthy);
+            *current = HealthStatus::worst(*current, status);
+        }
+
+        let total = component_states.len() as f64;
+        if total == 0.0 {
+            return SystemHealthState {
+                status: HealthStatus::Healthy,
+                score: 1.0,
+                component_states,
+            };
+        }
+
+        let healthy_count = component_states
+            .values()
+            .filter(|s| **s == HealthStatus::Healthy)
+            .count() as f64;
+        let score = healthy_count / total;
+
+        let status = if score >= self.thresholds.healthy_above {
+            HealthStatus::Healthy
+        } else if score >= self.thresholds.degraded_above {
+            HealthStatus::Degraded
+        } else if score < self.thresholds.critical_below {
+            HealthStatus::Unhealthy
+        } else {
+            HealthStatus::Degraded
+        };
+
+        SystemHealthState {
+            status,
+            score,
+            component_states,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -446,5 +749,156 @@ mod tests {
             .with_detail("k", "v");
         assert_eq!(r.duration_ms, 42);
         assert_eq!(r.details.get("k").map(String::as_str), Some("v"));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_dependency_scheduler_topological_sort() {
+        let mut sched = DependencyAwareScheduler::new();
+        sched.add_dependency(HealthCheckDependency::new("app", vec!["db".into(), "cache".into()]));
+        sched.add_dependency(HealthCheckDependency::new("db", vec![]));
+        sched.add_dependency(HealthCheckDependency::new("cache", vec!["db".into()]));
+        let order = sched.schedule_order().unwrap();
+        let db_pos = order.iter().position(|x| x == "db").unwrap();
+        let cache_pos = order.iter().position(|x| x == "cache").unwrap();
+        let app_pos = order.iter().position(|x| x == "app").unwrap();
+        assert!(db_pos < cache_pos);
+        assert!(cache_pos < app_pos);
+    }
+
+    #[test]
+    fn test_dependency_scheduler_cycle_detection() {
+        let mut sched = DependencyAwareScheduler::new();
+        sched.add_dependency(HealthCheckDependency::new("a", vec!["b".into()]));
+        sched.add_dependency(HealthCheckDependency::new("b", vec!["a".into()]));
+        let result = sched.schedule_order();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_group_all_must_pass() {
+        let mut runner = HealthCheckRunner::new();
+        runner.register(HealthCheck::new("a", "A", HealthCheckType::Liveness, "svc"));
+        runner.register(HealthCheck::new("b", "B", HealthCheckType::Liveness, "svc"));
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("a"), 1)).unwrap();
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("b"), 1)).unwrap();
+
+        let mut group = HealthCheckGroup::new("g1", "G1", GroupStrategy::AllMustPass);
+        group.add_check("a");
+        group.add_check("b");
+        let result = group.evaluate(&runner);
+        assert_eq!(result.status, HealthStatus::Healthy);
+        assert_eq!(result.passed, 2);
+        assert_eq!(result.failed, 0);
+    }
+
+    #[test]
+    fn test_group_all_must_pass_fails() {
+        let mut runner = HealthCheckRunner::new();
+        runner.register(HealthCheck::new("a", "A", HealthCheckType::Liveness, "svc"));
+        runner.register(HealthCheck::new("b", "B", HealthCheckType::Liveness, "svc"));
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("a"), 1)).unwrap();
+        runner.record(HealthCheckResult::unhealthy(HealthCheckId::new("b"), "down", 1)).unwrap();
+
+        let mut group = HealthCheckGroup::new("g1", "G1", GroupStrategy::AllMustPass);
+        group.add_check("a");
+        group.add_check("b");
+        let result = group.evaluate(&runner);
+        assert_eq!(result.status, HealthStatus::Unhealthy);
+    }
+
+    #[test]
+    fn test_group_majority_must_pass() {
+        let mut runner = HealthCheckRunner::new();
+        for id in ["a", "b", "c"] {
+            runner.register(HealthCheck::new(id, id, HealthCheckType::Liveness, "svc"));
+        }
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("a"), 1)).unwrap();
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("b"), 1)).unwrap();
+        runner.record(HealthCheckResult::unhealthy(HealthCheckId::new("c"), "down", 1)).unwrap();
+
+        let mut group = HealthCheckGroup::new("g1", "G1", GroupStrategy::MajorityMustPass);
+        group.add_check("a");
+        group.add_check("b");
+        group.add_check("c");
+        let result = group.evaluate(&runner);
+        assert_eq!(result.status, HealthStatus::Healthy);
+        assert_eq!(result.passed, 2);
+    }
+
+    #[test]
+    fn test_group_any_must_pass() {
+        let mut runner = HealthCheckRunner::new();
+        runner.register(HealthCheck::new("a", "A", HealthCheckType::Liveness, "svc"));
+        runner.register(HealthCheck::new("b", "B", HealthCheckType::Liveness, "svc"));
+        runner.record(HealthCheckResult::unhealthy(HealthCheckId::new("a"), "down", 1)).unwrap();
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("b"), 1)).unwrap();
+
+        let mut group = HealthCheckGroup::new("g1", "G1", GroupStrategy::AnyMustPass);
+        group.add_check("a");
+        group.add_check("b");
+        let result = group.evaluate(&runner);
+        assert_eq!(result.status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_group_weighted_threshold() {
+        let mut runner = HealthCheckRunner::new();
+        runner.register(HealthCheck::new("a", "A", HealthCheckType::Liveness, "svc"));
+        runner.register(HealthCheck::new("b", "B", HealthCheckType::Liveness, "svc"));
+        runner.record(HealthCheckResult::healthy(HealthCheckId::new("a"), 1)).unwrap();
+        runner.record(HealthCheckResult::unhealthy(HealthCheckId::new("b"), "down", 1)).unwrap();
+
+        let mut group = HealthCheckGroup::new("g1", "G1", GroupStrategy::WeightedThreshold(0.7));
+        group.add_weighted_check("a", 3.0);
+        group.add_weighted_check("b", 1.0);
+        // a passes (weight 3.0), b fails (weight 1.0) → 3.0/4.0 = 0.75 ≥ 0.7
+        let result = group.evaluate(&runner);
+        assert_eq!(result.status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn test_degraded_state_detector_healthy() {
+        let mut runner = HealthCheckRunner::new();
+        for id in ["a", "b", "c", "d", "e"] {
+            runner.register(HealthCheck::new(id, id, HealthCheckType::Liveness, id));
+            runner.record(HealthCheckResult::healthy(HealthCheckId::new(id), 1)).unwrap();
+        }
+        let detector = DegradedStateDetector::new(DegradedThresholds::default());
+        let state = detector.assess(&runner);
+        assert_eq!(state.status, HealthStatus::Healthy);
+        assert!((state.score - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_degraded_state_detector_degraded() {
+        let mut runner = HealthCheckRunner::new();
+        // 3 healthy, 2 unhealthy → score = 0.6, within degraded range
+        for id in ["a", "b", "c"] {
+            runner.register(HealthCheck::new(id, id, HealthCheckType::Liveness, id));
+            runner.record(HealthCheckResult::healthy(HealthCheckId::new(id), 1)).unwrap();
+        }
+        for id in ["d", "e"] {
+            runner.register(HealthCheck::new(id, id, HealthCheckType::Liveness, id));
+            runner.record(HealthCheckResult::unhealthy(HealthCheckId::new(id), "down", 1)).unwrap();
+        }
+        let detector = DegradedStateDetector::new(DegradedThresholds::default());
+        let state = detector.assess(&runner);
+        assert_eq!(state.status, HealthStatus::Degraded);
+        assert!((state.score - 0.6).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_degraded_state_detector_critical() {
+        let mut runner = HealthCheckRunner::new();
+        // 0 healthy, 5 unhealthy → score = 0.0
+        for id in ["a", "b", "c", "d", "e"] {
+            runner.register(HealthCheck::new(id, id, HealthCheckType::Liveness, id));
+            runner.record(HealthCheckResult::unhealthy(HealthCheckId::new(id), "down", 1)).unwrap();
+        }
+        let detector = DegradedStateDetector::new(DegradedThresholds::default());
+        let state = detector.assess(&runner);
+        assert_eq!(state.status, HealthStatus::Unhealthy);
     }
 }

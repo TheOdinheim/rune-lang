@@ -188,6 +188,166 @@ impl StatusPage {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Dashboard status, StatusPageBuilder, StatusHistory
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── DashboardStatus ──────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DashboardStatus {
+    Operational = 0,
+    Degraded = 1,
+    Outage = 2,
+}
+
+impl DashboardStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Operational => "operational",
+            Self::Degraded => "degraded",
+            Self::Outage => "outage",
+        }
+    }
+}
+
+impl fmt::Display for DashboardStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ── DashboardComponent ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct DashboardComponent {
+    pub name: String,
+    pub status: DashboardStatus,
+    pub message: String,
+}
+
+// ── StatusPageBuilder ────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct StatusPageBuilder {
+    pub components: Vec<DashboardComponent>,
+}
+
+impl StatusPageBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_component(
+        &mut self,
+        name: impl Into<String>,
+        status: DashboardStatus,
+        message: impl Into<String>,
+    ) {
+        self.components.push(DashboardComponent {
+            name: name.into(),
+            status,
+            message: message.into(),
+        });
+    }
+
+    /// Worst-of aggregation across all components.
+    pub fn overall_status(&self) -> DashboardStatus {
+        self.components
+            .iter()
+            .map(|c| c.status)
+            .max()
+            .unwrap_or(DashboardStatus::Operational)
+    }
+
+    pub fn component_count(&self) -> usize {
+        self.components.len()
+    }
+
+    pub fn operational_count(&self) -> usize {
+        self.components
+            .iter()
+            .filter(|c| c.status == DashboardStatus::Operational)
+            .count()
+    }
+}
+
+// ── StatusHistoryEntry ───────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct StatusHistoryEntry {
+    pub status: DashboardStatus,
+    pub at: i64,
+    pub reason: String,
+}
+
+// ── StatusHistory ────────────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct StatusHistory {
+    pub entries: Vec<StatusHistoryEntry>,
+}
+
+impl StatusHistory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(
+        &mut self,
+        status: DashboardStatus,
+        at: i64,
+        reason: impl Into<String>,
+    ) {
+        self.entries.push(StatusHistoryEntry {
+            status,
+            at,
+            reason: reason.into(),
+        });
+    }
+
+    pub fn latest(&self) -> Option<&StatusHistoryEntry> {
+        self.entries.last()
+    }
+
+    /// Compute availability percentage over a time range.
+    /// Availability = time spent Operational / total time.
+    pub fn availability_percentage(&self, from: i64, to: i64) -> f64 {
+        if self.entries.is_empty() || to <= from {
+            return 100.0;
+        }
+
+        let mut operational_time = 0i64;
+        let mut last_status = DashboardStatus::Operational;
+        let mut last_time = from;
+
+        for entry in &self.entries {
+            if entry.at > to {
+                break;
+            }
+            if entry.at > from {
+                if last_status == DashboardStatus::Operational {
+                    operational_time += entry.at - last_time;
+                }
+                last_time = entry.at;
+            }
+            last_status = entry.status;
+        }
+
+        // Account for time from last transition to `to`
+        if last_status == DashboardStatus::Operational {
+            operational_time += to - last_time;
+        }
+
+        let total = to - from;
+        (operational_time as f64 / total as f64) * 100.0
+    }
+
+    pub fn transition_count(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -306,5 +466,75 @@ mod tests {
         let ss = StatusAggregator::aggregate(&h, &u, &t, &s, 200);
         assert!(ss.availability_percent > 0.0);
         assert!(ss.availability_percent < 100.0);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_dashboard_status_ordering() {
+        assert!(DashboardStatus::Operational < DashboardStatus::Degraded);
+        assert!(DashboardStatus::Degraded < DashboardStatus::Outage);
+    }
+
+    #[test]
+    fn test_dashboard_status_display() {
+        assert_eq!(DashboardStatus::Operational.as_str(), "operational");
+        assert_eq!(DashboardStatus::Degraded.as_str(), "degraded");
+        assert_eq!(DashboardStatus::Outage.as_str(), "outage");
+    }
+
+    #[test]
+    fn test_status_page_builder_worst_of() {
+        let mut builder = StatusPageBuilder::new();
+        builder.add_component("api", DashboardStatus::Operational, "ok");
+        builder.add_component("db", DashboardStatus::Degraded, "slow");
+        builder.add_component("cache", DashboardStatus::Operational, "ok");
+        assert_eq!(builder.overall_status(), DashboardStatus::Degraded);
+        assert_eq!(builder.component_count(), 3);
+        assert_eq!(builder.operational_count(), 2);
+    }
+
+    #[test]
+    fn test_status_page_builder_outage() {
+        let mut builder = StatusPageBuilder::new();
+        builder.add_component("api", DashboardStatus::Operational, "ok");
+        builder.add_component("db", DashboardStatus::Outage, "down");
+        assert_eq!(builder.overall_status(), DashboardStatus::Outage);
+    }
+
+    #[test]
+    fn test_status_page_builder_empty() {
+        let builder = StatusPageBuilder::new();
+        assert_eq!(builder.overall_status(), DashboardStatus::Operational);
+    }
+
+    #[test]
+    fn test_status_history_availability() {
+        let mut history = StatusHistory::new();
+        // Operational from 0 to 80, then outage from 80 to 100
+        history.record(DashboardStatus::Outage, 80, "crash");
+        let avail = history.availability_percentage(0, 100);
+        assert!((avail - 80.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_status_history_full_operational() {
+        let history = StatusHistory::new();
+        let avail = history.availability_percentage(0, 100);
+        assert!((avail - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_status_history_transitions() {
+        let mut history = StatusHistory::new();
+        history.record(DashboardStatus::Degraded, 10, "slow");
+        history.record(DashboardStatus::Operational, 20, "recovered");
+        history.record(DashboardStatus::Outage, 50, "crash");
+        history.record(DashboardStatus::Operational, 60, "fixed");
+        assert_eq!(history.transition_count(), 4);
+        assert_eq!(history.latest().unwrap().status, DashboardStatus::Operational);
+        // 0-10 operational (10), 10-20 degraded (0), 20-50 operational (30), 50-60 outage (0), 60-100 operational (40)
+        let avail = history.availability_percentage(0, 100);
+        assert!((avail - 80.0).abs() < f64::EPSILON);
     }
 }

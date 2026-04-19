@@ -21,6 +21,22 @@ pub enum MonitoringEventType {
     ComponentUp { component: String },
     MetricCollected { metric_id: String, value: f64 },
     StatusChanged { from: String, to: String },
+    // Layer 2 event types
+    AlertDeduplicated { rule_id: String, fingerprint: String },
+    AlertCorrelated { correlation_id: String, matched_count: usize },
+    AlertSuppressed { rule_id: String, reason: String },
+    BurnRateExceeded { slo_id: String, burn_rate: f64 },
+    ErrorBudgetConsumed { slo_id: String, remaining: f64 },
+    HealthGroupEvaluated { group_id: String, status: String },
+    DependencyScheduled { check_id: String, order: usize },
+    DegradedStateDetected { component: String, score: f64 },
+    HistogramRecorded { histogram_id: String, count: usize },
+    PipelineExecuted { pipeline_id: String, input_count: usize, output_count: usize },
+    AnomalyDetected { metric_id: String, z_score: f64 },
+    DashboardStatusChanged { from: String, to: String },
+    StatusHistoryRecorded { status: String, at: i64 },
+    DerivedMetricComputed { metric_id: String, value: f64 },
+    SystemHealthAssessed { score: f64, status: String },
 }
 
 impl fmt::Display for MonitoringEventType {
@@ -54,6 +70,51 @@ impl fmt::Display for MonitoringEventType {
             }
             Self::StatusChanged { from, to } => {
                 write!(f, "status changed: {from} → {to}")
+            }
+            Self::AlertDeduplicated { rule_id, fingerprint } => {
+                write!(f, "alert deduplicated: {rule_id} fp={fingerprint}")
+            }
+            Self::AlertCorrelated { correlation_id, matched_count } => {
+                write!(f, "alert correlated: {correlation_id} matched={matched_count}")
+            }
+            Self::AlertSuppressed { rule_id, reason } => {
+                write!(f, "alert suppressed: {rule_id} ({reason})")
+            }
+            Self::BurnRateExceeded { slo_id, burn_rate } => {
+                write!(f, "burn rate exceeded: {slo_id} rate={burn_rate:.2}")
+            }
+            Self::ErrorBudgetConsumed { slo_id, remaining } => {
+                write!(f, "error budget consumed: {slo_id} remaining={remaining:.2}")
+            }
+            Self::HealthGroupEvaluated { group_id, status } => {
+                write!(f, "health group evaluated: {group_id} status={status}")
+            }
+            Self::DependencyScheduled { check_id, order } => {
+                write!(f, "dependency scheduled: {check_id} order={order}")
+            }
+            Self::DegradedStateDetected { component, score } => {
+                write!(f, "degraded state: {component} score={score:.2}")
+            }
+            Self::HistogramRecorded { histogram_id, count } => {
+                write!(f, "histogram recorded: {histogram_id} count={count}")
+            }
+            Self::PipelineExecuted { pipeline_id, input_count, output_count } => {
+                write!(f, "pipeline executed: {pipeline_id} in={input_count} out={output_count}")
+            }
+            Self::AnomalyDetected { metric_id, z_score } => {
+                write!(f, "anomaly detected: {metric_id} z={z_score:.2}")
+            }
+            Self::DashboardStatusChanged { from, to } => {
+                write!(f, "dashboard status changed: {from} → {to}")
+            }
+            Self::StatusHistoryRecorded { status, at } => {
+                write!(f, "status history: {status} at={at}")
+            }
+            Self::DerivedMetricComputed { metric_id, value } => {
+                write!(f, "derived metric: {metric_id}={value}")
+            }
+            Self::SystemHealthAssessed { score, status } => {
+                write!(f, "system health: score={score:.2} status={status}")
             }
         }
     }
@@ -292,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_all_event_type_displays() {
-        let types = [
+        let types: Vec<MonitoringEventType> = vec![
             MonitoringEventType::HealthCheckPassed { check_id: "a".into() },
             MonitoringEventType::HealthCheckFailed {
                 check_id: "a".into(),
@@ -322,9 +383,90 @@ mod tests {
                 from: "operational".into(),
                 to: "degraded".into(),
             },
+            // Layer 2 event types
+            MonitoringEventType::AlertDeduplicated {
+                rule_id: "r".into(),
+                fingerprint: "abc".into(),
+            },
+            MonitoringEventType::AlertCorrelated {
+                correlation_id: "c".into(),
+                matched_count: 3,
+            },
+            MonitoringEventType::AlertSuppressed {
+                rule_id: "r".into(),
+                reason: "deploy".into(),
+            },
+            MonitoringEventType::BurnRateExceeded {
+                slo_id: "s".into(),
+                burn_rate: 14.4,
+            },
+            MonitoringEventType::ErrorBudgetConsumed {
+                slo_id: "s".into(),
+                remaining: 0.1,
+            },
+            MonitoringEventType::HealthGroupEvaluated {
+                group_id: "g".into(),
+                status: "healthy".into(),
+            },
+            MonitoringEventType::DependencyScheduled {
+                check_id: "c".into(),
+                order: 1,
+            },
+            MonitoringEventType::DegradedStateDetected {
+                component: "api".into(),
+                score: 0.6,
+            },
+            MonitoringEventType::HistogramRecorded {
+                histogram_id: "h".into(),
+                count: 100,
+            },
+            MonitoringEventType::PipelineExecuted {
+                pipeline_id: "p".into(),
+                input_count: 10,
+                output_count: 8,
+            },
+            MonitoringEventType::AnomalyDetected {
+                metric_id: "m".into(),
+                z_score: 3.5,
+            },
+            MonitoringEventType::DashboardStatusChanged {
+                from: "operational".into(),
+                to: "degraded".into(),
+            },
+            MonitoringEventType::StatusHistoryRecorded {
+                status: "operational".into(),
+                at: 1000,
+            },
+            MonitoringEventType::DerivedMetricComputed {
+                metric_id: "d".into(),
+                value: 42.0,
+            },
+            MonitoringEventType::SystemHealthAssessed {
+                score: 0.95,
+                status: "healthy".into(),
+            },
         ];
-        for t in types {
+        for t in &types {
             assert!(!t.to_string().is_empty());
         }
+        // Verify we have 26 total event types (11 L1 + 15 L2)
+        assert_eq!(types.len(), 26);
+    }
+
+    #[test]
+    fn test_l2_event_type_display_content() {
+        let e = MonitoringEventType::BurnRateExceeded {
+            slo_id: "slo1".into(),
+            burn_rate: 14.4,
+        };
+        assert!(e.to_string().contains("burn rate exceeded"));
+        assert!(e.to_string().contains("slo1"));
+
+        let e = MonitoringEventType::AnomalyDetected {
+            metric_id: "lat".into(),
+            z_score: 3.5,
+        };
+        assert!(e.to_string().contains("anomaly detected"));
+        assert!(e.to_string().contains("lat"));
     }
 }
