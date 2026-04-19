@@ -22,6 +22,22 @@ pub enum DocumentEventType {
     ComplianceGapFound { framework: String, gap: String },
     ReviewDue { document_id: String, due_date: i64 },
     DocumentRendered { format: String },
+    // ── Layer 2 event types ─────────────────────────────────────────
+    DocumentHashComputed { doc_id: String, algorithm: String },
+    DocumentIntegrityVerified { doc_id: String, version: u32, matches: bool },
+    DocumentHashChainVerified { chain_length: usize, valid: bool },
+    LifecycleTransitioned { doc_id: String, from: String, to: String },
+    LifecyclePolicyChecked { doc_id: String, violations: usize },
+    VersionDiffComputed { doc_id: String, from_version: u32, to_version: u32 },
+    VersionSnapshotCreated { doc_id: String, version: u32 },
+    DocumentClassified { doc_id: String, level: String },
+    SensitivityScored { doc_id: String, score: f64, level: String },
+    ComplianceDocumentGenerated { doc_id: String, framework: String, completeness: f64 },
+    CompliancePackageCreated { package_id: String, documents: usize },
+    RetentionPolicyApplied { doc_id: String, policy_id: String },
+    DocumentExpired { doc_id: String, policy_id: String },
+    LegalHoldPlaced { doc_id: String, hold_id: String },
+    DocumentDisposed { doc_id: String, method: String },
 }
 
 impl fmt::Display for DocumentEventType {
@@ -53,6 +69,51 @@ impl fmt::Display for DocumentEventType {
             Self::DocumentRendered { format } => {
                 write!(f, "document-rendered:{format}")
             }
+            Self::DocumentHashComputed { doc_id, algorithm } => {
+                write!(f, "document-hash-computed:{doc_id} [{algorithm}]")
+            }
+            Self::DocumentIntegrityVerified { doc_id, version, matches } => {
+                write!(f, "document-integrity-verified:{doc_id} v{version} {}", if *matches { "ok" } else { "mismatch" })
+            }
+            Self::DocumentHashChainVerified { chain_length, valid } => {
+                write!(f, "document-hash-chain-verified ({chain_length} entries, {})", if *valid { "valid" } else { "broken" })
+            }
+            Self::LifecycleTransitioned { doc_id, from, to } => {
+                write!(f, "lifecycle-transitioned:{doc_id} {from} -> {to}")
+            }
+            Self::LifecyclePolicyChecked { doc_id, violations } => {
+                write!(f, "lifecycle-policy-checked:{doc_id} ({violations} violations)")
+            }
+            Self::VersionDiffComputed { doc_id, from_version, to_version } => {
+                write!(f, "version-diff-computed:{doc_id} v{from_version} -> v{to_version}")
+            }
+            Self::VersionSnapshotCreated { doc_id, version } => {
+                write!(f, "version-snapshot-created:{doc_id} v{version}")
+            }
+            Self::DocumentClassified { doc_id, level } => {
+                write!(f, "document-classified:{doc_id} [{level}]")
+            }
+            Self::SensitivityScored { doc_id, score, level } => {
+                write!(f, "sensitivity-scored:{doc_id} score={score:.1} [{level}]")
+            }
+            Self::ComplianceDocumentGenerated { doc_id, framework, completeness } => {
+                write!(f, "compliance-document-generated:{doc_id} [{framework}] {completeness:.1}%")
+            }
+            Self::CompliancePackageCreated { package_id, documents } => {
+                write!(f, "compliance-package-created:{package_id} ({documents} docs)")
+            }
+            Self::RetentionPolicyApplied { doc_id, policy_id } => {
+                write!(f, "retention-policy-applied:{doc_id} [{policy_id}]")
+            }
+            Self::DocumentExpired { doc_id, policy_id } => {
+                write!(f, "document-expired:{doc_id} [{policy_id}]")
+            }
+            Self::LegalHoldPlaced { doc_id, hold_id } => {
+                write!(f, "legal-hold-placed:{doc_id} [{hold_id}]")
+            }
+            Self::DocumentDisposed { doc_id, method } => {
+                write!(f, "document-disposed:{doc_id} [{method}]")
+            }
         }
     }
 }
@@ -70,6 +131,21 @@ impl DocumentEventType {
             Self::ComplianceGapFound { .. } => "compliance-gap-found",
             Self::ReviewDue { .. } => "review-due",
             Self::DocumentRendered { .. } => "document-rendered",
+            Self::DocumentHashComputed { .. } => "document-hash-computed",
+            Self::DocumentIntegrityVerified { .. } => "document-integrity-verified",
+            Self::DocumentHashChainVerified { .. } => "document-hash-chain-verified",
+            Self::LifecycleTransitioned { .. } => "lifecycle-transitioned",
+            Self::LifecyclePolicyChecked { .. } => "lifecycle-policy-checked",
+            Self::VersionDiffComputed { .. } => "version-diff-computed",
+            Self::VersionSnapshotCreated { .. } => "version-snapshot-created",
+            Self::DocumentClassified { .. } => "document-classified",
+            Self::SensitivityScored { .. } => "sensitivity-scored",
+            Self::ComplianceDocumentGenerated { .. } => "compliance-document-generated",
+            Self::CompliancePackageCreated { .. } => "compliance-package-created",
+            Self::RetentionPolicyApplied { .. } => "retention-policy-applied",
+            Self::DocumentExpired { .. } => "document-expired",
+            Self::LegalHoldPlaced { .. } => "legal-hold-placed",
+            Self::DocumentDisposed { .. } => "document-disposed",
         }
     }
 }
@@ -95,6 +171,21 @@ impl DocumentAuditEvent {
         let document_id = match &event_type {
             DocumentEventType::ReviewDue { document_id, .. } => {
                 Some(DocumentId::new(document_id))
+            }
+            DocumentEventType::DocumentHashComputed { doc_id, .. }
+            | DocumentEventType::DocumentIntegrityVerified { doc_id, .. }
+            | DocumentEventType::LifecycleTransitioned { doc_id, .. }
+            | DocumentEventType::LifecyclePolicyChecked { doc_id, .. }
+            | DocumentEventType::VersionDiffComputed { doc_id, .. }
+            | DocumentEventType::VersionSnapshotCreated { doc_id, .. }
+            | DocumentEventType::DocumentClassified { doc_id, .. }
+            | DocumentEventType::SensitivityScored { doc_id, .. }
+            | DocumentEventType::ComplianceDocumentGenerated { doc_id, .. }
+            | DocumentEventType::RetentionPolicyApplied { doc_id, .. }
+            | DocumentEventType::DocumentExpired { doc_id, .. }
+            | DocumentEventType::LegalHoldPlaced { doc_id, .. }
+            | DocumentEventType::DocumentDisposed { doc_id, .. } => {
+                Some(DocumentId::new(doc_id))
             }
             _ => None,
         };
@@ -276,5 +367,77 @@ mod tests {
         for event in &events {
             assert!(!event.to_string().is_empty());
         }
+    }
+
+    #[test]
+    fn test_l2_event_type_display() {
+        let events = vec![
+            DocumentEventType::DocumentHashComputed { doc_id: "d1".into(), algorithm: "SHA3-256".into() },
+            DocumentEventType::DocumentIntegrityVerified { doc_id: "d1".into(), version: 1, matches: true },
+            DocumentEventType::DocumentHashChainVerified { chain_length: 5, valid: true },
+            DocumentEventType::LifecycleTransitioned { doc_id: "d1".into(), from: "draft".into(), to: "review".into() },
+            DocumentEventType::LifecyclePolicyChecked { doc_id: "d1".into(), violations: 0 },
+            DocumentEventType::VersionDiffComputed { doc_id: "d1".into(), from_version: 1, to_version: 2 },
+            DocumentEventType::VersionSnapshotCreated { doc_id: "d1".into(), version: 1 },
+            DocumentEventType::DocumentClassified { doc_id: "d1".into(), level: "confidential".into() },
+            DocumentEventType::SensitivityScored { doc_id: "d1".into(), score: 55.0, level: "confidential".into() },
+            DocumentEventType::ComplianceDocumentGenerated { doc_id: "d1".into(), framework: "NIST".into(), completeness: 0.8 },
+            DocumentEventType::CompliancePackageCreated { package_id: "pkg1".into(), documents: 3 },
+            DocumentEventType::RetentionPolicyApplied { doc_id: "d1".into(), policy_id: "p1".into() },
+            DocumentEventType::DocumentExpired { doc_id: "d1".into(), policy_id: "p1".into() },
+            DocumentEventType::LegalHoldPlaced { doc_id: "d1".into(), hold_id: "h1".into() },
+            DocumentEventType::DocumentDisposed { doc_id: "d1".into(), method: "archive".into() },
+        ];
+        for event in &events {
+            assert!(!event.to_string().is_empty());
+        }
+        assert_eq!(events.len(), 15);
+    }
+
+    #[test]
+    fn test_l2_event_doc_id_extraction() {
+        let event = DocumentAuditEvent::new(
+            DocumentEventType::DocumentHashComputed {
+                doc_id: "d99".into(),
+                algorithm: "SHA3-256".into(),
+            },
+            "system",
+            5000,
+            "hashed",
+        );
+        assert_eq!(event.document_id, Some(DocumentId::new("d99")));
+    }
+
+    #[test]
+    fn test_l2_event_no_doc_id() {
+        let event = DocumentAuditEvent::new(
+            DocumentEventType::DocumentHashChainVerified {
+                chain_length: 3,
+                valid: true,
+            },
+            "system",
+            5000,
+            "verified",
+        );
+        assert!(event.document_id.is_none());
+    }
+
+    #[test]
+    fn test_l2_events_by_type() {
+        let mut log = DocumentAuditLog::new();
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::DocumentHashComputed { doc_id: "d1".into(), algorithm: "SHA3-256".into() },
+            "system", 1000, "",
+        ));
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::DocumentHashComputed { doc_id: "d2".into(), algorithm: "SHA3-256".into() },
+            "system", 2000, "",
+        ));
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::LifecycleTransitioned { doc_id: "d1".into(), from: "draft".into(), to: "review".into() },
+            "system", 3000, "",
+        ));
+        assert_eq!(log.events_by_type("document-hash-computed").len(), 2);
+        assert_eq!(log.events_by_type("lifecycle-transitioned").len(), 1);
     }
 }
