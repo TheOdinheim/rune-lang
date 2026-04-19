@@ -25,6 +25,22 @@ pub enum TruthEventType {
     ClaimRegistered { claim_id: String, claim_type: String },
     ClaimVerified { claim_id: String },
     ClaimDisputed { claim_id: String },
+    // Layer 2 event types
+    RunningStatsUpdated { count: u64, mean: f64 },
+    ConfidenceCalibrated { raw: f64, calibrated: f64 },
+    BrierScoreComputed { score: f64 },
+    ConsistencyTestRun { test_type: String, passed: bool },
+    DriftDetected { drift_type: String, magnitude: f64 },
+    OutputFingerprinted { hash_prefix: String },
+    ClaimRecorded { source: String, subject: String },
+    ContradictionFound { subject: String, severity: String },
+    ContradictionResolvedL2 { strategy: String },
+    GroundTruthSet { key: String, source: String },
+    GroundTruthVerified { key: String, matches: bool },
+    AccuracyComputed { overall: f64, subjects: usize },
+    ConsensusReached { agreement: f64, sources: usize },
+    ConsensusNotReached { sources: usize, threshold: f64 },
+    MerkleRootComputed { leaf_count: usize, root_prefix: String },
 }
 
 impl fmt::Display for TruthEventType {
@@ -62,6 +78,21 @@ impl fmt::Display for TruthEventType {
             } => write!(f, "claim-registered:{claim_id} [{claim_type}]"),
             Self::ClaimVerified { claim_id } => write!(f, "claim-verified:{claim_id}"),
             Self::ClaimDisputed { claim_id } => write!(f, "claim-disputed:{claim_id}"),
+            Self::RunningStatsUpdated { count, mean } => write!(f, "running-stats-updated:n={count},mean={mean:.4}"),
+            Self::ConfidenceCalibrated { raw, calibrated } => write!(f, "confidence-calibrated:{raw:.2}->{calibrated:.2}"),
+            Self::BrierScoreComputed { score } => write!(f, "brier-score-computed:{score:.4}"),
+            Self::ConsistencyTestRun { test_type, passed } => write!(f, "consistency-test-run:{test_type} passed={passed}"),
+            Self::DriftDetected { drift_type, magnitude } => write!(f, "drift-detected:{drift_type} mag={magnitude:.4}"),
+            Self::OutputFingerprinted { hash_prefix } => write!(f, "output-fingerprinted:{hash_prefix}"),
+            Self::ClaimRecorded { source, subject } => write!(f, "claim-recorded:{source}/{subject}"),
+            Self::ContradictionFound { subject, severity } => write!(f, "contradiction-found:{subject} [{severity}]"),
+            Self::ContradictionResolvedL2 { strategy } => write!(f, "contradiction-resolved-l2:{strategy}"),
+            Self::GroundTruthSet { key, source } => write!(f, "ground-truth-set:{key} from {source}"),
+            Self::GroundTruthVerified { key, matches } => write!(f, "ground-truth-verified:{key} matches={matches}"),
+            Self::AccuracyComputed { overall, subjects } => write!(f, "accuracy-computed:{overall:.4} ({subjects} subjects)"),
+            Self::ConsensusReached { agreement, sources } => write!(f, "consensus-reached:{agreement:.2} ({sources} sources)"),
+            Self::ConsensusNotReached { sources, threshold } => write!(f, "consensus-not-reached:{sources} sources, threshold={threshold:.2}"),
+            Self::MerkleRootComputed { leaf_count, root_prefix } => write!(f, "merkle-root-computed:{leaf_count} leaves, root={root_prefix}"),
         }
     }
 }
@@ -79,6 +110,21 @@ impl TruthEventType {
             Self::ClaimRegistered { .. } => "claim-registered",
             Self::ClaimVerified { .. } => "claim-verified",
             Self::ClaimDisputed { .. } => "claim-disputed",
+            Self::RunningStatsUpdated { .. } => "running-stats-updated",
+            Self::ConfidenceCalibrated { .. } => "confidence-calibrated",
+            Self::BrierScoreComputed { .. } => "brier-score-computed",
+            Self::ConsistencyTestRun { .. } => "consistency-test-run",
+            Self::DriftDetected { .. } => "drift-detected",
+            Self::OutputFingerprinted { .. } => "output-fingerprinted",
+            Self::ClaimRecorded { .. } => "claim-recorded",
+            Self::ContradictionFound { .. } => "contradiction-found",
+            Self::ContradictionResolvedL2 { .. } => "contradiction-resolved-l2",
+            Self::GroundTruthSet { .. } => "ground-truth-set",
+            Self::GroundTruthVerified { .. } => "ground-truth-verified",
+            Self::AccuracyComputed { .. } => "accuracy-computed",
+            Self::ConsensusReached { .. } => "consensus-reached",
+            Self::ConsensusNotReached { .. } => "consensus-not-reached",
+            Self::MerkleRootComputed { .. } => "merkle-root-computed",
         }
     }
 }
@@ -319,6 +365,51 @@ mod tests {
             "disputed",
         ));
         assert_eq!(log.claim_events().len(), 3);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer2_event_type_display() {
+        let events = vec![
+            TruthEventType::RunningStatsUpdated { count: 10, mean: 5.0 },
+            TruthEventType::ConfidenceCalibrated { raw: 0.8, calibrated: 0.75 },
+            TruthEventType::BrierScoreComputed { score: 0.05 },
+            TruthEventType::ConsistencyTestRun { test_type: "mean-drift".into(), passed: true },
+            TruthEventType::DriftDetected { drift_type: "mean".into(), magnitude: 3.5 },
+            TruthEventType::OutputFingerprinted { hash_prefix: "abc123".into() },
+            TruthEventType::ClaimRecorded { source: "s1".into(), subject: "x".into() },
+            TruthEventType::ContradictionFound { subject: "x".into(), severity: "high".into() },
+            TruthEventType::ContradictionResolvedL2 { strategy: "highest-confidence".into() },
+            TruthEventType::GroundTruthSet { key: "k1".into(), source: "test".into() },
+            TruthEventType::GroundTruthVerified { key: "k1".into(), matches: true },
+            TruthEventType::AccuracyComputed { overall: 0.95, subjects: 10 },
+            TruthEventType::ConsensusReached { agreement: 0.8, sources: 5 },
+            TruthEventType::ConsensusNotReached { sources: 3, threshold: 0.67 },
+            TruthEventType::MerkleRootComputed { leaf_count: 100, root_prefix: "def456".into() },
+        ];
+        for event in &events {
+            assert!(!event.to_string().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_layer2_events_by_type() {
+        let mut log = TruthAuditLog::new();
+        log.record(TruthAuditEvent::new(
+            TruthEventType::DriftDetected { drift_type: "mean".into(), magnitude: 2.0 },
+            "system",
+            1000,
+            "drift found",
+        ));
+        log.record(TruthAuditEvent::new(
+            TruthEventType::ConsensusReached { agreement: 0.9, sources: 3 },
+            "system",
+            2000,
+            "consensus",
+        ));
+        assert_eq!(log.events_by_type("drift-detected").len(), 1);
+        assert_eq!(log.events_by_type("consensus-reached").len(), 1);
     }
 
     #[test]

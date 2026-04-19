@@ -309,3 +309,46 @@ cargo test --workspace
 | Assumed Breach | Content-addressed storage enables integrity verification; cryptographic lineage chains detect tampering at any point in the chain; impact analysis identifies blast radius |
 | No Single Points of Failure | Dependency graph cycle detection prevents circular dependencies; training data registry provides complete lineage visibility; build reproducibility checks ensure deterministic outputs |
 | Zero Trust Throughout | Every artifact hash is verified independently; attestation verification recomputes hashes rather than trusting stored values; lineage chains use cryptographic chaining for tamper evidence |
+
+---
+
+## Session 15 — rune-truth Layer 2
+
+**Date:** 2026-04-19
+**Scope:** rune-truth Layer 2 upgrade — statistical confidence scoring, consistency checking, contradiction detection, ground truth verification, consensus mechanisms, Merkle audit tree
+
+### What was built
+
+| Part | Module | What was added |
+|------|--------|----------------|
+| 1 | confidence.rs | RunningStats (Welford's online algorithm with merge), CalibratedScorer (Brier score, ECE), confidence_interval, z_score_for_level |
+| 2 | consistency.rs | ConsistencyTest/ConsistencyTestType with z-test mean drift, TemporalConsistencyTracker (sliding windows, drift detection, trend analysis), OutputFingerprint (SHA3-256), cosine similarity_score |
+| 3 | contradiction.rs | ClaimValue (Boolean/Numeric/Text/Category), Claim, ClaimStore with contradiction detection, ClaimResolutionStrategy (5 strategies), resolve_claim_contradiction |
+| 4 | ground_truth.rs | TypedGroundTruth with expiration, TypedGroundTruthStore with verify_against_ground_truth, GroundTruthVerification, AccuracyTracker with per-subject breakdown and trend analysis |
+| 5 | claim.rs | ConsensusEngine (weighted voting), ConsensusResult, SourceReliabilityTracker with SourceRecord |
+| 6 | trust_score.rs | MerkleTree (SHA3-256), MerkleProof with Side, compute_parent, proof generation and verification |
+| 7 | audit.rs | 15 new TruthEventType variants covering all Layer 2 operations |
+
+### Dependencies added
+
+- `sha3 = "0.10"` (fingerprinting, Merkle tree)
+- `hex = "0.4"` (hash encoding)
+
+### Test results
+
+```
+cargo test -p rune-truth
+  147 passed; 0 failed (87 Layer 1 + 60 Layer 2)
+
+cargo test --workspace
+  All passed; 0 failed
+```
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Merkle audit tree provides cryptographic tamper evidence for all truth assessments; SHA3-256 output fingerprinting ensures integrity |
+| Assumed Breach | Contradiction detection and resolution provides defense-in-depth against compromised sources; calibrated scoring detects unreliable predictions |
+| No Single Points of Failure | Consensus engine requires agreement from multiple sources; source reliability tracking identifies degraded inputs |
+| Zero Trust Throughout | Every output fingerprint independently verified; ground truth verification with expiration prevents stale trust; statistical consistency tests detect drift |

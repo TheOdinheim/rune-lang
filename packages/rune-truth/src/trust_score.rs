@@ -321,6 +321,146 @@ impl Default for TruthAssessor {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Merkle Audit Tree
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// Side of a sibling in a Merkle proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// Proof of inclusion for a leaf in a Merkle tree.
+#[derive(Debug, Clone)]
+pub struct MerkleProof {
+    pub leaf_hash: String,
+    pub sibling_hashes: Vec<(String, Side)>,
+    pub root_hash: String,
+}
+
+/// Compute parent hash from two children.
+pub fn compute_parent(left: &str, right: &str) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(left.as_bytes());
+    hasher.update(right.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// SHA3-256 hash of arbitrary data.
+fn sha3_hash(data: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
+/// Merkle tree for truth records.
+pub struct MerkleTree {
+    pub leaves: Vec<String>,
+    pub nodes: Vec<Vec<String>>,
+}
+
+impl MerkleTree {
+    pub fn new() -> Self {
+        Self {
+            leaves: Vec::new(),
+            nodes: Vec::new(),
+        }
+    }
+
+    pub fn add_leaf(&mut self, data: &[u8]) {
+        let hash = sha3_hash(data);
+        self.leaves.push(hash);
+        self.rebuild_tree();
+    }
+
+    pub fn root_hash(&self) -> Option<String> {
+        self.nodes.last().and_then(|level| level.first().cloned())
+    }
+
+    pub fn leaf_count(&self) -> usize {
+        self.leaves.len()
+    }
+
+    pub fn verify_inclusion(&self, leaf_hash: &str) -> bool {
+        self.leaves.iter().any(|h| h == leaf_hash)
+    }
+
+    pub fn proof_for_leaf(&self, index: usize) -> Option<MerkleProof> {
+        if index >= self.leaves.len() || self.nodes.is_empty() {
+            return None;
+        }
+        let root = self.root_hash()?;
+        let mut siblings = Vec::new();
+        let mut idx = index;
+
+        for level in &self.nodes[..self.nodes.len().saturating_sub(1)] {
+            if idx % 2 == 0 {
+                // sibling is on the right
+                if idx + 1 < level.len() {
+                    siblings.push((level[idx + 1].clone(), Side::Right));
+                }
+            } else {
+                // sibling is on the left
+                siblings.push((level[idx - 1].clone(), Side::Left));
+            }
+            idx /= 2;
+        }
+
+        Some(MerkleProof {
+            leaf_hash: self.leaves[index].clone(),
+            sibling_hashes: siblings,
+            root_hash: root,
+        })
+    }
+
+    pub fn verify_proof(root: &str, leaf_hash: &str, proof: &MerkleProof) -> bool {
+        let mut current = leaf_hash.to_string();
+        for (sibling, side) in &proof.sibling_hashes {
+            current = match side {
+                Side::Left => compute_parent(sibling, &current),
+                Side::Right => compute_parent(&current, sibling),
+            };
+        }
+        current == root
+    }
+
+    fn rebuild_tree(&mut self) {
+        if self.leaves.is_empty() {
+            self.nodes.clear();
+            return;
+        }
+        self.nodes.clear();
+        let mut current_level = self.leaves.clone();
+        self.nodes.push(current_level.clone());
+
+        while current_level.len() > 1 {
+            let mut next_level = Vec::new();
+            let mut i = 0;
+            while i < current_level.len() {
+                if i + 1 < current_level.len() {
+                    next_level.push(compute_parent(&current_level[i], &current_level[i + 1]));
+                } else {
+                    // Odd node: duplicate it
+                    next_level.push(compute_parent(&current_level[i], &current_level[i]));
+                }
+                i += 2;
+            }
+            self.nodes.push(next_level.clone());
+            current_level = next_level;
+        }
+    }
+}
+
+impl Default for MerkleTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -478,5 +618,91 @@ mod tests {
     fn test_truth_weights_default_sums_to_one() {
         let w = TruthWeights::default();
         assert!((w.sum() - 1.0).abs() < 1e-9);
+    }
+
+    // ── Layer 2 Merkle tree tests ────────────────────────────────────
+
+    #[test]
+    fn test_merkle_single_leaf() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"hello");
+        assert_eq!(tree.leaf_count(), 1);
+        let root = tree.root_hash().unwrap();
+        assert_eq!(root, tree.leaves[0]);
+    }
+
+    #[test]
+    fn test_merkle_two_leaves() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"hello");
+        tree.add_leaf(b"world");
+        assert_eq!(tree.leaf_count(), 2);
+        let root = tree.root_hash().unwrap();
+        let expected = compute_parent(&tree.leaves[0], &tree.leaves[1]);
+        assert_eq!(root, expected);
+    }
+
+    #[test]
+    fn test_merkle_root_changes_on_add() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"a");
+        let root1 = tree.root_hash().unwrap();
+        tree.add_leaf(b"b");
+        let root2 = tree.root_hash().unwrap();
+        assert_ne!(root1, root2);
+    }
+
+    #[test]
+    fn test_merkle_verify_inclusion_true() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"data");
+        assert!(tree.verify_inclusion(&tree.leaves[0]));
+    }
+
+    #[test]
+    fn test_merkle_verify_inclusion_false() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"data");
+        assert!(!tree.verify_inclusion("nonexistent"));
+    }
+
+    #[test]
+    fn test_merkle_proof_valid() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"a");
+        tree.add_leaf(b"b");
+        tree.add_leaf(b"c");
+        let root = tree.root_hash().unwrap();
+        let proof = tree.proof_for_leaf(0).unwrap();
+        assert!(MerkleTree::verify_proof(&root, &proof.leaf_hash, &proof));
+    }
+
+    #[test]
+    fn test_merkle_verify_proof_succeeds() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"x");
+        tree.add_leaf(b"y");
+        let root = tree.root_hash().unwrap();
+        let proof = tree.proof_for_leaf(1).unwrap();
+        assert!(MerkleTree::verify_proof(&root, &proof.leaf_hash, &proof));
+    }
+
+    #[test]
+    fn test_merkle_verify_proof_fails_wrong_root() {
+        let mut tree = MerkleTree::new();
+        tree.add_leaf(b"x");
+        tree.add_leaf(b"y");
+        let proof = tree.proof_for_leaf(0).unwrap();
+        assert!(!MerkleTree::verify_proof("wrong_root", &proof.leaf_hash, &proof));
+    }
+
+    #[test]
+    fn test_compute_parent_deterministic() {
+        let a = compute_parent("abc", "def");
+        let b = compute_parent("abc", "def");
+        assert_eq!(a, b);
+        // Different inputs produce different output
+        let c = compute_parent("abc", "ghi");
+        assert_ne!(a, c);
     }
 }

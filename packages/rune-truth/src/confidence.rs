@@ -203,6 +203,214 @@ impl Default for ConfidenceCalculator {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Statistical Confidence Scoring
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Running statistics using Welford's online algorithm.
+#[derive(Debug, Clone)]
+pub struct RunningStats {
+    pub count: u64,
+    pub mean: f64,
+    pub m2: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+impl RunningStats {
+    pub fn new() -> Self {
+        Self {
+            count: 0,
+            mean: 0.0,
+            m2: 0.0,
+            min: f64::INFINITY,
+            max: f64::NEG_INFINITY,
+        }
+    }
+
+    pub fn update(&mut self, value: f64) {
+        self.count += 1;
+        if value < self.min {
+            self.min = value;
+        }
+        if value > self.max {
+            self.max = value;
+        }
+        let delta = value - self.mean;
+        self.mean += delta / self.count as f64;
+        let delta2 = value - self.mean;
+        self.m2 += delta * delta2;
+    }
+
+    pub fn mean(&self) -> f64 {
+        self.mean
+    }
+
+    pub fn variance(&self) -> f64 {
+        if self.count < 2 {
+            return 0.0;
+        }
+        self.m2 / (self.count - 1) as f64
+    }
+
+    pub fn std_dev(&self) -> f64 {
+        self.variance().sqrt()
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+
+    pub fn min(&self) -> f64 {
+        self.min
+    }
+
+    pub fn max(&self) -> f64 {
+        self.max
+    }
+
+    /// Merge two RunningStats using parallel Welford's algorithm.
+    pub fn merge(&mut self, other: &RunningStats) {
+        if other.count == 0 {
+            return;
+        }
+        if self.count == 0 {
+            *self = other.clone();
+            return;
+        }
+        let combined_count = self.count + other.count;
+        let delta = other.mean - self.mean;
+        let combined_mean = (self.count as f64 * self.mean + other.count as f64 * other.mean)
+            / combined_count as f64;
+        let combined_m2 = self.m2
+            + other.m2
+            + delta * delta * self.count as f64 * other.count as f64 / combined_count as f64;
+
+        self.count = combined_count;
+        self.mean = combined_mean;
+        self.m2 = combined_m2;
+        if other.min < self.min {
+            self.min = other.min;
+        }
+        if other.max > self.max {
+            self.max = other.max;
+        }
+    }
+}
+
+impl Default for RunningStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Calibrated confidence scorer that adjusts raw confidence using historical data.
+pub struct CalibratedScorer {
+    pub stats: RunningStats,
+    predictions: Vec<(f64, bool)>,
+    pub min_samples: usize,
+}
+
+impl CalibratedScorer {
+    pub fn new(min_samples: usize) -> Self {
+        Self {
+            stats: RunningStats::new(),
+            predictions: Vec::new(),
+            min_samples,
+        }
+    }
+
+    pub fn record_prediction(&mut self, confidence: f64, was_correct: bool) {
+        self.stats.update(confidence);
+        self.predictions.push((confidence, was_correct));
+    }
+
+    pub fn calibrated_confidence(&self, raw_confidence: f64) -> f64 {
+        if self.predictions.len() < self.min_samples {
+            return raw_confidence;
+        }
+        // Find predictions in a window around raw_confidence and compute actual accuracy
+        let window = 0.1;
+        let nearby: Vec<&(f64, bool)> = self.predictions.iter()
+            .filter(|(c, _)| (*c - raw_confidence).abs() <= window)
+            .collect();
+        if nearby.len() < 3 {
+            return raw_confidence;
+        }
+        let correct = nearby.iter().filter(|(_, w)| *w).count();
+        correct as f64 / nearby.len() as f64
+    }
+
+    /// Brier score: mean squared error between predicted confidence and outcome.
+    pub fn brier_score(&self) -> f64 {
+        if self.predictions.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = self.predictions.iter()
+            .map(|(conf, correct)| {
+                let actual = if *correct { 1.0 } else { 0.0 };
+                (conf - actual).powi(2)
+            })
+            .sum();
+        sum / self.predictions.len() as f64
+    }
+
+    /// Expected Calibration Error across bins.
+    pub fn calibration_error(&self) -> f64 {
+        if self.predictions.is_empty() {
+            return 0.0;
+        }
+        let num_bins = 10;
+        let mut bin_correct = vec![0usize; num_bins];
+        let mut bin_total = vec![0usize; num_bins];
+        let mut bin_conf_sum = vec![0.0f64; num_bins];
+
+        for (conf, correct) in &self.predictions {
+            let bin = ((*conf * num_bins as f64) as usize).min(num_bins - 1);
+            bin_total[bin] += 1;
+            bin_conf_sum[bin] += conf;
+            if *correct {
+                bin_correct[bin] += 1;
+            }
+        }
+
+        let n = self.predictions.len() as f64;
+        let mut ece = 0.0;
+        for i in 0..num_bins {
+            if bin_total[i] > 0 {
+                let avg_conf = bin_conf_sum[i] / bin_total[i] as f64;
+                let accuracy = bin_correct[i] as f64 / bin_total[i] as f64;
+                ece += (bin_total[i] as f64 / n) * (avg_conf - accuracy).abs();
+            }
+        }
+        ece
+    }
+
+    pub fn is_well_calibrated(&self) -> bool {
+        self.calibration_error() < 0.05
+    }
+}
+
+/// Compute confidence interval bounds.
+pub fn confidence_interval(mean: f64, std_dev: f64, n: u64, confidence_level: f64) -> (f64, f64) {
+    let z = z_score_for_level(confidence_level);
+    let margin = z * std_dev / (n as f64).sqrt();
+    (mean - margin, mean + margin)
+}
+
+/// Map common confidence levels to z-scores.
+pub fn z_score_for_level(confidence_level: f64) -> f64 {
+    if (confidence_level - 0.90).abs() < 0.001 {
+        1.645
+    } else if (confidence_level - 0.95).abs() < 0.001 {
+        1.96
+    } else if (confidence_level - 0.99).abs() < 0.001 {
+        2.576
+    } else {
+        1.96 // default
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -325,6 +533,161 @@ mod tests {
         let score = calc.calculate(&factors);
         // (1.0*3 + 0.0*1) / (3+1) = 0.75
         assert!((score.value - 0.75).abs() < 1e-9);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_running_stats_single_value() {
+        let mut s = RunningStats::new();
+        s.update(5.0);
+        assert_eq!(s.mean(), 5.0);
+        assert_eq!(s.count(), 1);
+        assert_eq!(s.min(), 5.0);
+        assert_eq!(s.max(), 5.0);
+    }
+
+    #[test]
+    fn test_running_stats_multiple_values() {
+        let mut s = RunningStats::new();
+        for v in [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] {
+            s.update(v);
+        }
+        assert!((s.mean() - 5.0).abs() < 1e-9);
+        // sample variance of [2,4,4,4,5,5,7,9]: mean=5, SS=32, var=32/7≈4.571
+        assert!((s.variance() - 32.0 / 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_running_stats_variance_hand_calculation() {
+        let mut s = RunningStats::new();
+        s.update(10.0);
+        s.update(20.0);
+        s.update(30.0);
+        // mean = 20, sample variance = ((10-20)^2 + (20-20)^2 + (30-20)^2) / 2 = 100
+        assert!((s.mean() - 20.0).abs() < 1e-9);
+        assert!((s.variance() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_running_stats_min_max() {
+        let mut s = RunningStats::new();
+        for v in [5.0, 1.0, 8.0, 3.0] {
+            s.update(v);
+        }
+        assert_eq!(s.min(), 1.0);
+        assert_eq!(s.max(), 8.0);
+    }
+
+    #[test]
+    fn test_running_stats_merge_mean() {
+        let mut a = RunningStats::new();
+        for v in [1.0, 2.0, 3.0] {
+            a.update(v);
+        }
+        let mut b = RunningStats::new();
+        for v in [4.0, 5.0, 6.0] {
+            b.update(v);
+        }
+        a.merge(&b);
+        assert_eq!(a.count(), 6);
+        assert!((a.mean() - 3.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_running_stats_merge_variance() {
+        let mut a = RunningStats::new();
+        for v in [1.0, 2.0, 3.0] {
+            a.update(v);
+        }
+        let mut b = RunningStats::new();
+        for v in [4.0, 5.0, 6.0] {
+            b.update(v);
+        }
+        a.merge(&b);
+        // Combined [1,2,3,4,5,6]: mean=3.5, sample_var = 3.5
+        assert!((a.variance() - 3.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_confidence_interval_symmetric() {
+        let (lo, hi) = confidence_interval(50.0, 10.0, 100, 0.95);
+        // margin = 1.96 * 10 / 10 = 1.96
+        assert!((hi - lo - 2.0 * 1.96).abs() < 1e-9);
+        assert!((50.0 - lo - 1.96).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_confidence_interval_narrows_with_more_samples() {
+        let (lo1, hi1) = confidence_interval(50.0, 10.0, 10, 0.95);
+        let (lo2, hi2) = confidence_interval(50.0, 10.0, 100, 0.95);
+        assert!((hi1 - lo1) > (hi2 - lo2));
+    }
+
+    #[test]
+    fn test_z_score_for_level_95() {
+        assert!((z_score_for_level(0.95) - 1.96).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_calibrated_scorer_initial_returns_raw() {
+        let scorer = CalibratedScorer::new(10);
+        assert_eq!(scorer.calibrated_confidence(0.8), 0.8);
+    }
+
+    #[test]
+    fn test_calibrated_scorer_after_training() {
+        let mut scorer = CalibratedScorer::new(5);
+        // Record many predictions around confidence=0.9 that are always correct
+        for _ in 0..20 {
+            scorer.record_prediction(0.9, true);
+        }
+        // Calibrated confidence for 0.9 should be 1.0 (always correct in that window)
+        let cal = scorer.calibrated_confidence(0.9);
+        assert!((cal - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_brier_score_perfect() {
+        let mut scorer = CalibratedScorer::new(5);
+        scorer.record_prediction(1.0, true);
+        scorer.record_prediction(0.0, false);
+        assert!((scorer.brier_score() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_brier_score_bad_predictions() {
+        let mut scorer = CalibratedScorer::new(5);
+        scorer.record_prediction(1.0, false);
+        scorer.record_prediction(0.0, true);
+        // (1-0)^2 + (0-1)^2 / 2 = 1.0
+        assert!((scorer.brier_score() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_calibration_error_well_calibrated() {
+        let mut scorer = CalibratedScorer::new(5);
+        // Record predictions that match reality well
+        for _ in 0..20 {
+            scorer.record_prediction(0.9, true);
+        }
+        for _ in 0..20 {
+            scorer.record_prediction(0.1, false);
+        }
+        assert!(scorer.calibration_error() < 0.15);
+    }
+
+    #[test]
+    fn test_is_well_calibrated() {
+        let mut scorer = CalibratedScorer::new(5);
+        // All predictions perfectly correct
+        for _ in 0..50 {
+            scorer.record_prediction(1.0, true);
+        }
+        for _ in 0..50 {
+            scorer.record_prediction(0.0, false);
+        }
+        assert!(scorer.is_well_calibrated());
     }
 
     #[test]

@@ -1723,6 +1723,7 @@ dependencies = [
  "rune-security",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]
@@ -1787,11 +1788,13 @@ dependencies = [
 name = "rune-truth"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "rune-lang",
  "rune-provenance",
  "rune-security",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]

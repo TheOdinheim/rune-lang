@@ -436,6 +436,239 @@ fn detect_contradiction(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Enhanced Contradiction Detection
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Value type for structured claims.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClaimValue {
+    Boolean(bool),
+    Numeric(f64),
+    Text(String),
+    Category(String),
+}
+
+/// A structured claim about a subject.
+#[derive(Debug, Clone)]
+pub struct Claim {
+    pub id: String,
+    pub source: String,
+    pub subject: String,
+    pub predicate: String,
+    pub value: ClaimValue,
+    pub confidence: f64,
+    pub timestamp: i64,
+    pub evidence: Vec<String>,
+}
+
+impl Claim {
+    pub fn new(
+        id: impl Into<String>,
+        source: impl Into<String>,
+        subject: impl Into<String>,
+        predicate: impl Into<String>,
+        value: ClaimValue,
+        confidence: f64,
+        timestamp: i64,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            source: source.into(),
+            subject: subject.into(),
+            predicate: predicate.into(),
+            value,
+            confidence,
+            timestamp,
+            evidence: Vec::new(),
+        }
+    }
+}
+
+/// A detected contradiction between structured claims.
+#[derive(Debug, Clone)]
+pub struct ClaimContradiction {
+    pub claim_a_id: String,
+    pub claim_b_id: String,
+    pub subject: String,
+    pub predicate: String,
+    pub value_a: ClaimValue,
+    pub value_b: ClaimValue,
+    pub contradiction_type: ClaimContradictionType,
+    pub severity: ClaimContradictionSeverity,
+}
+
+/// Type of contradiction between claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimContradictionType {
+    DirectOpposite,
+    NumericDeviation { deviation_pct: u64 },
+    CategoricalMismatch,
+    TextualConflict,
+}
+
+/// Severity of a claim contradiction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ClaimContradictionSeverity {
+    Low = 0,
+    Medium = 1,
+    High = 2,
+    Critical = 3,
+}
+
+/// Store for structured claims with contradiction detection.
+#[derive(Default)]
+pub struct ClaimStore {
+    pub claims: Vec<Claim>,
+}
+
+impl ClaimStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_claim(&mut self, claim: Claim) {
+        self.claims.push(claim);
+    }
+
+    pub fn claims_about(&self, subject: &str) -> Vec<&Claim> {
+        self.claims.iter().filter(|c| c.subject == subject).collect()
+    }
+
+    pub fn claims_by_source(&self, source: &str) -> Vec<&Claim> {
+        self.claims.iter().filter(|c| c.source == source).collect()
+    }
+
+    pub fn detect_contradictions(&self) -> Vec<ClaimContradiction> {
+        let mut contradictions = Vec::new();
+        for i in 0..self.claims.len() {
+            for j in (i + 1)..self.claims.len() {
+                let a = &self.claims[i];
+                let b = &self.claims[j];
+                if a.subject == b.subject && a.predicate == b.predicate && a.value != b.value {
+                    let (ctype, severity) = classify_claim_contradiction(a, b);
+                    contradictions.push(ClaimContradiction {
+                        claim_a_id: a.id.clone(),
+                        claim_b_id: b.id.clone(),
+                        subject: a.subject.clone(),
+                        predicate: a.predicate.clone(),
+                        value_a: a.value.clone(),
+                        value_b: b.value.clone(),
+                        contradiction_type: ctype,
+                        severity,
+                    });
+                }
+            }
+        }
+        contradictions
+    }
+
+    pub fn detect_contradictions_for(&self, subject: &str) -> Vec<ClaimContradiction> {
+        self.detect_contradictions()
+            .into_iter()
+            .filter(|c| c.subject == subject)
+            .collect()
+    }
+}
+
+fn classify_claim_contradiction(a: &Claim, b: &Claim) -> (ClaimContradictionType, ClaimContradictionSeverity) {
+    match (&a.value, &b.value) {
+        (ClaimValue::Boolean(_), ClaimValue::Boolean(_)) => {
+            let severity = if a.confidence > 0.8 && b.confidence > 0.8 {
+                ClaimContradictionSeverity::Critical
+            } else {
+                ClaimContradictionSeverity::High
+            };
+            (ClaimContradictionType::DirectOpposite, severity)
+        }
+        (ClaimValue::Numeric(va), ClaimValue::Numeric(vb)) => {
+            let max_abs = va.abs().max(vb.abs()).max(1.0);
+            let deviation = ((va - vb).abs() / max_abs * 100.0) as u64;
+            let severity = if deviation > 300 {
+                ClaimContradictionSeverity::High
+            } else {
+                ClaimContradictionSeverity::Medium
+            };
+            (ClaimContradictionType::NumericDeviation { deviation_pct: deviation }, severity)
+        }
+        (ClaimValue::Category(_), ClaimValue::Category(_)) => {
+            (ClaimContradictionType::CategoricalMismatch, ClaimContradictionSeverity::Medium)
+        }
+        _ => {
+            (ClaimContradictionType::TextualConflict, ClaimContradictionSeverity::Low)
+        }
+    }
+}
+
+/// Strategy for resolving a contradiction.
+#[derive(Debug, Clone)]
+pub enum ClaimResolutionStrategy {
+    HighestConfidence,
+    MostRecent,
+    SourcePriority { priority_order: Vec<String> },
+    Consensus { required_agreement: f64 },
+    ManualOverride,
+}
+
+/// Result of resolving a contradiction.
+#[derive(Debug, Clone)]
+pub struct ClaimConflictResolution {
+    pub contradiction_subject: String,
+    pub contradiction_predicate: String,
+    pub resolution: ClaimResolutionStrategy,
+    pub resolved_value: ClaimValue,
+    pub resolved_by: String,
+    pub resolved_at: i64,
+    pub rationale: String,
+}
+
+/// Resolve a contradiction using the given strategy.
+pub fn resolve_claim_contradiction(
+    contradiction: &ClaimContradiction,
+    claims: &[&Claim],
+    strategy: &ClaimResolutionStrategy,
+    now: i64,
+) -> ClaimConflictResolution {
+    let relevant: Vec<&&Claim> = claims.iter()
+        .filter(|c| c.subject == contradiction.subject && c.predicate == contradiction.predicate)
+        .collect();
+
+    let (resolved_value, rationale) = match strategy {
+        ClaimResolutionStrategy::HighestConfidence => {
+            let best = relevant.iter()
+                .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
+                .unwrap();
+            (best.value.clone(), format!("highest confidence: {:.2}", best.confidence))
+        }
+        ClaimResolutionStrategy::MostRecent => {
+            let newest = relevant.iter()
+                .max_by_key(|c| c.timestamp)
+                .unwrap();
+            (newest.value.clone(), format!("most recent: timestamp {}", newest.timestamp))
+        }
+        ClaimResolutionStrategy::SourcePriority { priority_order } => {
+            let best = priority_order.iter()
+                .find_map(|src| relevant.iter().find(|c| c.source == *src))
+                .unwrap_or(relevant.first().unwrap());
+            (best.value.clone(), format!("source priority: {}", best.source))
+        }
+        ClaimResolutionStrategy::Consensus { .. } | ClaimResolutionStrategy::ManualOverride => {
+            // For consensus/manual, just pick the most common value or first
+            (contradiction.value_a.clone(), "manual/consensus fallback".into())
+        }
+    };
+
+    ClaimConflictResolution {
+        contradiction_subject: contradiction.subject.clone(),
+        contradiction_predicate: contradiction.predicate.clone(),
+        resolution: strategy.clone(),
+        resolved_value,
+        resolved_by: "system".into(),
+        resolved_at: now,
+        rationale,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -605,5 +838,92 @@ mod tests {
         assert!(ContradictionSeverity::Minor < ContradictionSeverity::Moderate);
         assert!(ContradictionSeverity::Moderate < ContradictionSeverity::Major);
         assert!(ContradictionSeverity::Major < ContradictionSeverity::Critical);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_claim_store_boolean_conflict() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "source-a", "server", "is_running", ClaimValue::Boolean(true), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "source-b", "server", "is_running", ClaimValue::Boolean(false), 0.8, 2000));
+        let contradictions = store.detect_contradictions();
+        assert_eq!(contradictions.len(), 1);
+        assert_eq!(contradictions[0].contradiction_type, ClaimContradictionType::DirectOpposite);
+    }
+
+    #[test]
+    fn test_claim_store_numeric_deviation() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "src-a", "metric", "value", ClaimValue::Numeric(100.0), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "src-b", "metric", "value", ClaimValue::Numeric(500.0), 0.9, 2000));
+        let contradictions = store.detect_contradictions();
+        assert_eq!(contradictions.len(), 1);
+        assert!(matches!(contradictions[0].contradiction_type, ClaimContradictionType::NumericDeviation { .. }));
+    }
+
+    #[test]
+    fn test_claim_store_no_contradiction_consistent() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "src-a", "server", "is_running", ClaimValue::Boolean(true), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "src-b", "server", "is_running", ClaimValue::Boolean(true), 0.8, 2000));
+        assert!(store.detect_contradictions().is_empty());
+    }
+
+    #[test]
+    fn test_claim_contradiction_severity_direct_opposite() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "a", "x", "p", ClaimValue::Boolean(true), 0.95, 1000));
+        store.add_claim(Claim::new("c2", "b", "x", "p", ClaimValue::Boolean(false), 0.95, 2000));
+        let c = &store.detect_contradictions()[0];
+        assert_eq!(c.severity, ClaimContradictionSeverity::Critical);
+    }
+
+    #[test]
+    fn test_resolve_highest_confidence() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "a", "x", "val", ClaimValue::Numeric(10.0), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "b", "x", "val", ClaimValue::Numeric(20.0), 0.5, 2000));
+        let contradictions = store.detect_contradictions();
+        let claims_refs: Vec<&Claim> = store.claims.iter().collect();
+        let resolution = resolve_claim_contradiction(
+            &contradictions[0],
+            &claims_refs,
+            &ClaimResolutionStrategy::HighestConfidence,
+            3000,
+        );
+        assert_eq!(resolution.resolved_value, ClaimValue::Numeric(10.0));
+    }
+
+    #[test]
+    fn test_resolve_most_recent() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "a", "x", "val", ClaimValue::Numeric(10.0), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "b", "x", "val", ClaimValue::Numeric(20.0), 0.5, 2000));
+        let contradictions = store.detect_contradictions();
+        let claims_refs: Vec<&Claim> = store.claims.iter().collect();
+        let resolution = resolve_claim_contradiction(
+            &contradictions[0],
+            &claims_refs,
+            &ClaimResolutionStrategy::MostRecent,
+            3000,
+        );
+        assert_eq!(resolution.resolved_value, ClaimValue::Numeric(20.0));
+    }
+
+    #[test]
+    fn test_claim_store_claims_about() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "a", "server-1", "status", ClaimValue::Boolean(true), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "b", "server-2", "status", ClaimValue::Boolean(false), 0.8, 2000));
+        assert_eq!(store.claims_about("server-1").len(), 1);
+    }
+
+    #[test]
+    fn test_claim_store_claims_by_source() {
+        let mut store = ClaimStore::new();
+        store.add_claim(Claim::new("c1", "monitor-a", "x", "p", ClaimValue::Boolean(true), 0.9, 1000));
+        store.add_claim(Claim::new("c2", "monitor-b", "x", "p", ClaimValue::Boolean(false), 0.8, 2000));
+        assert_eq!(store.claims_by_source("monitor-a").len(), 1);
     }
 }
