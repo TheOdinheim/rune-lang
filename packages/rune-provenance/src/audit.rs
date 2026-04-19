@@ -29,6 +29,22 @@ pub enum ProvenanceEventType {
     SlsaAssessed,
     VerificationCompleted,
     ProvenanceChainBroken,
+    // Layer 2 event types
+    ArtifactHashComputed,
+    ArtifactIntegrityVerified,
+    ContentAddressedStored,
+    LineageRecordAppended,
+    LineageChainVerified,
+    LineageAncestryQueried,
+    DependencyCycleDetected,
+    BuildReproducibilityChecked,
+    SlsaAttestationGenerated,
+    SlsaAttestationVerified,
+    ProvenanceGraphMetricsComputed,
+    ImpactAnalysisPerformed,
+    TrainingDataRegistered,
+    ModelCardGenerated,
+    DependencyGraphAnalyzed,
 }
 
 impl fmt::Display for ProvenanceEventType {
@@ -47,6 +63,21 @@ impl fmt::Display for ProvenanceEventType {
             Self::SlsaAssessed => f.write_str("slsa-assessed"),
             Self::VerificationCompleted => f.write_str("verification-completed"),
             Self::ProvenanceChainBroken => f.write_str("provenance-chain-broken"),
+            Self::ArtifactHashComputed => f.write_str("artifact-hash-computed"),
+            Self::ArtifactIntegrityVerified => f.write_str("artifact-integrity-verified"),
+            Self::ContentAddressedStored => f.write_str("content-addressed-stored"),
+            Self::LineageRecordAppended => f.write_str("lineage-record-appended"),
+            Self::LineageChainVerified => f.write_str("lineage-chain-verified"),
+            Self::LineageAncestryQueried => f.write_str("lineage-ancestry-queried"),
+            Self::DependencyCycleDetected => f.write_str("dependency-cycle-detected"),
+            Self::BuildReproducibilityChecked => f.write_str("build-reproducibility-checked"),
+            Self::SlsaAttestationGenerated => f.write_str("slsa-attestation-generated"),
+            Self::SlsaAttestationVerified => f.write_str("slsa-attestation-verified"),
+            Self::ProvenanceGraphMetricsComputed => f.write_str("provenance-graph-metrics-computed"),
+            Self::ImpactAnalysisPerformed => f.write_str("impact-analysis-performed"),
+            Self::TrainingDataRegistered => f.write_str("training-data-registered"),
+            Self::ModelCardGenerated => f.write_str("model-card-generated"),
+            Self::DependencyGraphAnalyzed => f.write_str("dependency-graph-analyzed"),
         }
     }
 }
@@ -243,5 +274,64 @@ mod tests {
         assert_eq!(ProvenanceEventType::SlsaAssessed.to_string(), "slsa-assessed");
         assert_eq!(ProvenanceEventType::VerificationCompleted.to_string(), "verification-completed");
         assert_eq!(ProvenanceEventType::ProvenanceChainBroken.to_string(), "provenance-chain-broken");
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer2_event_type_display() {
+        assert_eq!(ProvenanceEventType::ArtifactHashComputed.to_string(), "artifact-hash-computed");
+        assert_eq!(ProvenanceEventType::ArtifactIntegrityVerified.to_string(), "artifact-integrity-verified");
+        assert_eq!(ProvenanceEventType::ContentAddressedStored.to_string(), "content-addressed-stored");
+        assert_eq!(ProvenanceEventType::LineageRecordAppended.to_string(), "lineage-record-appended");
+        assert_eq!(ProvenanceEventType::LineageChainVerified.to_string(), "lineage-chain-verified");
+        assert_eq!(ProvenanceEventType::LineageAncestryQueried.to_string(), "lineage-ancestry-queried");
+        assert_eq!(ProvenanceEventType::DependencyCycleDetected.to_string(), "dependency-cycle-detected");
+        assert_eq!(ProvenanceEventType::BuildReproducibilityChecked.to_string(), "build-reproducibility-checked");
+        assert_eq!(ProvenanceEventType::SlsaAttestationGenerated.to_string(), "slsa-attestation-generated");
+        assert_eq!(ProvenanceEventType::SlsaAttestationVerified.to_string(), "slsa-attestation-verified");
+        assert_eq!(ProvenanceEventType::ProvenanceGraphMetricsComputed.to_string(), "provenance-graph-metrics-computed");
+        assert_eq!(ProvenanceEventType::ImpactAnalysisPerformed.to_string(), "impact-analysis-performed");
+        assert_eq!(ProvenanceEventType::TrainingDataRegistered.to_string(), "training-data-registered");
+        assert_eq!(ProvenanceEventType::ModelCardGenerated.to_string(), "model-card-generated");
+        assert_eq!(ProvenanceEventType::DependencyGraphAnalyzed.to_string(), "dependency-graph-analyzed");
+    }
+
+    #[test]
+    fn test_layer2_events_by_type() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::ArtifactHashComputed, "a1", 1000));
+        log.record(event(ProvenanceEventType::SlsaAttestationGenerated, "a1", 2000));
+        log.record(event(ProvenanceEventType::ArtifactHashComputed, "a2", 3000));
+        assert_eq!(
+            log.events_by_type(&ProvenanceEventType::ArtifactHashComputed).len(),
+            2
+        );
+        assert_eq!(
+            log.events_by_type(&ProvenanceEventType::SlsaAttestationGenerated).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_layer2_event_construction() {
+        let e = ProvenanceAuditEvent::new(
+            ProvenanceEventType::LineageChainVerified,
+            "chain-1",
+            "system",
+            5000,
+            "Chain verified with 10 links",
+        );
+        assert_eq!(e.event_type, ProvenanceEventType::LineageChainVerified);
+        assert_eq!(e.artifact_id, ArtifactId::new("chain-1"));
+        assert_eq!(e.timestamp, 5000);
+    }
+
+    #[test]
+    fn test_layer2_event_serialization() {
+        let et = ProvenanceEventType::ModelCardGenerated;
+        let json = serde_json::to_string(&et).unwrap();
+        let deserialized: ProvenanceEventType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, et);
     }
 }

@@ -210,6 +210,203 @@ impl SlsaProvenanceStore {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: SLSA Hardening
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// SLSA build metadata for attestations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlsaBuildMetadata {
+    pub invocation_id: String,
+    pub started_on: i64,
+    pub finished_on: i64,
+    pub reproducible: bool,
+}
+
+/// Full SLSA attestation with computed hash.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlsaAttestation {
+    pub predicate_type: String,
+    pub builder_id: String,
+    pub build_type: String,
+    pub invocation_config_source: Option<String>,
+    pub materials: Vec<SlsaMaterial>,
+    pub metadata: SlsaBuildMetadata,
+    pub attestation_hash: String,
+}
+
+fn compute_attestation_hash(
+    builder_id: &str,
+    materials: &[SlsaMaterial],
+    metadata: &SlsaBuildMetadata,
+) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(builder_id.as_bytes());
+    for m in materials {
+        hasher.update(m.uri.as_bytes());
+        let mut digests: Vec<_> = m.digest.iter().collect();
+        digests.sort_by_key(|(k, _)| k.clone());
+        for (algo, hash) in digests {
+            hasher.update(algo.as_bytes());
+            hasher.update(hash.as_bytes());
+        }
+    }
+    hasher.update(metadata.invocation_id.as_bytes());
+    hasher.update(metadata.started_on.to_le_bytes());
+    hasher.update(metadata.finished_on.to_le_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Generate an SLSA attestation with computed hash.
+pub fn generate_attestation(
+    builder_id: &str,
+    materials: Vec<SlsaMaterial>,
+    metadata: SlsaBuildMetadata,
+) -> SlsaAttestation {
+    let hash = compute_attestation_hash(builder_id, &materials, &metadata);
+    SlsaAttestation {
+        predicate_type: "https://slsa.dev/provenance/v1".to_string(),
+        builder_id: builder_id.to_string(),
+        build_type: "https://slsa.dev/build/v1".to_string(),
+        invocation_config_source: None,
+        materials,
+        metadata,
+        attestation_hash: hash,
+    }
+}
+
+/// Verification result for an SLSA attestation.
+#[derive(Debug, Clone)]
+pub struct SlsaAttestationVerification {
+    pub valid: bool,
+    pub hash_verified: bool,
+    pub materials_present: bool,
+    pub builder_identified: bool,
+    pub issues: Vec<String>,
+}
+
+/// Verify an SLSA attestation.
+pub fn verify_attestation(attestation: &SlsaAttestation) -> SlsaAttestationVerification {
+    let mut issues = Vec::new();
+    let expected_hash = compute_attestation_hash(
+        &attestation.builder_id,
+        &attestation.materials,
+        &attestation.metadata,
+    );
+    let hash_verified = expected_hash == attestation.attestation_hash;
+    if !hash_verified {
+        issues.push("Attestation hash does not match computed hash".into());
+    }
+    let materials_present = !attestation.materials.is_empty();
+    if !materials_present {
+        issues.push("No materials listed in attestation".into());
+    }
+    let builder_identified = !attestation.builder_id.is_empty();
+    if !builder_identified {
+        issues.push("Builder ID is empty".into());
+    }
+    SlsaAttestationVerification {
+        valid: hash_verified && materials_present && builder_identified,
+        hash_verified,
+        materials_present,
+        builder_identified,
+        issues,
+    }
+}
+
+/// Evidence for a specific SLSA requirement.
+#[derive(Debug, Clone)]
+pub struct SlsaEvidence {
+    pub requirement: String,
+    pub satisfied: bool,
+    pub detail: String,
+}
+
+/// Detailed SLSA level assessment with evidence.
+#[derive(Debug, Clone)]
+pub struct SlsaLevelEvidence {
+    pub assessed_level: SlsaLevel,
+    pub evidence: Vec<SlsaEvidence>,
+    pub missing_for_next_level: Vec<String>,
+}
+
+/// Assess SLSA level with detailed evidence.
+pub fn assess_with_evidence(attestation: &SlsaAttestation) -> SlsaLevelEvidence {
+    let mut evidence = Vec::new();
+    let mut level = SlsaLevel::Level0;
+
+    // L1: Has build provenance
+    let has_provenance = !attestation.predicate_type.is_empty();
+    evidence.push(SlsaEvidence {
+        requirement: "Build provenance exists".into(),
+        satisfied: has_provenance,
+        detail: if has_provenance { "Attestation predicate present".into() } else { "No predicate type".into() },
+    });
+    if has_provenance {
+        level = SlsaLevel::Level1;
+    }
+
+    // L2: Authenticated builder
+    let has_builder = !attestation.builder_id.is_empty();
+    evidence.push(SlsaEvidence {
+        requirement: "Authenticated builder".into(),
+        satisfied: has_builder,
+        detail: if has_builder { format!("Builder: {}", attestation.builder_id) } else { "No builder ID".into() },
+    });
+    if has_builder {
+        level = SlsaLevel::Level2;
+    }
+
+    // L3: Complete provenance + reproducible
+    let has_materials = !attestation.materials.is_empty();
+    evidence.push(SlsaEvidence {
+        requirement: "Complete materials list".into(),
+        satisfied: has_materials,
+        detail: format!("{} material(s)", attestation.materials.len()),
+    });
+    let is_reproducible = attestation.metadata.reproducible;
+    evidence.push(SlsaEvidence {
+        requirement: "Reproducible build".into(),
+        satisfied: is_reproducible,
+        detail: if is_reproducible { "Build marked reproducible".into() } else { "Build not reproducible".into() },
+    });
+    if has_builder && has_materials && is_reproducible {
+        level = SlsaLevel::Level3;
+    }
+
+    // L4: Two-party review (check invocation_config_source as proxy)
+    let has_review = attestation.invocation_config_source.is_some();
+    evidence.push(SlsaEvidence {
+        requirement: "Two-party review".into(),
+        satisfied: has_review,
+        detail: if has_review { "Config source verified".into() } else { "No two-party review evidence".into() },
+    });
+    if level == SlsaLevel::Level3 && has_review {
+        level = SlsaLevel::Level4;
+    }
+
+    let missing = match level {
+        SlsaLevel::Level0 => vec!["Build provenance documentation".into()],
+        SlsaLevel::Level1 => vec!["Authenticated builder identity".into()],
+        SlsaLevel::Level2 => {
+            let mut m = Vec::new();
+            if !has_materials { m.push("Complete materials list".into()); }
+            if !is_reproducible { m.push("Reproducible build".into()); }
+            m
+        }
+        SlsaLevel::Level3 => vec!["Two-party review process".into()],
+        SlsaLevel::Level4 => Vec::new(),
+    };
+
+    SlsaLevelEvidence {
+        assessed_level: level,
+        evidence,
+        missing_for_next_level: missing,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -327,5 +524,116 @@ mod tests {
     fn test_material_construction() {
         let m = SlsaMaterial::new("https://example.com/data.tar", "sha3-256", "abc123");
         assert_eq!(m.digest.get("sha3-256").map(String::as_str), Some("abc123"));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    fn test_materials() -> Vec<SlsaMaterial> {
+        vec![
+            SlsaMaterial::new("https://example.com/src.tar", "sha3-256", "aaa111"),
+            SlsaMaterial::new("https://example.com/dep.tar", "sha3-256", "bbb222"),
+        ]
+    }
+
+    fn test_metadata() -> SlsaBuildMetadata {
+        SlsaBuildMetadata {
+            invocation_id: "inv-001".into(),
+            started_on: 1000,
+            finished_on: 2000,
+            reproducible: true,
+        }
+    }
+
+    #[test]
+    fn test_generate_attestation_produces_valid_hash() {
+        let att = generate_attestation("builder-ci", test_materials(), test_metadata());
+        assert_eq!(att.predicate_type, "https://slsa.dev/provenance/v1");
+        assert_eq!(att.builder_id, "builder-ci");
+        assert!(!att.attestation_hash.is_empty());
+        assert_eq!(att.attestation_hash.len(), 64); // SHA3-256 hex
+        assert_eq!(att.materials.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_attestation_deterministic() {
+        let a1 = generate_attestation("builder-ci", test_materials(), test_metadata());
+        let a2 = generate_attestation("builder-ci", test_materials(), test_metadata());
+        assert_eq!(a1.attestation_hash, a2.attestation_hash);
+    }
+
+    #[test]
+    fn test_verify_attestation_passes() {
+        let att = generate_attestation("builder-ci", test_materials(), test_metadata());
+        let v = verify_attestation(&att);
+        assert!(v.valid);
+        assert!(v.hash_verified);
+        assert!(v.materials_present);
+        assert!(v.builder_identified);
+        assert!(v.issues.is_empty());
+    }
+
+    #[test]
+    fn test_verify_attestation_fails_tampered_hash() {
+        let mut att = generate_attestation("builder-ci", test_materials(), test_metadata());
+        att.attestation_hash = "0000000000000000000000000000000000000000000000000000000000000000".into();
+        let v = verify_attestation(&att);
+        assert!(!v.valid);
+        assert!(!v.hash_verified);
+    }
+
+    #[test]
+    fn test_verify_attestation_fails_empty_builder() {
+        let att = generate_attestation("", test_materials(), test_metadata());
+        let v = verify_attestation(&att);
+        assert!(!v.valid);
+        assert!(!v.builder_identified);
+    }
+
+    #[test]
+    fn test_verify_attestation_fails_no_materials() {
+        let att = generate_attestation("builder-ci", vec![], test_metadata());
+        let v = verify_attestation(&att);
+        assert!(!v.valid);
+        assert!(!v.materials_present);
+    }
+
+    #[test]
+    fn test_assess_with_evidence_level3() {
+        let att = generate_attestation("builder-ci", test_materials(), test_metadata());
+        let ev = assess_with_evidence(&att);
+        assert_eq!(ev.assessed_level, SlsaLevel::Level3);
+        assert!(!ev.evidence.is_empty());
+        assert!(!ev.missing_for_next_level.is_empty());
+    }
+
+    #[test]
+    fn test_assess_with_evidence_level4() {
+        let mut att = generate_attestation("builder-ci", test_materials(), test_metadata());
+        att.invocation_config_source = Some("https://github.com/rune/config".into());
+        let ev = assess_with_evidence(&att);
+        assert_eq!(ev.assessed_level, SlsaLevel::Level4);
+        assert!(ev.missing_for_next_level.is_empty());
+    }
+
+    #[test]
+    fn test_assess_with_evidence_level2_not_reproducible() {
+        let meta = SlsaBuildMetadata {
+            invocation_id: "inv-002".into(),
+            started_on: 1000,
+            finished_on: 2000,
+            reproducible: false,
+        };
+        let att = generate_attestation("builder-ci", test_materials(), meta);
+        let ev = assess_with_evidence(&att);
+        assert_eq!(ev.assessed_level, SlsaLevel::Level2);
+    }
+
+    #[test]
+    fn test_slsa_build_metadata_construction() {
+        let m = test_metadata();
+        assert_eq!(m.invocation_id, "inv-001");
+        assert_eq!(m.started_on, 1000);
+        assert_eq!(m.finished_on, 2000);
+        assert!(m.reproducible);
     }
 }

@@ -270,6 +270,186 @@ impl SupplyChain {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Enhanced Supply Chain Verification
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+fn sha3_hex(data: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(data);
+    hex::encode(hasher.finalize())
+}
+
+/// A verified dependency with hash check result.
+#[derive(Debug, Clone)]
+pub struct VerifiedDependency {
+    pub name: String,
+    pub version: String,
+    pub content_hash: String,
+    pub signature_valid: bool,
+    pub source: VerifiedDependencySource,
+    pub checked_at: i64,
+}
+
+/// Source type for verified dependencies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifiedDependencySource {
+    Registry,
+    Git { commit: String },
+    Local { path: String },
+    Mirror { url: String },
+}
+
+/// Verify a dependency by hashing its content and comparing to expected hash.
+pub fn verify_dependency_hash(
+    name: &str,
+    version: &str,
+    content: &[u8],
+    expected_hash: &str,
+) -> VerifiedDependency {
+    let actual = sha3_hex(content);
+    VerifiedDependency {
+        name: name.to_string(),
+        version: version.to_string(),
+        content_hash: actual.clone(),
+        signature_valid: actual == expected_hash,
+        source: VerifiedDependencySource::Registry,
+        checked_at: 0,
+    }
+}
+
+/// Dependency graph for analyzing transitive relationships.
+#[derive(Default)]
+pub struct DependencyGraph {
+    pub dependencies: HashMap<String, Vec<String>>,
+}
+
+impl DependencyGraph {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_dependency(&mut self, package: &str, depends_on: &str) {
+        self.dependencies
+            .entry(package.to_string())
+            .or_default()
+            .push(depends_on.to_string());
+        // Ensure depends_on is also in the graph
+        self.dependencies.entry(depends_on.to_string()).or_default();
+    }
+
+    pub fn transitive_dependencies(&self, package: &str) -> Vec<String> {
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        let mut result = Vec::new();
+
+        if let Some(deps) = self.dependencies.get(package) {
+            for d in deps {
+                if visited.insert(d.clone()) {
+                    queue.push_back(d.clone());
+                }
+            }
+        }
+        while let Some(current) = queue.pop_front() {
+            result.push(current.clone());
+            if let Some(deps) = self.dependencies.get(&current) {
+                for d in deps {
+                    if visited.insert(d.clone()) {
+                        queue.push_back(d.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    pub fn has_cycle(&self) -> bool {
+        let mut white: HashSet<String> = self.dependencies.keys().cloned().collect();
+        let mut gray = HashSet::new();
+
+        while let Some(start) = white.iter().next().cloned() {
+            if self.dfs_cycle(&start, &mut white, &mut gray) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn dfs_cycle(
+        &self,
+        node: &str,
+        white: &mut HashSet<String>,
+        gray: &mut HashSet<String>,
+    ) -> bool {
+        white.remove(node);
+        gray.insert(node.to_string());
+        if let Some(deps) = self.dependencies.get(node) {
+            for dep in deps {
+                if gray.contains(dep) {
+                    return true;
+                }
+                if white.contains(dep) && self.dfs_cycle(dep, white, gray) {
+                    return true;
+                }
+            }
+        }
+        gray.remove(node);
+        false
+    }
+
+    pub fn dependency_depth(&self, package: &str) -> usize {
+        self.transitive_dependencies(package).len()
+    }
+
+    pub fn leaf_dependencies(&self) -> Vec<String> {
+        self.dependencies
+            .iter()
+            .filter(|(_, deps)| deps.is_empty())
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn reverse_dependencies(&self, package: &str) -> Vec<String> {
+        self.dependencies
+            .iter()
+            .filter(|(_, deps)| deps.contains(&package.to_string()))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+}
+
+/// Build reproducibility check result.
+#[derive(Debug, Clone)]
+pub struct BuildReproducibilityCheck {
+    pub source_hash: String,
+    pub build_config_hash: String,
+    pub expected_output_hash: String,
+    pub actual_output_hash: String,
+    pub reproducible: bool,
+    pub checked_at: i64,
+}
+
+/// Check build reproducibility by hashing all inputs/outputs.
+pub fn check_reproducibility(
+    source: &[u8],
+    build_config: &[u8],
+    expected_output: &[u8],
+    actual_output: &[u8],
+) -> BuildReproducibilityCheck {
+    let expected_hash = sha3_hex(expected_output);
+    let actual_hash = sha3_hex(actual_output);
+    BuildReproducibilityCheck {
+        source_hash: sha3_hex(source),
+        build_config_hash: sha3_hex(build_config),
+        expected_output_hash: expected_hash.clone(),
+        actual_output_hash: actual_hash.clone(),
+        reproducible: expected_hash == actual_hash,
+        checked_at: 0,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -438,6 +618,82 @@ mod tests {
                 .to_string()
                 .contains("CVE-1")
         );
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_verify_dependency_hash_match() {
+        let content = b"package content";
+        let hash = sha3_hex(content);
+        let v = verify_dependency_hash("mylib", "1.0", content, &hash);
+        assert!(v.signature_valid);
+        assert_eq!(v.content_hash, hash);
+    }
+
+    #[test]
+    fn test_verify_dependency_hash_mismatch() {
+        let v = verify_dependency_hash("mylib", "1.0", b"content", "wrong_hash");
+        assert!(!v.signature_valid);
+    }
+
+    #[test]
+    fn test_dep_graph_transitive() {
+        let mut g = DependencyGraph::new();
+        g.add_dependency("app", "lib-a");
+        g.add_dependency("lib-a", "lib-b");
+        g.add_dependency("lib-b", "lib-c");
+        let trans = g.transitive_dependencies("app");
+        assert_eq!(trans.len(), 3);
+        assert!(trans.contains(&"lib-c".to_string()));
+    }
+
+    #[test]
+    fn test_dep_graph_has_cycle() {
+        let mut g = DependencyGraph::new();
+        g.add_dependency("a", "b");
+        g.add_dependency("b", "a");
+        assert!(g.has_cycle());
+    }
+
+    #[test]
+    fn test_dep_graph_no_cycle() {
+        let mut g = DependencyGraph::new();
+        g.add_dependency("a", "b");
+        g.add_dependency("b", "c");
+        assert!(!g.has_cycle());
+    }
+
+    #[test]
+    fn test_dep_graph_leaves() {
+        let mut g = DependencyGraph::new();
+        g.add_dependency("app", "lib-a");
+        g.add_dependency("lib-a", "lib-b");
+        let leaves = g.leaf_dependencies();
+        assert!(leaves.contains(&"lib-b".to_string()));
+        assert!(!leaves.contains(&"app".to_string()));
+    }
+
+    #[test]
+    fn test_dep_graph_reverse() {
+        let mut g = DependencyGraph::new();
+        g.add_dependency("app", "lib-a");
+        g.add_dependency("other", "lib-a");
+        let rev = g.reverse_dependencies("lib-a");
+        assert_eq!(rev.len(), 2);
+    }
+
+    #[test]
+    fn test_check_reproducibility_match() {
+        let output = b"compiled binary";
+        let r = check_reproducibility(b"source", b"config", output, output);
+        assert!(r.reproducible);
+    }
+
+    #[test]
+    fn test_check_reproducibility_mismatch() {
+        let r = check_reproducibility(b"source", b"config", b"output_a", b"output_b");
+        assert!(!r.reproducible);
     }
 
     #[test]

@@ -272,3 +272,40 @@ cargo test --workspace
 | Assumed Breach | Re-identification risk assessment identifies vulnerable records; cascade consent withdrawal limits exposure when consent is revoked |
 | No Single Points of Failure | Privacy budget tracking prevents epsilon exhaustion; data inventory provides complete visibility of data holdings |
 | Zero Trust Throughout | Advanced composition theorems enforce mathematically sound privacy guarantees; l-diversity and t-closeness hardening prevents inference attacks |
+
+---
+
+## Session 15 — rune-provenance Layer 2
+
+**Date:** 2026-04-14
+
+### What Changed
+
+**rune-provenance Layer 2 upgrade** (99→158 tests, +59 new tests):
+
+- **PART 1 — SHA3-256 artifact hashing:** `hash_artifact_content`/`hash_artifact_metadata`/`verify_artifact_hash` with constant-time comparison, `ContentAddressedStore` with deduplication-by-hash, `ArtifactIntegrityReport` with `verify_all_integrity`
+- **PART 2 — Cryptographic lineage chains:** `LineageRecord` with hash chaining, `LineageChainStore` with `append_record`/`verify_chain`/`full_lineage`/`lineage_depth`/`common_ancestor`, `compute_record_hash`, `LineageChainVerification`
+- **PART 3 — Enhanced supply chain verification:** `VerifiedDependency`/`VerifiedDependencySource`, `DependencyGraph` with `transitive_dependencies`/`has_cycle`/`leaf_dependencies`/`reverse_dependencies`, `BuildReproducibilityCheck`/`check_reproducibility`
+- **PART 4 — SLSA hardening:** `SlsaAttestation` with SHA3-256 `attestation_hash`, `generate_attestation`/`verify_attestation`→`SlsaAttestationVerification`, `assess_with_evidence`→`SlsaLevelEvidence` with `SlsaEvidence` and `missing_for_next_level`
+- **PART 5 — Provenance graph analysis:** `ProvenanceGraphMetrics` (total_nodes/edges/max_depth/avg_depth/root_count/leaf_count/longest_chain_length/orphan_count), `ImpactAnalysis` (directly_affected/transitively_affected), `LineageDiff` (common_ancestors/only_in_a/only_in_b/divergence_point), `export_dot`/`export_json`
+- **PART 6 — Model provenance enhancement:** `ModelComparison` (same_architecture/same_training_data/hyperparameter_diffs), `TrainingDataRecord`/`TrainingDataRegistry` with `register`/`get`/`datasets_for_model`/`models_using_dataset`, `ModelCard` with `generate_model_card`
+- **PART 7 — Audit enhancement:** 15 new `ProvenanceEventType` variants (ArtifactHashComputed, ArtifactIntegrityVerified, ContentAddressedStored, LineageRecordAppended, LineageChainVerified, LineageAncestryQueried, DependencyCycleDetected, BuildReproducibilityChecked, SlsaAttestationGenerated, SlsaAttestationVerified, ProvenanceGraphMetricsComputed, ImpactAnalysisPerformed, TrainingDataRegistered, ModelCardGenerated, DependencyGraphAnalyzed)
+
+### Test Results
+
+```
+cargo test -p rune-provenance
+  158 passed; 0 failed
+
+cargo test --workspace
+  3,421 passed; 0 failed
+```
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | SHA3-256 artifact hashing with constant-time comparison prevents timing attacks; SLSA attestations provide tamper-evident build provenance; model cards ensure governance transparency |
+| Assumed Breach | Content-addressed storage enables integrity verification; cryptographic lineage chains detect tampering at any point in the chain; impact analysis identifies blast radius |
+| No Single Points of Failure | Dependency graph cycle detection prevents circular dependencies; training data registry provides complete lineage visibility; build reproducibility checks ensure deterministic outputs |
+| Zero Trust Throughout | Every artifact hash is verified independently; attestation verification recomputes hashes rather than trusting stored values; lineage chains use cryptographic chaining for tamper evidence |

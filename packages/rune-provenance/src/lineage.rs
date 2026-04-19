@@ -246,6 +246,216 @@ impl LineageRegistry {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Cryptographic Lineage Chains
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// Compute SHA3-256 hash for a lineage record.
+pub fn compute_record_hash(
+    record_id: &str,
+    artifact_id: &str,
+    input_hash: &str,
+    output_hash: &str,
+    previous_hash: Option<&str>,
+    timestamp: i64,
+) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(record_id.as_bytes());
+    hasher.update(artifact_id.as_bytes());
+    hasher.update(input_hash.as_bytes());
+    hasher.update(output_hash.as_bytes());
+    hasher.update(previous_hash.unwrap_or("").as_bytes());
+    hasher.update(timestamp.to_le_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// A cryptographically chained lineage record.
+#[derive(Debug, Clone)]
+pub struct LineageRecord {
+    pub record_id: String,
+    pub artifact_id: String,
+    pub parent_artifact_id: Option<String>,
+    pub transformation: String,
+    pub actor: String,
+    pub timestamp: i64,
+    pub input_hash: String,
+    pub output_hash: String,
+    pub previous_record_hash: Option<String>,
+    pub record_hash: String,
+}
+
+/// Verification result for a lineage chain.
+#[derive(Debug, Clone)]
+pub struct LineageChainVerification {
+    pub valid: bool,
+    pub verified_links: usize,
+    pub broken_at: Option<usize>,
+    pub chain_root_hash: Option<String>,
+    pub chain_tip_hash: Option<String>,
+}
+
+/// Cryptographic lineage chain store.
+#[derive(Default)]
+pub struct LineageChainStore {
+    pub records: Vec<LineageRecord>,
+    next_id: u64,
+}
+
+impl LineageChainStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn append_record(
+        &mut self,
+        artifact_id: &str,
+        parent_id: Option<&str>,
+        transformation: &str,
+        actor: &str,
+        input_hash: &str,
+        output_hash: &str,
+        now: i64,
+    ) -> &LineageRecord {
+        self.next_id += 1;
+        let record_id = format!("lr-{}", self.next_id);
+        let previous_hash = self.records.last().map(|r| r.record_hash.clone());
+        let record_hash = compute_record_hash(
+            &record_id,
+            artifact_id,
+            input_hash,
+            output_hash,
+            previous_hash.as_deref(),
+            now,
+        );
+        let record = LineageRecord {
+            record_id,
+            artifact_id: artifact_id.to_string(),
+            parent_artifact_id: parent_id.map(|s| s.to_string()),
+            transformation: transformation.to_string(),
+            actor: actor.to_string(),
+            timestamp: now,
+            input_hash: input_hash.to_string(),
+            output_hash: output_hash.to_string(),
+            previous_record_hash: previous_hash,
+            record_hash,
+        };
+        self.records.push(record);
+        self.records.last().unwrap()
+    }
+
+    pub fn verify_chain(&self) -> LineageChainVerification {
+        if self.records.is_empty() {
+            return LineageChainVerification {
+                valid: true,
+                verified_links: 0,
+                broken_at: None,
+                chain_root_hash: None,
+                chain_tip_hash: None,
+            };
+        }
+        let mut verified = 0;
+        for (i, record) in self.records.iter().enumerate() {
+            let prev_hash = if i == 0 {
+                None
+            } else {
+                Some(self.records[i - 1].record_hash.as_str())
+            };
+            // Verify the previous_record_hash matches
+            if record.previous_record_hash.as_deref() != prev_hash {
+                return LineageChainVerification {
+                    valid: false,
+                    verified_links: verified,
+                    broken_at: Some(i),
+                    chain_root_hash: Some(self.records[0].record_hash.clone()),
+                    chain_tip_hash: Some(self.records.last().unwrap().record_hash.clone()),
+                };
+            }
+            // Re-compute and verify record hash
+            let expected = compute_record_hash(
+                &record.record_id,
+                &record.artifact_id,
+                &record.input_hash,
+                &record.output_hash,
+                prev_hash,
+                record.timestamp,
+            );
+            if expected != record.record_hash {
+                return LineageChainVerification {
+                    valid: false,
+                    verified_links: verified,
+                    broken_at: Some(i),
+                    chain_root_hash: Some(self.records[0].record_hash.clone()),
+                    chain_tip_hash: Some(self.records.last().unwrap().record_hash.clone()),
+                };
+            }
+            verified += 1;
+        }
+        LineageChainVerification {
+            valid: true,
+            verified_links: verified,
+            broken_at: None,
+            chain_root_hash: Some(self.records[0].record_hash.clone()),
+            chain_tip_hash: Some(self.records.last().unwrap().record_hash.clone()),
+        }
+    }
+
+    pub fn chain_length(&self) -> usize {
+        self.records.len()
+    }
+
+    pub fn records_for_artifact(&self, artifact_id: &str) -> Vec<&LineageRecord> {
+        self.records.iter().filter(|r| r.artifact_id == artifact_id).collect()
+    }
+
+    /// Trace lineage from root to the given artifact following parent links.
+    pub fn full_lineage(&self, artifact_id: &str) -> Vec<&LineageRecord> {
+        // Build artifact → record map (latest record per artifact)
+        let mut artifact_records: HashMap<&str, &LineageRecord> = HashMap::new();
+        for r in &self.records {
+            artifact_records.insert(&r.artifact_id, r);
+        }
+        // Walk backward from artifact through parent_artifact_id
+        let mut chain = Vec::new();
+        let mut current = artifact_id;
+        let mut visited = HashSet::new();
+        while let Some(record) = artifact_records.get(current) {
+            if !visited.insert(current) {
+                break;
+            }
+            chain.push(*record);
+            match &record.parent_artifact_id {
+                Some(parent) => current = parent.as_str(),
+                None => break,
+            }
+        }
+        chain.reverse();
+        chain
+    }
+
+    pub fn lineage_depth(&self, artifact_id: &str) -> usize {
+        let chain = self.full_lineage(artifact_id);
+        if chain.is_empty() { 0 } else { chain.len() - 1 }
+    }
+
+    pub fn common_ancestor(&self, artifact_a: &str, artifact_b: &str) -> Option<String> {
+        let chain_a: Vec<String> = self.full_lineage(artifact_a)
+            .iter().map(|r| r.artifact_id.clone()).collect();
+        let chain_b: Vec<String> = self.full_lineage(artifact_b)
+            .iter().map(|r| r.artifact_id.clone()).collect();
+        let set_a: HashSet<&String> = chain_a.iter().collect();
+        // Walk chain_b from root and find last common element
+        let mut ancestor = None;
+        for id in &chain_b {
+            if set_a.contains(id) {
+                ancestor = Some(id.clone());
+            }
+        }
+        ancestor
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -395,6 +605,97 @@ mod tests {
             .unwrap();
         assert!(r.has_lineage(&ArtifactId::new("a1")));
         assert!(!r.has_lineage(&ArtifactId::new("a2")));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_lineage_chain_append_creates_chained() {
+        let mut store = LineageChainStore::new();
+        let r1 = store.append_record("a1", None, "ingest", "alice", "h_in1", "h_out1", 1000);
+        assert!(r1.previous_record_hash.is_none());
+        let r1_hash = r1.record_hash.clone();
+        let r2 = store.append_record("a2", Some("a1"), "transform", "bob", "h_out1", "h_out2", 2000);
+        assert_eq!(r2.previous_record_hash.as_deref(), Some(r1_hash.as_str()));
+    }
+
+    #[test]
+    fn test_lineage_chain_verify_valid() {
+        let mut store = LineageChainStore::new();
+        store.append_record("a1", None, "ingest", "alice", "h1", "h2", 1000);
+        store.append_record("a2", Some("a1"), "transform", "bob", "h2", "h3", 2000);
+        let v = store.verify_chain();
+        assert!(v.valid);
+        assert_eq!(v.verified_links, 2);
+        assert!(v.broken_at.is_none());
+    }
+
+    #[test]
+    fn test_lineage_chain_verify_tampered() {
+        let mut store = LineageChainStore::new();
+        store.append_record("a1", None, "ingest", "alice", "h1", "h2", 1000);
+        store.append_record("a2", Some("a1"), "transform", "bob", "h2", "h3", 2000);
+        // Tamper with first record
+        store.records[0].record_hash = "tampered".to_string();
+        let v = store.verify_chain();
+        assert!(!v.valid);
+    }
+
+    #[test]
+    fn test_lineage_chain_records_for_artifact() {
+        let mut store = LineageChainStore::new();
+        store.append_record("a1", None, "ingest", "alice", "h1", "h2", 1000);
+        store.append_record("a2", Some("a1"), "t", "bob", "h2", "h3", 2000);
+        store.append_record("a1", None, "re-ingest", "alice", "h4", "h5", 3000);
+        assert_eq!(store.records_for_artifact("a1").len(), 2);
+    }
+
+    #[test]
+    fn test_compute_record_hash_deterministic() {
+        let h1 = compute_record_hash("r1", "a1", "in", "out", None, 1000);
+        let h2 = compute_record_hash("r1", "a1", "in", "out", None, 1000);
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_full_lineage() {
+        let mut store = LineageChainStore::new();
+        store.append_record("root", None, "create", "alice", "h0", "h1", 1000);
+        store.append_record("mid", Some("root"), "transform", "bob", "h1", "h2", 2000);
+        store.append_record("leaf", Some("mid"), "refine", "charlie", "h2", "h3", 3000);
+        let chain = store.full_lineage("leaf");
+        assert_eq!(chain.len(), 3);
+        assert_eq!(chain[0].artifact_id, "root");
+        assert_eq!(chain[2].artifact_id, "leaf");
+    }
+
+    #[test]
+    fn test_lineage_depth() {
+        let mut store = LineageChainStore::new();
+        store.append_record("root", None, "create", "alice", "h0", "h1", 1000);
+        store.append_record("mid", Some("root"), "t", "bob", "h1", "h2", 2000);
+        store.append_record("leaf", Some("mid"), "t", "charlie", "h2", "h3", 3000);
+        assert_eq!(store.lineage_depth("root"), 0);
+        assert_eq!(store.lineage_depth("leaf"), 2);
+    }
+
+    #[test]
+    fn test_common_ancestor() {
+        let mut store = LineageChainStore::new();
+        store.append_record("root", None, "create", "alice", "h0", "h1", 1000);
+        store.append_record("branch_a", Some("root"), "t", "bob", "h1", "h2", 2000);
+        store.append_record("branch_b", Some("root"), "t", "charlie", "h1", "h3", 3000);
+        let ancestor = store.common_ancestor("branch_a", "branch_b");
+        assert_eq!(ancestor.as_deref(), Some("root"));
+    }
+
+    #[test]
+    fn test_common_ancestor_none() {
+        let mut store = LineageChainStore::new();
+        store.append_record("a", None, "create", "alice", "h0", "h1", 1000);
+        store.append_record("b", None, "create", "bob", "h2", "h3", 2000);
+        assert!(store.common_ancestor("a", "b").is_none());
     }
 
     #[test]

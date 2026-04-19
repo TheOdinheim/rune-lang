@@ -296,6 +296,135 @@ impl ArtifactStore {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Real SHA3-256 Artifact Hashing
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// SHA3-256 hash of artifact content, returned as 64-char hex string.
+pub fn hash_artifact_content(content: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(content);
+    hex::encode(hasher.finalize())
+}
+
+/// SHA3-256 hash of artifact metadata (id:version:created_at).
+pub fn hash_artifact_metadata(artifact_id: &str, version: &str, created_at: i64) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(format!("{artifact_id}:{version}:{created_at}").as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Verify artifact content hash using constant-time comparison.
+pub fn verify_artifact_hash(content: &[u8], expected_hash: &str) -> bool {
+    let actual = hash_artifact_content(content);
+    constant_time_eq(actual.as_bytes(), expected_hash.as_bytes())
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Metadata for a content-addressed artifact.
+#[derive(Debug, Clone)]
+pub struct ArtifactMetadata {
+    pub artifact_id: String,
+    pub content_hash: String,
+    pub size_bytes: usize,
+    pub stored_at: i64,
+    pub verified: bool,
+}
+
+/// Content-addressed artifact store keyed by content hash.
+#[derive(Default)]
+pub struct ContentAddressedStore {
+    pub artifacts: HashMap<String, Vec<u8>>,
+    pub metadata: HashMap<String, ArtifactMetadata>,
+    total_stored: usize,
+}
+
+impl ContentAddressedStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn store(&mut self, artifact_id: &str, content: &[u8], now: i64) -> ArtifactMetadata {
+        let content_hash = hash_artifact_content(content);
+        self.artifacts.entry(content_hash.clone()).or_insert_with(|| content.to_vec());
+        self.total_stored += 1;
+        let meta = ArtifactMetadata {
+            artifact_id: artifact_id.to_string(),
+            content_hash: content_hash.clone(),
+            size_bytes: content.len(),
+            stored_at: now,
+            verified: true,
+        };
+        self.metadata.insert(content_hash, meta.clone());
+        meta
+    }
+
+    pub fn retrieve(&self, content_hash: &str) -> Option<&[u8]> {
+        self.artifacts.get(content_hash).map(|v| v.as_slice())
+    }
+
+    pub fn verify(&self, content_hash: &str) -> bool {
+        if let Some(content) = self.artifacts.get(content_hash) {
+            let actual = hash_artifact_content(content);
+            constant_time_eq(actual.as_bytes(), content_hash.as_bytes())
+        } else {
+            false
+        }
+    }
+
+    pub fn deduplicate_count(&self) -> usize {
+        self.artifacts.len()
+    }
+
+    pub fn total_stored(&self) -> usize {
+        self.total_stored
+    }
+
+    pub fn verify_all_integrity(&self) -> ArtifactIntegrityReport {
+        let mut verified = 0;
+        let mut corrupted = 0;
+        let mut corrupted_hashes = Vec::new();
+        for (hash, content) in &self.artifacts {
+            let actual = hash_artifact_content(content);
+            if constant_time_eq(actual.as_bytes(), hash.as_bytes()) {
+                verified += 1;
+            } else {
+                corrupted += 1;
+                corrupted_hashes.push(hash.clone());
+            }
+        }
+        ArtifactIntegrityReport {
+            total_artifacts: self.artifacts.len(),
+            verified_count: verified,
+            corrupted_count: corrupted,
+            corrupted_hashes,
+            verification_time_ms: 0,
+        }
+    }
+}
+
+/// Report from integrity verification of all stored artifacts.
+#[derive(Debug, Clone)]
+pub struct ArtifactIntegrityReport {
+    pub total_artifacts: usize,
+    pub verified_count: usize,
+    pub corrupted_count: usize,
+    pub corrupted_hashes: Vec<String>,
+    pub verification_time_ms: i64,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -455,5 +584,87 @@ mod tests {
         assert_eq!(a.tags.get("k").map(String::as_str), Some("v"));
         assert_eq!(a.parent_id, Some(ArtifactId::new("a0")));
         assert_eq!(a.size_bytes, Some(1024));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_hash_artifact_content_64_chars() {
+        let hash = hash_artifact_content(b"hello world");
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_hash_artifact_content_deterministic() {
+        let h1 = hash_artifact_content(b"test data");
+        let h2 = hash_artifact_content(b"test data");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_hash_artifact_content_different() {
+        let h1 = hash_artifact_content(b"data A");
+        let h2 = hash_artifact_content(b"data B");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_hash_artifact_metadata() {
+        let h = hash_artifact_metadata("art-1", "1.0.0", 1000);
+        assert_eq!(h.len(), 64);
+        let h2 = hash_artifact_metadata("art-1", "1.0.0", 1000);
+        assert_eq!(h, h2);
+        let h3 = hash_artifact_metadata("art-1", "2.0.0", 1000);
+        assert_ne!(h, h3);
+    }
+
+    #[test]
+    fn test_verify_artifact_hash_correct() {
+        let content = b"important data";
+        let hash = hash_artifact_content(content);
+        assert!(verify_artifact_hash(content, &hash));
+    }
+
+    #[test]
+    fn test_verify_artifact_hash_tampered() {
+        assert!(!verify_artifact_hash(b"original", "0000000000000000000000000000000000000000000000000000000000000000"));
+    }
+
+    #[test]
+    fn test_content_addressed_store_roundtrip() {
+        let mut store = ContentAddressedStore::new();
+        let meta = store.store("art-1", b"my content", 1000);
+        assert_eq!(meta.size_bytes, 10);
+        let retrieved = store.retrieve(&meta.content_hash).unwrap();
+        assert_eq!(retrieved, b"my content");
+    }
+
+    #[test]
+    fn test_content_addressed_store_dedup() {
+        let mut store = ContentAddressedStore::new();
+        store.store("art-1", b"same", 1000);
+        store.store("art-2", b"same", 2000);
+        assert_eq!(store.deduplicate_count(), 1);
+        assert_eq!(store.total_stored(), 2);
+    }
+
+    #[test]
+    fn test_content_addressed_store_verify() {
+        let mut store = ContentAddressedStore::new();
+        let meta = store.store("art-1", b"valid", 1000);
+        assert!(store.verify(&meta.content_hash));
+        assert!(!store.verify("nonexistent"));
+    }
+
+    #[test]
+    fn test_verify_all_integrity() {
+        let mut store = ContentAddressedStore::new();
+        store.store("a1", b"data1", 1000);
+        store.store("a2", b"data2", 2000);
+        let report = store.verify_all_integrity();
+        assert_eq!(report.total_artifacts, 2);
+        assert_eq!(report.verified_count, 2);
+        assert_eq!(report.corrupted_count, 0);
     }
 }

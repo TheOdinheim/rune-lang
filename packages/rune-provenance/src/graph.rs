@@ -268,6 +268,173 @@ impl ProvenanceGraph {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2: Provenance Graph Analysis
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Aggregate metrics for a provenance graph.
+#[derive(Debug, Clone)]
+pub struct ProvenanceGraphMetrics {
+    pub total_nodes: usize,
+    pub total_edges: usize,
+    pub max_depth: usize,
+    pub avg_depth: f64,
+    pub root_count: usize,
+    pub leaf_count: usize,
+    pub longest_chain_length: usize,
+    pub orphan_count: usize,
+}
+
+impl ProvenanceGraph {
+    /// Compute aggregate metrics for the graph.
+    pub fn compute_metrics(&self) -> ProvenanceGraphMetrics {
+        let roots = self.roots();
+        let leaves = self.leaves();
+        let root_count = roots.len();
+        let leaf_count = leaves.len();
+
+        // Nodes that have no edges at all (neither incoming nor outgoing)
+        let sources: HashSet<_> = self.edges.iter().map(|e| &e.from).collect();
+        let targets: HashSet<_> = self.edges.iter().map(|e| &e.to).collect();
+        let orphan_count = self.nodes.keys()
+            .filter(|id| !sources.contains(id) && !targets.contains(id))
+            .count();
+
+        // Compute depths for all nodes
+        let mut max_depth = 0;
+        let mut total_depth: usize = 0;
+        let mut depth_count: usize = 0;
+        for id in self.nodes.keys() {
+            let d = self.depth(id);
+            if d > max_depth {
+                max_depth = d;
+            }
+            total_depth += d;
+            depth_count += 1;
+        }
+        let avg_depth = if depth_count > 0 {
+            total_depth as f64 / depth_count as f64
+        } else {
+            0.0
+        };
+
+        // Longest chain = max_depth + 1 (nodes in chain) if there are edges, else 1 if nodes exist
+        let longest_chain_length = if self.edges.is_empty() {
+            if self.nodes.is_empty() { 0 } else { 1 }
+        } else {
+            max_depth + 1
+        };
+
+        ProvenanceGraphMetrics {
+            total_nodes: self.nodes.len(),
+            total_edges: self.edges.len(),
+            max_depth,
+            avg_depth,
+            root_count,
+            leaf_count,
+            longest_chain_length,
+            orphan_count,
+        }
+    }
+
+    /// Compute impact analysis: which nodes are affected if `artifact_id` changes.
+    pub fn impact_analysis(&self, artifact_id: &ArtifactId) -> ImpactAnalysis {
+        // Directly affected = immediate downstream neighbors
+        let directly_affected: Vec<ArtifactId> = self.edges.iter()
+            .filter(|e| &e.from == artifact_id)
+            .map(|e| e.to.clone())
+            .collect();
+
+        // Transitively affected = all descendants
+        let transitively_affected = self.descendants(artifact_id);
+
+        ImpactAnalysis {
+            directly_affected,
+            transitively_affected,
+        }
+    }
+
+    /// Diff two lineage chains by comparing ancestors of two nodes.
+    pub fn diff_lineage(&self, a: &ArtifactId, b: &ArtifactId) -> LineageDiff {
+        let ancestors_a: HashSet<ArtifactId> = self.ancestors(a).into_iter().collect();
+        let ancestors_b: HashSet<ArtifactId> = self.ancestors(b).into_iter().collect();
+
+        let common_ancestors: Vec<ArtifactId> = ancestors_a.intersection(&ancestors_b).cloned().collect();
+        let only_in_a: Vec<ArtifactId> = ancestors_a.difference(&ancestors_b).cloned().collect();
+        let only_in_b: Vec<ArtifactId> = ancestors_b.difference(&ancestors_a).cloned().collect();
+
+        // Divergence point: the common ancestor with the greatest depth
+        let divergence_point = common_ancestors.iter()
+            .max_by_key(|id| self.depth(id))
+            .cloned();
+
+        LineageDiff {
+            common_ancestors,
+            only_in_a,
+            only_in_b,
+            divergence_point,
+        }
+    }
+
+    /// Export graph in DOT format for Graphviz visualization.
+    pub fn export_dot(&self) -> String {
+        let mut out = String::from("digraph provenance {\n");
+        for (id, node) in &self.nodes {
+            out.push_str(&format!(
+                "  \"{}\" [label=\"{}\\n({})\"];\n",
+                id, node.label, node.node_type
+            ));
+        }
+        for edge in &self.edges {
+            out.push_str(&format!(
+                "  \"{}\" -> \"{}\" [label=\"{}\"];\n",
+                edge.from, edge.to, edge.relationship
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// Export graph as JSON.
+    pub fn export_json(&self) -> String {
+        let nodes: Vec<serde_json::Value> = self.nodes.iter().map(|(id, node)| {
+            serde_json::json!({
+                "id": id.to_string(),
+                "label": node.label,
+                "type": format!("{}", node.node_type),
+            })
+        }).collect();
+        let edges: Vec<serde_json::Value> = self.edges.iter().map(|e| {
+            serde_json::json!({
+                "from": e.from.to_string(),
+                "to": e.to.to_string(),
+                "relationship": format!("{}", e.relationship),
+                "timestamp": e.timestamp,
+            })
+        }).collect();
+        serde_json::json!({
+            "nodes": nodes,
+            "edges": edges,
+        }).to_string()
+    }
+}
+
+/// Impact analysis result.
+#[derive(Debug, Clone)]
+pub struct ImpactAnalysis {
+    pub directly_affected: Vec<ArtifactId>,
+    pub transitively_affected: Vec<ArtifactId>,
+}
+
+/// Diff between two lineage paths.
+#[derive(Debug, Clone)]
+pub struct LineageDiff {
+    pub common_ancestors: Vec<ArtifactId>,
+    pub only_in_a: Vec<ArtifactId>,
+    pub only_in_b: Vec<ArtifactId>,
+    pub divergence_point: Option<ArtifactId>,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -409,5 +576,100 @@ mod tests {
         assert_eq!(EdgeRelationship::EvaluatedWith.to_string(), "evaluated-with");
         assert_eq!(EdgeRelationship::DeployedAs.to_string(), "deployed-as");
         assert_eq!(EdgeRelationship::DependsOn.to_string(), "depends-on");
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_compute_metrics_dag() {
+        let g = dag();
+        let m = g.compute_metrics();
+        assert_eq!(m.total_nodes, 4);
+        assert_eq!(m.total_edges, 3);
+        assert_eq!(m.root_count, 1);
+        assert_eq!(m.leaf_count, 1);
+        assert_eq!(m.max_depth, 3);
+        assert_eq!(m.longest_chain_length, 4);
+        assert_eq!(m.orphan_count, 0);
+    }
+
+    #[test]
+    fn test_compute_metrics_orphan() {
+        let mut g = dag();
+        g.add_node(node("orphan", ProvenanceNodeType::Artifact));
+        let m = g.compute_metrics();
+        assert_eq!(m.orphan_count, 1);
+        assert_eq!(m.total_nodes, 5);
+    }
+
+    #[test]
+    fn test_compute_metrics_empty() {
+        let g = ProvenanceGraph::new();
+        let m = g.compute_metrics();
+        assert_eq!(m.total_nodes, 0);
+        assert_eq!(m.total_edges, 0);
+        assert_eq!(m.longest_chain_length, 0);
+    }
+
+    #[test]
+    fn test_impact_analysis() {
+        let g = dag();
+        let impact = g.impact_analysis(&ArtifactId::new("data"));
+        assert_eq!(impact.directly_affected.len(), 1);
+        assert_eq!(impact.directly_affected[0], ArtifactId::new("preprocess"));
+        assert_eq!(impact.transitively_affected.len(), 3);
+    }
+
+    #[test]
+    fn test_impact_analysis_leaf() {
+        let g = dag();
+        let impact = g.impact_analysis(&ArtifactId::new("output"));
+        assert!(impact.directly_affected.is_empty());
+        assert!(impact.transitively_affected.is_empty());
+    }
+
+    #[test]
+    fn test_diff_lineage() {
+        // data → preprocess → model → output
+        //                  ↘ branch
+        let mut g = dag();
+        g.add_node(node("branch", ProvenanceNodeType::Artifact));
+        g.add_edge(edge("preprocess", "branch", EdgeRelationship::DerivedFrom));
+        let diff = g.diff_lineage(&ArtifactId::new("output"), &ArtifactId::new("branch"));
+        assert!(!diff.common_ancestors.is_empty());
+        // "data" and "preprocess" should be common ancestors
+        let common_set: HashSet<_> = diff.common_ancestors.iter().collect();
+        assert!(common_set.contains(&ArtifactId::new("data")));
+        assert!(common_set.contains(&ArtifactId::new("preprocess")));
+    }
+
+    #[test]
+    fn test_diff_lineage_no_common() {
+        let mut g = ProvenanceGraph::new();
+        g.add_node(node("a", ProvenanceNodeType::Artifact));
+        g.add_node(node("b", ProvenanceNodeType::Artifact));
+        let diff = g.diff_lineage(&ArtifactId::new("a"), &ArtifactId::new("b"));
+        assert!(diff.common_ancestors.is_empty());
+        assert!(diff.divergence_point.is_none());
+    }
+
+    #[test]
+    fn test_export_dot() {
+        let g = dag();
+        let dot = g.export_dot();
+        assert!(dot.starts_with("digraph provenance {"));
+        assert!(dot.contains("->"));
+        assert!(dot.ends_with("}\n"));
+    }
+
+    #[test]
+    fn test_export_json() {
+        let g = dag();
+        let json = g.export_json();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed["nodes"].is_array());
+        assert!(parsed["edges"].is_array());
+        assert_eq!(parsed["nodes"].as_array().unwrap().len(), 4);
+        assert_eq!(parsed["edges"].as_array().unwrap().len(), 3);
     }
 }
