@@ -20,6 +20,22 @@ pub enum FrameworkEventType {
     HealthAssessed,
     ConfigValidated,
     WorkflowApplied,
+    // ── Layer 2 event types ──────────────────────────────────────
+    FrameworkRegistered,
+    FrameworkControlAdded,
+    ControlMappingCreated,
+    ControlEquivalenceAssessed,
+    GapAnalysisPerformed,
+    ComplianceScoreCalculated,
+    MaturityAssessed,
+    MaturityTrendDetected,
+    EvidenceRequirementCreated,
+    EvidenceCollected,
+    EvidenceVerified,
+    EvidenceOverdue,
+    RegulatoryChangeTracked,
+    RegulatoryImpactAssessed,
+    RegulatoryChangeEffective,
 }
 
 impl fmt::Display for FrameworkEventType {
@@ -35,6 +51,21 @@ impl fmt::Display for FrameworkEventType {
             Self::HealthAssessed => "HealthAssessed",
             Self::ConfigValidated => "ConfigValidated",
             Self::WorkflowApplied => "WorkflowApplied",
+            Self::FrameworkRegistered => "FrameworkRegistered",
+            Self::FrameworkControlAdded => "FrameworkControlAdded",
+            Self::ControlMappingCreated => "ControlMappingCreated",
+            Self::ControlEquivalenceAssessed => "ControlEquivalenceAssessed",
+            Self::GapAnalysisPerformed => "GapAnalysisPerformed",
+            Self::ComplianceScoreCalculated => "ComplianceScoreCalculated",
+            Self::MaturityAssessed => "MaturityAssessed",
+            Self::MaturityTrendDetected => "MaturityTrendDetected",
+            Self::EvidenceRequirementCreated => "EvidenceRequirementCreated",
+            Self::EvidenceCollected => "EvidenceCollected",
+            Self::EvidenceVerified => "EvidenceVerified",
+            Self::EvidenceOverdue => "EvidenceOverdue",
+            Self::RegulatoryChangeTracked => "RegulatoryChangeTracked",
+            Self::RegulatoryImpactAssessed => "RegulatoryImpactAssessed",
+            Self::RegulatoryChangeEffective => "RegulatoryChangeEffective",
         };
         f.write_str(s)
     }
@@ -160,11 +191,26 @@ mod tests {
             FrameworkEventType::HealthAssessed,
             FrameworkEventType::ConfigValidated,
             FrameworkEventType::WorkflowApplied,
+            FrameworkEventType::FrameworkRegistered,
+            FrameworkEventType::FrameworkControlAdded,
+            FrameworkEventType::ControlMappingCreated,
+            FrameworkEventType::ControlEquivalenceAssessed,
+            FrameworkEventType::GapAnalysisPerformed,
+            FrameworkEventType::ComplianceScoreCalculated,
+            FrameworkEventType::MaturityAssessed,
+            FrameworkEventType::MaturityTrendDetected,
+            FrameworkEventType::EvidenceRequirementCreated,
+            FrameworkEventType::EvidenceCollected,
+            FrameworkEventType::EvidenceVerified,
+            FrameworkEventType::EvidenceOverdue,
+            FrameworkEventType::RegulatoryChangeTracked,
+            FrameworkEventType::RegulatoryImpactAssessed,
+            FrameworkEventType::RegulatoryChangeEffective,
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 10);
+        assert_eq!(types.len(), 25);
     }
 
     #[test]

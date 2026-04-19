@@ -80,3 +80,37 @@
 | Assumed Breach | Version chain tamper detection reveals unauthorized policy modifications; cascade impact analysis shows blast radius before changes; dependency validation catches missing or circular dependencies |
 | No Single Points of Failure | Multiple conflict resolution strategies (6 variants); temporal scheduling with recurrence patterns; policy simulation provides dry-run validation before deployment |
 | Zero Trust Throughout | Every policy operation generates audit events (15 new types); impact analysis with risk assessment before deployment; dependency graph prevents orphan or deeply-chained policies |
+
+---
+
+## rune-framework Layer 2
+
+**Test count**: 105 → 143 (+38 tests, zero failures)
+
+### New Modules
+
+- `l2_framework_registry.rs` — Multi-framework compliance mapping: ControlSeverity (Informational/Low/Medium/High/Critical with Ord), FrameworkControl (control_id/title/description/category/severity/required), FrameworkDefinition (id/name/version/jurisdiction/effective_date/controls/categories), L2FrameworkRegistry (HashMap-based register/get/list_frameworks/controls_by_category/required_controls/framework_count), 3 built-in skeletons: nist_ai_rmf_skeleton (8 controls, 4 categories Govern/Map/Measure/Manage), eu_ai_act_skeleton (6 controls ART-6/9/10/13/14/15), soc2_skeleton (6 controls, 5 trust service criteria)
+
+- `l2_control_mapping.rs` — Cross-framework control equivalence: EquivalenceLevel (None/Partial/Substantial/Full with Ord), ControlMapping (source/target framework+control_id, equivalence, notes), ControlMappingStore (add_mapping/mappings_from/mappings_between/coverage_from_framework/mapping_count), nist_to_soc2_mappings (5 built-in mappings GOV-1→CC-1, GOV-2→CC-1, MEA-1→CC-2, MAN-2→CC-2, MAP-1→PI-1)
+
+- `l2_gap_analysis.rs` — Automated compliance gap analysis: EvidenceType (6 variants Document/TestResult/AuditReport/SystemLog/Attestation/Configuration), EvidenceStatus (Valid/Expired/Pending/Rejected), ComplianceEvidence with expiry tracking, GapType (NoEvidence/ExpiredEvidence/InsufficientEvidence/RejectedEvidence), ComplianceGap, GapAnalysisReport (total_controls/covered_controls/gaps/compliance_score/is_fully_compliant), GapAnalyzer (add_evidence/register_control/analyze/analyze_all/cross_framework_score)
+
+- `l2_maturity.rs` — Compliance scoring with maturity modeling: MaturityLevel (Initial/Developing/Defined/Managed/Optimizing with Ord and score()), ControlMaturityAssessment (meets_target/gap), MaturityTrend (is_improving/is_declining/is_stable), MaturityTracker (record_assessment/current_maturity/framework_maturity_score/controls_below_target/maturity_distribution/overall_maturity_score/trends)
+
+- `l2_evidence.rs` — Framework-specific evidence collection: CollectionStatus (NotStarted/InProgress/Collected/Verified/Overdue), EvidenceRequirement (requirement_id/framework_id/control_id/due_date/status/assignee, is_complete/is_overdue), EvidenceCollectionTracker (add_requirement/update_status/requirements_for_framework/requirements_for_control/overdue_requirements/completion_rate)
+
+- `l2_regulatory.rs` — Regulatory change tracking: RegulatoryChangeType (5 variants NewRequirement/ModifiedRequirement/RemovedRequirement/Clarification/EnforcementChange), ChangeImpact (None/Low/Medium/High/Critical with Ord), RemediationEffort (Trivial/Minor/Moderate/Major/Overhaul with Ord), RegulatoryChange (is_effective/days_until_effective), assess_change_impact (change_type+affected_count→impact+effort), RegulatoryChangeTracker (track_change/record_assessment/pending_changes/effective_changes/unassessed_changes/high_impact_changes)
+
+### Modified Files
+- `audit.rs` — 15 new FrameworkEventType variants for Layer 2 operations (FrameworkRegistered, FrameworkControlAdded, ControlMappingCreated, ControlEquivalenceAssessed, GapAnalysisPerformed, ComplianceScoreCalculated, MaturityAssessed, MaturityTrendDetected, EvidenceRequirementCreated, EvidenceCollected, EvidenceVerified, EvidenceOverdue, RegulatoryChangeTracked, RegulatoryImpactAssessed, RegulatoryChangeEffective), updated Display impl and test (10→25 variants)
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports
+- No new Cargo.toml dependencies required
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Multi-framework compliance mapping with structured control definitions; maturity scoring with five-level model; evidence collection tracking with due date enforcement; regulatory change impact assessment with remediation effort estimation |
+| Assumed Breach | Gap analysis identifies missing or expired evidence before auditors do; regulatory change tracking provides early warning of upcoming compliance requirements; maturity trends detect declining posture |
+| No Single Points of Failure | Cross-framework control equivalence enables evidence reuse; multiple gap types (NoEvidence/Expired/Insufficient/Rejected) provide granular diagnostic; built-in skeletons for NIST AI RMF, EU AI Act, and SOC 2 cover major frameworks |
+| Zero Trust Throughout | Every framework operation generates audit events (15 new types); overdue evidence tracking ensures timely collection; unassessed regulatory changes flagged for review; compliance scoring computed per-framework and cross-framework |
