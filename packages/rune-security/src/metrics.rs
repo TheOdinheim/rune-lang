@@ -324,6 +324,178 @@ impl fmt::Display for DashboardSummary {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — MTTD/MTTR Tracking, SLA Compliance, Metric Aggregation
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Tracks detection and response times, plus incident counts.
+#[derive(Debug, Clone, Default)]
+pub struct SecurityMetricsTracker {
+    pub detection_times_ms: Vec<i64>,
+    pub response_times_ms: Vec<i64>,
+    pub incidents_by_severity: HashMap<String, u64>,
+    pub total_incidents: u64,
+}
+
+impl SecurityMetricsTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record_detection(&mut self, detection_time_ms: i64) {
+        self.detection_times_ms.push(detection_time_ms);
+    }
+
+    pub fn record_response(&mut self, response_time_ms: i64) {
+        self.response_times_ms.push(response_time_ms);
+    }
+
+    pub fn record_incident(&mut self, severity: &SecuritySeverity) {
+        *self
+            .incidents_by_severity
+            .entry(severity.to_string())
+            .or_insert(0) += 1;
+        self.total_incidents += 1;
+    }
+
+    pub fn mttd_ms(&self) -> Option<f64> {
+        if self.detection_times_ms.is_empty() {
+            None
+        } else {
+            Some(
+                self.detection_times_ms.iter().sum::<i64>() as f64
+                    / self.detection_times_ms.len() as f64,
+            )
+        }
+    }
+
+    pub fn mttr_ms(&self) -> Option<f64> {
+        if self.response_times_ms.is_empty() {
+            None
+        } else {
+            Some(
+                self.response_times_ms.iter().sum::<i64>() as f64
+                    / self.response_times_ms.len() as f64,
+            )
+        }
+    }
+
+    pub fn p95_detection_ms(&self) -> Option<i64> {
+        Self::percentile_95(&self.detection_times_ms)
+    }
+
+    pub fn p95_response_ms(&self) -> Option<i64> {
+        Self::percentile_95(&self.response_times_ms)
+    }
+
+    fn percentile_95(values: &[i64]) -> Option<i64> {
+        if values.is_empty() {
+            return None;
+        }
+        let mut sorted = values.to_vec();
+        sorted.sort();
+        let index = ((sorted.len() as f64 * 0.95).ceil() as usize).min(sorted.len()) - 1;
+        Some(sorted[index])
+    }
+}
+
+/// SLA definition for security operations.
+#[derive(Debug, Clone)]
+pub struct SecuritySla {
+    pub max_detection_ms: i64,
+    pub max_response_ms: i64,
+    pub max_open_critical_incidents: u64,
+}
+
+/// Result of an SLA compliance check.
+#[derive(Debug, Clone)]
+pub struct SlaComplianceResult {
+    pub compliant: bool,
+    pub detection_compliant: bool,
+    pub response_compliant: bool,
+    pub violations: Vec<String>,
+}
+
+impl SecuritySla {
+    pub fn check_compliance(&self, tracker: &SecurityMetricsTracker) -> SlaComplianceResult {
+        let mut violations = Vec::new();
+
+        let detection_compliant = match tracker.mttd_ms() {
+            Some(mttd) => {
+                if mttd > self.max_detection_ms as f64 {
+                    violations.push(format!(
+                        "MTTD {:.0}ms exceeds SLA {}ms",
+                        mttd, self.max_detection_ms
+                    ));
+                    false
+                } else {
+                    true
+                }
+            }
+            None => true,
+        };
+
+        let response_compliant = match tracker.mttr_ms() {
+            Some(mttr) => {
+                if mttr > self.max_response_ms as f64 {
+                    violations.push(format!(
+                        "MTTR {:.0}ms exceeds SLA {}ms",
+                        mttr, self.max_response_ms
+                    ));
+                    false
+                } else {
+                    true
+                }
+            }
+            None => true,
+        };
+
+        let critical_count = tracker
+            .incidents_by_severity
+            .get("Critical")
+            .copied()
+            .unwrap_or(0);
+        if critical_count > self.max_open_critical_incidents {
+            violations.push(format!(
+                "{} critical incidents exceeds SLA max {}",
+                critical_count, self.max_open_critical_incidents
+            ));
+        }
+
+        let compliant = detection_compliant
+            && response_compliant
+            && critical_count <= self.max_open_critical_incidents;
+
+        SlaComplianceResult {
+            compliant,
+            detection_compliant,
+            response_compliant,
+            violations,
+        }
+    }
+}
+
+/// Merge multiple trackers into one combined view.
+pub fn aggregate_metrics(trackers: &[&SecurityMetricsTracker]) -> SecurityMetricsTracker {
+    let mut combined = SecurityMetricsTracker::new();
+    for tracker in trackers {
+        combined
+            .detection_times_ms
+            .extend_from_slice(&tracker.detection_times_ms);
+        combined
+            .response_times_ms
+            .extend_from_slice(&tracker.response_times_ms);
+        for (sev, count) in &tracker.incidents_by_severity {
+            *combined
+                .incidents_by_severity
+                .entry(sev.clone())
+                .or_insert(0) += count;
+        }
+        combined.total_incidents += tracker.total_incidents;
+    }
+    combined
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -449,5 +621,80 @@ mod tests {
         store.record(m1);
         store.record(m2);
         assert_eq!(store.history_since("mttd", 1500).len(), 1);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_metrics_tracker_mttd() {
+        let mut tracker = SecurityMetricsTracker::new();
+        tracker.record_detection(100);
+        tracker.record_detection(200);
+        tracker.record_detection(300);
+        assert_eq!(tracker.mttd_ms(), Some(200.0));
+    }
+
+    #[test]
+    fn test_metrics_tracker_mttr() {
+        let mut tracker = SecurityMetricsTracker::new();
+        tracker.record_response(500);
+        tracker.record_response(1000);
+        assert_eq!(tracker.mttr_ms(), Some(750.0));
+    }
+
+    #[test]
+    fn test_metrics_tracker_p95() {
+        let mut tracker = SecurityMetricsTracker::new();
+        for i in 1..=100 {
+            tracker.record_detection(i * 10);
+        }
+        let p95 = tracker.p95_detection_ms().unwrap();
+        // 95th percentile of [10,20,...,1000] = 950
+        assert_eq!(p95, 950);
+    }
+
+    #[test]
+    fn test_sla_compliance_passes() {
+        let sla = SecuritySla {
+            max_detection_ms: 1000,
+            max_response_ms: 5000,
+            max_open_critical_incidents: 3,
+        };
+        let mut tracker = SecurityMetricsTracker::new();
+        tracker.record_detection(500);
+        tracker.record_response(3000);
+        let result = sla.check_compliance(&tracker);
+        assert!(result.compliant);
+        assert!(result.violations.is_empty());
+    }
+
+    #[test]
+    fn test_sla_compliance_fails() {
+        let sla = SecuritySla {
+            max_detection_ms: 100,
+            max_response_ms: 200,
+            max_open_critical_incidents: 0,
+        };
+        let mut tracker = SecurityMetricsTracker::new();
+        tracker.record_detection(500);
+        tracker.record_response(1000);
+        tracker.record_incident(&SecuritySeverity::Critical);
+        let result = sla.check_compliance(&tracker);
+        assert!(!result.compliant);
+        assert!(!result.detection_compliant);
+        assert!(!result.response_compliant);
+        assert_eq!(result.violations.len(), 3);
+    }
+
+    #[test]
+    fn test_aggregate_metrics_combines() {
+        let mut t1 = SecurityMetricsTracker::new();
+        t1.record_detection(100);
+        t1.record_detection(200);
+        let mut t2 = SecurityMetricsTracker::new();
+        t2.record_detection(300);
+        let combined = aggregate_metrics(&[&t1, &t2]);
+        assert_eq!(combined.detection_times_ms.len(), 3);
+        assert_eq!(combined.mttd_ms(), Some(200.0));
     }
 }

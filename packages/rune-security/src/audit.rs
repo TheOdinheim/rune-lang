@@ -20,6 +20,22 @@ pub enum SecurityEventType {
     PolicyViolation { policy_id: String, rule_id: String },
     ContextElevated { context_id: String, risk: String },
     SecurityMetricRecorded { metric_id: String, value: f64 },
+    // Layer 2 event types
+    AttackTreeAnalyzed { tree_name: String, paths: usize, highest_risk: f64 },
+    AttackSurfaceMapped { entry_points: usize, public_unauthenticated: usize },
+    CvssTemporalScored { base: f64, temporal: f64 },
+    CvssEnvironmentalScored { temporal: f64, environmental: f64 },
+    ContextChainVerified { chain_length: usize, valid: bool },
+    ContextDiffComputed { changes: usize },
+    PlaybookMatched { playbook_id: String, severity: String },
+    IncidentOpenedL2 { incident_id: String, severity: String },
+    IncidentEscalatedL2 { incident_id: String, level: String },
+    IncidentClosedL2 { incident_id: String, time_to_resolve_ms: i64 },
+    PostureScoreComputed { overall: f64, grade: String },
+    PostureTrendRecorded { score: f64, direction: String },
+    MttdComputed { mttd_ms: f64 },
+    MttrComputed { mttr_ms: f64 },
+    SlaComplianceChecked { compliant: bool, violations: usize },
 }
 
 impl SecurityEventType {
@@ -35,6 +51,21 @@ impl SecurityEventType {
             Self::PolicyViolation { .. } => "PolicyViolation",
             Self::ContextElevated { .. } => "ContextElevated",
             Self::SecurityMetricRecorded { .. } => "SecurityMetricRecorded",
+            Self::AttackTreeAnalyzed { .. } => "AttackTreeAnalyzed",
+            Self::AttackSurfaceMapped { .. } => "AttackSurfaceMapped",
+            Self::CvssTemporalScored { .. } => "CvssTemporalScored",
+            Self::CvssEnvironmentalScored { .. } => "CvssEnvironmentalScored",
+            Self::ContextChainVerified { .. } => "ContextChainVerified",
+            Self::ContextDiffComputed { .. } => "ContextDiffComputed",
+            Self::PlaybookMatched { .. } => "PlaybookMatched",
+            Self::IncidentOpenedL2 { .. } => "IncidentOpenedL2",
+            Self::IncidentEscalatedL2 { .. } => "IncidentEscalatedL2",
+            Self::IncidentClosedL2 { .. } => "IncidentClosedL2",
+            Self::PostureScoreComputed { .. } => "PostureScoreComputed",
+            Self::PostureTrendRecorded { .. } => "PostureTrendRecorded",
+            Self::MttdComputed { .. } => "MttdComputed",
+            Self::MttrComputed { .. } => "MttrComputed",
+            Self::SlaComplianceChecked { .. } => "SlaComplianceChecked",
         }
     }
 }
@@ -49,7 +80,7 @@ impl fmt::Display for SecurityEventType {
             Self::VulnerabilityPatched { vuln_id } => write!(f, "VulnerabilityPatched({vuln_id})"),
             Self::IncidentReported { incident_id } => write!(f, "IncidentReported({incident_id})"),
             Self::IncidentEscalated { incident_id, from, to } => {
-                write!(f, "IncidentEscalated({incident_id}, {from} → {to})")
+                write!(f, "IncidentEscalated({incident_id}, {from} -> {to})")
             }
             Self::IncidentResolved { incident_id } => write!(f, "IncidentResolved({incident_id})"),
             Self::PostureAssessed { grade, score } => {
@@ -63,6 +94,51 @@ impl fmt::Display for SecurityEventType {
             }
             Self::SecurityMetricRecorded { metric_id, value } => {
                 write!(f, "SecurityMetricRecorded({metric_id}={value})")
+            }
+            Self::AttackTreeAnalyzed { tree_name, paths, highest_risk } => {
+                write!(f, "AttackTreeAnalyzed({tree_name}, paths={paths}, risk={highest_risk:.2})")
+            }
+            Self::AttackSurfaceMapped { entry_points, public_unauthenticated } => {
+                write!(f, "AttackSurfaceMapped(eps={entry_points}, pub_unauth={public_unauthenticated})")
+            }
+            Self::CvssTemporalScored { base, temporal } => {
+                write!(f, "CvssTemporalScored(base={base:.1}, temporal={temporal:.1})")
+            }
+            Self::CvssEnvironmentalScored { temporal, environmental } => {
+                write!(f, "CvssEnvironmentalScored(temporal={temporal:.1}, env={environmental:.1})")
+            }
+            Self::ContextChainVerified { chain_length, valid } => {
+                write!(f, "ContextChainVerified(len={chain_length}, valid={valid})")
+            }
+            Self::ContextDiffComputed { changes } => {
+                write!(f, "ContextDiffComputed(changes={changes})")
+            }
+            Self::PlaybookMatched { playbook_id, severity } => {
+                write!(f, "PlaybookMatched({playbook_id}, {severity})")
+            }
+            Self::IncidentOpenedL2 { incident_id, severity } => {
+                write!(f, "IncidentOpenedL2({incident_id}, {severity})")
+            }
+            Self::IncidentEscalatedL2 { incident_id, level } => {
+                write!(f, "IncidentEscalatedL2({incident_id}, {level})")
+            }
+            Self::IncidentClosedL2 { incident_id, time_to_resolve_ms } => {
+                write!(f, "IncidentClosedL2({incident_id}, ttr={time_to_resolve_ms}ms)")
+            }
+            Self::PostureScoreComputed { overall, grade } => {
+                write!(f, "PostureScoreComputed({grade}, {overall:.1})")
+            }
+            Self::PostureTrendRecorded { score, direction } => {
+                write!(f, "PostureTrendRecorded({score:.1}, {direction})")
+            }
+            Self::MttdComputed { mttd_ms } => {
+                write!(f, "MttdComputed({mttd_ms:.0}ms)")
+            }
+            Self::MttrComputed { mttr_ms } => {
+                write!(f, "MttrComputed({mttr_ms:.0}ms)")
+            }
+            Self::SlaComplianceChecked { compliant, violations } => {
+                write!(f, "SlaComplianceChecked(compliant={compliant}, violations={violations})")
             }
         }
     }
@@ -330,5 +406,75 @@ mod tests {
             assert!(!e.to_string().is_empty());
             assert!(!e.kind().is_empty());
         }
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer2_event_type_display_all() {
+        let l2_events = [
+            SecurityEventType::AttackTreeAnalyzed {
+                tree_name: "api-tree".into(),
+                paths: 5,
+                highest_risk: 0.8,
+            },
+            SecurityEventType::AttackSurfaceMapped {
+                entry_points: 10,
+                public_unauthenticated: 3,
+            },
+            SecurityEventType::CvssTemporalScored { base: 8.0, temporal: 7.2 },
+            SecurityEventType::CvssEnvironmentalScored { temporal: 7.2, environmental: 6.5 },
+            SecurityEventType::ContextChainVerified { chain_length: 5, valid: true },
+            SecurityEventType::ContextDiffComputed { changes: 3 },
+            SecurityEventType::PlaybookMatched {
+                playbook_id: "pb1".into(),
+                severity: "High".into(),
+            },
+            SecurityEventType::IncidentOpenedL2 {
+                incident_id: "inc-1".into(),
+                severity: "Critical".into(),
+            },
+            SecurityEventType::IncidentEscalatedL2 {
+                incident_id: "inc-1".into(),
+                level: "L2".into(),
+            },
+            SecurityEventType::IncidentClosedL2 {
+                incident_id: "inc-1".into(),
+                time_to_resolve_ms: 3600000,
+            },
+            SecurityEventType::PostureScoreComputed { overall: 85.0, grade: "B".into() },
+            SecurityEventType::PostureTrendRecorded {
+                score: 85.0,
+                direction: "Improving".into(),
+            },
+            SecurityEventType::MttdComputed { mttd_ms: 500.0 },
+            SecurityEventType::MttrComputed { mttr_ms: 3000.0 },
+            SecurityEventType::SlaComplianceChecked { compliant: true, violations: 0 },
+        ];
+        for e in &l2_events {
+            assert!(!e.to_string().is_empty());
+            assert!(!e.kind().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_layer2_events_by_type() {
+        let mut log = SecurityAuditLog::new();
+        log.record(event(
+            SecurityEventType::AttackTreeAnalyzed {
+                tree_name: "test".into(),
+                paths: 3,
+                highest_risk: 0.7,
+            },
+            SecuritySeverity::Info,
+            1000,
+        ));
+        log.record(event(
+            SecurityEventType::MttdComputed { mttd_ms: 200.0 },
+            SecuritySeverity::Info,
+            2000,
+        ));
+        assert_eq!(log.events_by_type("AttackTreeAnalyzed").len(), 1);
+        assert_eq!(log.events_by_type("MttdComputed").len(), 1);
     }
 }

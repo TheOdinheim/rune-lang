@@ -410,6 +410,260 @@ impl IncidentTracker {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Response Playbooks, Escalation Chains, Incident Lifecycle
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Actions that can be taken in response to an incident.
+#[derive(Debug, Clone)]
+pub enum ResponseAction {
+    Isolate { target: String },
+    Block { source: String },
+    Alert { channels: Vec<String> },
+    Escalate { to: String },
+    CollectEvidence { scope: String },
+    Remediate { procedure: String },
+    Recover { target: String },
+}
+
+/// A step in a response playbook.
+#[derive(Debug, Clone)]
+pub struct ResponseStep {
+    pub order: usize,
+    pub action: ResponseAction,
+    pub description: String,
+    pub timeout_ms: Option<i64>,
+    pub requires_approval: bool,
+}
+
+/// Trigger conditions for a playbook.
+#[derive(Debug, Clone)]
+pub enum PlaybookTrigger {
+    ThreatCategoryMatch(ThreatCategory),
+    SeverityAtLeast(SecuritySeverity),
+    IncidentTypeMatch(String),
+    Custom(String),
+}
+
+/// A response playbook containing steps to execute.
+#[derive(Debug, Clone)]
+pub struct ResponsePlaybook {
+    pub id: String,
+    pub name: String,
+    pub trigger_conditions: Vec<PlaybookTrigger>,
+    pub steps: Vec<ResponseStep>,
+    pub severity_threshold: SecuritySeverity,
+    pub auto_execute: bool,
+}
+
+/// Store of response playbooks with matching.
+#[derive(Debug, Clone, Default)]
+pub struct PlaybookStore {
+    pub playbooks: Vec<ResponsePlaybook>,
+}
+
+impl PlaybookStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_playbook(&mut self, playbook: ResponsePlaybook) {
+        self.playbooks.push(playbook);
+    }
+
+    pub fn match_playbooks(
+        &self,
+        severity: &SecuritySeverity,
+        threat_category: Option<&ThreatCategory>,
+    ) -> Vec<&ResponsePlaybook> {
+        self.playbooks
+            .iter()
+            .filter(|p| {
+                p.trigger_conditions.iter().any(|t| match t {
+                    PlaybookTrigger::SeverityAtLeast(s) => severity >= s,
+                    PlaybookTrigger::ThreatCategoryMatch(c) => {
+                        threat_category.map(|tc| tc == c).unwrap_or(false)
+                    }
+                    _ => false,
+                })
+            })
+            .collect()
+    }
+
+    pub fn playbook_count(&self) -> usize {
+        self.playbooks.len()
+    }
+}
+
+/// A level in an escalation chain.
+#[derive(Debug, Clone)]
+pub struct L2EscalationLevel {
+    pub name: String,
+    pub contacts: Vec<String>,
+    pub response_time_ms: i64,
+    pub auto_escalate_after_ms: i64,
+}
+
+/// An escalation chain defining who to contact as time progresses.
+#[derive(Debug, Clone)]
+pub struct EscalationChain {
+    pub levels: Vec<L2EscalationLevel>,
+}
+
+impl EscalationChain {
+    pub fn new(levels: Vec<L2EscalationLevel>) -> Self {
+        Self { levels }
+    }
+
+    pub fn current_level(&self, elapsed_ms: i64) -> &L2EscalationLevel {
+        let mut cumulative = 0_i64;
+        for (i, level) in self.levels.iter().enumerate() {
+            cumulative += level.auto_escalate_after_ms;
+            if elapsed_ms < cumulative || i == self.levels.len() - 1 {
+                return level;
+            }
+        }
+        self.levels.last().unwrap()
+    }
+
+    pub fn next_level(&self, current_index: usize) -> Option<&L2EscalationLevel> {
+        self.levels.get(current_index + 1)
+    }
+
+    pub fn total_levels(&self) -> usize {
+        self.levels.len()
+    }
+}
+
+/// Status of an incident in its lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum L2IncidentStatus {
+    Open,
+    Acknowledged,
+    Investigating,
+    Contained,
+    Eradicated,
+    Recovered,
+    Closed,
+}
+
+impl fmt::Display for L2IncidentStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+/// A timeline entry in the incident lifecycle.
+#[derive(Debug, Clone)]
+pub struct IncidentTimelineEntry {
+    pub timestamp: i64,
+    pub action: String,
+    pub actor: String,
+    pub detail: String,
+}
+
+/// Manages the lifecycle of a single incident.
+#[derive(Debug, Clone)]
+pub struct IncidentLifecycle {
+    pub incident_id: String,
+    pub severity: SecuritySeverity,
+    pub status: L2IncidentStatus,
+    pub opened_at: i64,
+    pub acknowledged_at: Option<i64>,
+    pub resolved_at: Option<i64>,
+    pub closed_at: Option<i64>,
+    pub assigned_to: Option<String>,
+    pub playbook_id: Option<String>,
+    pub timeline: Vec<IncidentTimelineEntry>,
+}
+
+impl IncidentLifecycle {
+    pub fn new(incident_id: &str, severity: SecuritySeverity, now: i64) -> Self {
+        Self {
+            incident_id: incident_id.into(),
+            severity,
+            status: L2IncidentStatus::Open,
+            opened_at: now,
+            acknowledged_at: None,
+            resolved_at: None,
+            closed_at: None,
+            assigned_to: None,
+            playbook_id: None,
+            timeline: vec![IncidentTimelineEntry {
+                timestamp: now,
+                action: "opened".into(),
+                actor: "system".into(),
+                detail: format!("Incident {} opened", incident_id),
+            }],
+        }
+    }
+
+    pub fn acknowledge(&mut self, by: &str, now: i64) {
+        self.status = L2IncidentStatus::Acknowledged;
+        self.acknowledged_at = Some(now);
+        self.timeline.push(IncidentTimelineEntry {
+            timestamp: now,
+            action: "acknowledged".into(),
+            actor: by.into(),
+            detail: "Incident acknowledged".into(),
+        });
+    }
+
+    pub fn assign(&mut self, to: &str, now: i64) {
+        self.assigned_to = Some(to.into());
+        self.timeline.push(IncidentTimelineEntry {
+            timestamp: now,
+            action: "assigned".into(),
+            actor: "system".into(),
+            detail: format!("Assigned to {}", to),
+        });
+    }
+
+    pub fn update_status(&mut self, status: L2IncidentStatus, by: &str, now: i64) {
+        let from = self.status.clone();
+        self.status = status.clone();
+        if status == L2IncidentStatus::Recovered {
+            self.resolved_at = Some(now);
+        }
+        self.timeline.push(IncidentTimelineEntry {
+            timestamp: now,
+            action: "status_changed".into(),
+            actor: by.into(),
+            detail: format!("{} -> {}", from, status),
+        });
+    }
+
+    pub fn close(&mut self, by: &str, now: i64) -> Result<(), SecurityError> {
+        if self.status != L2IncidentStatus::Recovered {
+            return Err(SecurityError::InvalidStatusTransition {
+                from: self.status.to_string(),
+                to: "Closed".into(),
+            });
+        }
+        self.status = L2IncidentStatus::Closed;
+        self.closed_at = Some(now);
+        self.timeline.push(IncidentTimelineEntry {
+            timestamp: now,
+            action: "closed".into(),
+            actor: by.into(),
+            detail: "Incident closed".into(),
+        });
+        Ok(())
+    }
+
+    pub fn time_to_acknowledge_ms(&self) -> Option<i64> {
+        self.acknowledged_at.map(|a| a - self.opened_at)
+    }
+
+    pub fn time_to_resolve_ms(&self) -> Option<i64> {
+        self.resolved_at.map(|r| r - self.opened_at)
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.status != L2IncidentStatus::Closed
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -644,5 +898,161 @@ mod tests {
         );
         t.resolve(&inc.id, "done", "r").unwrap();
         assert!(t.mean_time_to_resolve().is_some());
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_response_playbook_construction() {
+        let pb = ResponsePlaybook {
+            id: "pb1".into(),
+            name: "DDoS Response".into(),
+            trigger_conditions: vec![
+                PlaybookTrigger::SeverityAtLeast(SecuritySeverity::High),
+            ],
+            steps: vec![ResponseStep {
+                order: 1,
+                action: ResponseAction::Block { source: "attacker-ip".into() },
+                description: "Block attack source".into(),
+                timeout_ms: Some(30000),
+                requires_approval: false,
+            }],
+            severity_threshold: SecuritySeverity::High,
+            auto_execute: true,
+        };
+        assert_eq!(pb.steps.len(), 1);
+    }
+
+    #[test]
+    fn test_playbook_store_match_by_severity() {
+        let mut store = PlaybookStore::new();
+        store.add_playbook(ResponsePlaybook {
+            id: "pb1".into(),
+            name: "Critical Response".into(),
+            trigger_conditions: vec![
+                PlaybookTrigger::SeverityAtLeast(SecuritySeverity::Critical),
+            ],
+            steps: vec![],
+            severity_threshold: SecuritySeverity::Critical,
+            auto_execute: false,
+        });
+        let matches = store.match_playbooks(&SecuritySeverity::Critical, None);
+        assert_eq!(matches.len(), 1);
+        let no_matches = store.match_playbooks(&SecuritySeverity::Low, None);
+        assert_eq!(no_matches.len(), 0);
+    }
+
+    #[test]
+    fn test_playbook_store_match_by_threat_category() {
+        let mut store = PlaybookStore::new();
+        store.add_playbook(ResponsePlaybook {
+            id: "pb1".into(),
+            name: "Injection Response".into(),
+            trigger_conditions: vec![
+                PlaybookTrigger::ThreatCategoryMatch(ThreatCategory::PromptInjection),
+            ],
+            steps: vec![],
+            severity_threshold: SecuritySeverity::High,
+            auto_execute: false,
+        });
+        let matches = store.match_playbooks(
+            &SecuritySeverity::High,
+            Some(&ThreatCategory::PromptInjection),
+        );
+        assert_eq!(matches.len(), 1);
+        let no_matches = store.match_playbooks(
+            &SecuritySeverity::High,
+            Some(&ThreatCategory::Spoofing),
+        );
+        assert_eq!(no_matches.len(), 0);
+    }
+
+    #[test]
+    fn test_escalation_chain_current_level() {
+        let chain = EscalationChain::new(vec![
+            L2EscalationLevel {
+                name: "L1".into(),
+                contacts: vec!["oncall".into()],
+                response_time_ms: 60000,
+                auto_escalate_after_ms: 300000,
+            },
+            L2EscalationLevel {
+                name: "L2".into(),
+                contacts: vec!["manager".into()],
+                response_time_ms: 120000,
+                auto_escalate_after_ms: 600000,
+            },
+            L2EscalationLevel {
+                name: "L3".into(),
+                contacts: vec!["vp".into()],
+                response_time_ms: 300000,
+                auto_escalate_after_ms: 900000,
+            },
+        ]);
+        assert_eq!(chain.current_level(0).name, "L1");
+        assert_eq!(chain.current_level(200000).name, "L1");
+        assert_eq!(chain.current_level(400000).name, "L2");
+        assert_eq!(chain.current_level(1000000).name, "L3");
+    }
+
+    #[test]
+    fn test_escalation_chain_next_level_returns_none_at_end() {
+        let chain = EscalationChain::new(vec![
+            L2EscalationLevel {
+                name: "L1".into(),
+                contacts: vec![],
+                response_time_ms: 60000,
+                auto_escalate_after_ms: 300000,
+            },
+        ]);
+        assert!(chain.next_level(0).is_none());
+    }
+
+    #[test]
+    fn test_incident_lifecycle_acknowledge() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        lc.acknowledge("alice", 2000);
+        assert_eq!(lc.status, L2IncidentStatus::Acknowledged);
+        assert_eq!(lc.acknowledged_at, Some(2000));
+    }
+
+    #[test]
+    fn test_incident_lifecycle_update_status() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        lc.update_status(L2IncidentStatus::Investigating, "alice", 2000);
+        assert_eq!(lc.status, L2IncidentStatus::Investigating);
+    }
+
+    #[test]
+    fn test_incident_lifecycle_close_only_from_recovered() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        assert!(lc.close("alice", 2000).is_err());
+        lc.update_status(L2IncidentStatus::Recovered, "alice", 2000);
+        assert!(lc.close("alice", 3000).is_ok());
+        assert_eq!(lc.status, L2IncidentStatus::Closed);
+    }
+
+    #[test]
+    fn test_incident_lifecycle_time_to_acknowledge() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        lc.acknowledge("alice", 5000);
+        assert_eq!(lc.time_to_acknowledge_ms(), Some(4000));
+    }
+
+    #[test]
+    fn test_incident_lifecycle_time_to_resolve() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        lc.update_status(L2IncidentStatus::Recovered, "alice", 10000);
+        assert_eq!(lc.time_to_resolve_ms(), Some(9000));
+    }
+
+    #[test]
+    fn test_incident_lifecycle_timeline_records_entries() {
+        let mut lc = IncidentLifecycle::new("inc-1", SecuritySeverity::High, 1000);
+        lc.acknowledge("alice", 2000);
+        lc.assign("bob", 3000);
+        lc.update_status(L2IncidentStatus::Investigating, "bob", 4000);
+        // opened + acknowledged + assigned + status_changed = 4
+        assert_eq!(lc.timeline.len(), 4);
     }
 }

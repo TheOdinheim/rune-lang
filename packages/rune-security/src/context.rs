@@ -231,6 +231,150 @@ impl ContextStack {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Context Chain Verification with SHA3-256
+// ═══════════════════════════════════════════════════════════════════════
+
+use sha3::{Digest, Sha3_256};
+
+/// An entry in a context chain, linking to the previous entry via hash.
+#[derive(Debug, Clone)]
+pub struct ContextChainEntry {
+    pub context_hash: String,
+    pub previous_hash: Option<String>,
+    pub operation: String,
+    pub actor: String,
+    pub timestamp: i64,
+}
+
+/// Compute a SHA3-256 hash of context state for chain verification.
+pub fn compute_context_hash(
+    context: &SecurityContext,
+    previous_hash: Option<&str>,
+    operation: &str,
+    timestamp: i64,
+) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(context.id.as_bytes());
+    hasher.update(format!("{:?}", context.clearance).as_bytes());
+    hasher.update(context.trust_score.to_bits().to_le_bytes());
+    hasher.update(format!("{:?}", context.risk_level).as_bytes());
+    if let Some(prev) = previous_hash {
+        hasher.update(prev.as_bytes());
+    }
+    hasher.update(operation.as_bytes());
+    hasher.update(timestamp.to_le_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Result of verifying a context chain.
+#[derive(Debug, Clone)]
+pub struct ContextChainVerification {
+    pub valid: bool,
+    pub verified_links: usize,
+    pub broken_at: Option<usize>,
+}
+
+/// A store of chained context entries.
+#[derive(Debug, Clone, Default)]
+pub struct ContextChainStore {
+    pub entries: Vec<ContextChainEntry>,
+}
+
+impl ContextChainStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn append(
+        &mut self,
+        context: &SecurityContext,
+        operation: &str,
+        actor: &str,
+        now: i64,
+    ) -> &ContextChainEntry {
+        let previous_hash = self.entries.last().map(|e| e.context_hash.as_str());
+        let context_hash = compute_context_hash(context, previous_hash, operation, now);
+        let entry = ContextChainEntry {
+            context_hash,
+            previous_hash: self.entries.last().map(|e| e.context_hash.clone()),
+            operation: operation.into(),
+            actor: actor.into(),
+            timestamp: now,
+        };
+        self.entries.push(entry);
+        self.entries.last().unwrap()
+    }
+
+    pub fn verify_chain(&self) -> ContextChainVerification {
+        if self.entries.is_empty() {
+            return ContextChainVerification {
+                valid: true,
+                verified_links: 0,
+                broken_at: None,
+            };
+        }
+        for i in 1..self.entries.len() {
+            let expected_prev = &self.entries[i - 1].context_hash;
+            match &self.entries[i].previous_hash {
+                Some(prev) if prev == expected_prev => {}
+                _ => {
+                    return ContextChainVerification {
+                        valid: false,
+                        verified_links: i - 1,
+                        broken_at: Some(i),
+                    };
+                }
+            }
+        }
+        ContextChainVerification {
+            valid: true,
+            verified_links: self.entries.len() - 1,
+            broken_at: None,
+        }
+    }
+
+    pub fn chain_length(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+/// Differences between two security contexts.
+#[derive(Debug, Clone)]
+pub struct ContextDiff {
+    pub classification_changed: bool,
+    pub trust_level_changed: bool,
+    pub clearance_changed: bool,
+    pub added_tags: Vec<String>,
+    pub removed_tags: Vec<String>,
+    pub risk_delta: f64,
+}
+
+/// Compare two security contexts and report differences.
+pub fn diff_contexts(a: &SecurityContext, b: &SecurityContext) -> ContextDiff {
+    let added_tags: Vec<String> = b
+        .capabilities
+        .iter()
+        .filter(|c| !a.capabilities.contains(c))
+        .cloned()
+        .collect();
+    let removed_tags: Vec<String> = a
+        .capabilities
+        .iter()
+        .filter(|c| !b.capabilities.contains(c))
+        .cloned()
+        .collect();
+
+    ContextDiff {
+        classification_changed: a.clearance != b.clearance,
+        trust_level_changed: (a.trust_score - b.trust_score).abs() > f64::EPSILON,
+        clearance_changed: a.clearance != b.clearance,
+        added_tags,
+        removed_tags,
+        risk_delta: (b.risk_level as i32 - a.risk_level as i32) as f64,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -396,5 +540,79 @@ mod tests {
             result,
             Err(SecurityError::ContextDepthExceeded { .. })
         ));
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_context_chain_append_creates_chained_entry() {
+        let mut store = ContextChainStore::new();
+        let ctx1 = SecurityContext::new("c1");
+        let ctx2 = SecurityContext::new("c2");
+        store.append(&ctx1, "create", "alice", 1000);
+        store.append(&ctx2, "modify", "bob", 2000);
+        assert_eq!(store.chain_length(), 2);
+        assert!(store.entries[1].previous_hash.is_some());
+        assert_eq!(
+            store.entries[1].previous_hash.as_ref().unwrap(),
+            &store.entries[0].context_hash
+        );
+    }
+
+    #[test]
+    fn test_context_chain_verify_passes() {
+        let mut store = ContextChainStore::new();
+        let ctx = SecurityContext::new("c1");
+        store.append(&ctx, "op1", "alice", 1000);
+        store.append(&ctx, "op2", "alice", 2000);
+        store.append(&ctx, "op3", "alice", 3000);
+        let result = store.verify_chain();
+        assert!(result.valid);
+        assert_eq!(result.verified_links, 2);
+        assert!(result.broken_at.is_none());
+    }
+
+    #[test]
+    fn test_context_chain_verify_detects_tampering() {
+        let mut store = ContextChainStore::new();
+        let ctx = SecurityContext::new("c1");
+        store.append(&ctx, "op1", "alice", 1000);
+        store.append(&ctx, "op2", "alice", 2000);
+        // Tamper with entry 0's hash
+        store.entries[0].context_hash = "tampered".into();
+        let result = store.verify_chain();
+        assert!(!result.valid);
+        assert_eq!(result.broken_at, Some(1));
+    }
+
+    #[test]
+    fn test_compute_context_hash_deterministic() {
+        let ctx = SecurityContext::new("c1").trust_score(0.8);
+        let h1 = compute_context_hash(&ctx, None, "op", 1000);
+        let h2 = compute_context_hash(&ctx, None, "op", 1000);
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_diff_contexts_detects_classification_change() {
+        let a = SecurityContext::new("c")
+            .clearance(ClassificationLevel::Public);
+        let b = SecurityContext::new("c")
+            .clearance(ClassificationLevel::Confidential);
+        let diff = diff_contexts(&a, &b);
+        assert!(diff.classification_changed);
+    }
+
+    #[test]
+    fn test_diff_contexts_detects_added_removed_tags() {
+        let a = SecurityContext::new("c")
+            .capability("read")
+            .capability("write");
+        let b = SecurityContext::new("c")
+            .capability("read")
+            .capability("admin");
+        let diff = diff_contexts(&a, &b);
+        assert_eq!(diff.added_tags, vec!["admin".to_string()]);
+        assert_eq!(diff.removed_tags, vec!["write".to_string()]);
     }
 }

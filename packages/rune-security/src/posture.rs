@@ -176,6 +176,164 @@ impl PostureAssessor {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Layer 2 — Multi-dimensional Posture Scoring with Trend Tracking
+// ═══════════════════════════════════════════════════════════════════════
+
+use crate::severity::SecuritySeverity;
+
+/// A finding within a posture dimension.
+#[derive(Debug, Clone)]
+pub struct PostureFinding {
+    pub id: String,
+    pub description: String,
+    pub severity: SecuritySeverity,
+    pub remediated: bool,
+}
+
+/// A scored security dimension with findings.
+#[derive(Debug, Clone)]
+pub struct DimensionScore {
+    pub name: String,
+    pub score: f64,
+    pub weight: f64,
+    pub findings: Vec<PostureFinding>,
+}
+
+/// A complete security posture score.
+#[derive(Debug, Clone)]
+pub struct SecurityPostureScore {
+    pub overall: f64,
+    pub dimensions: HashMap<String, DimensionScore>,
+    pub assessed_at: i64,
+    pub assessor: String,
+}
+
+/// Create the default set of 8 security dimensions, each starting at 100.
+pub fn default_dimensions() -> HashMap<String, DimensionScore> {
+    let names = [
+        "access_control",
+        "data_protection",
+        "vulnerability_management",
+        "incident_response",
+        "monitoring",
+        "compliance",
+        "network_security",
+        "application_security",
+    ];
+    let mut dims = HashMap::new();
+    for name in names {
+        dims.insert(
+            name.into(),
+            DimensionScore {
+                name: name.into(),
+                score: 100.0,
+                weight: 1.0,
+                findings: Vec::new(),
+            },
+        );
+    }
+    dims
+}
+
+/// Calculate the weighted average of all dimension scores.
+pub fn calculate_overall(dimensions: &HashMap<String, DimensionScore>) -> f64 {
+    let mut weighted_sum = 0.0;
+    let mut total_weight = 0.0;
+    for dim in dimensions.values() {
+        weighted_sum += dim.score * dim.weight;
+        total_weight += dim.weight;
+    }
+    if total_weight > 0.0 {
+        weighted_sum / total_weight
+    } else {
+        0.0
+    }
+}
+
+/// Convert a numeric score to a letter grade.
+pub fn posture_grade(score: f64) -> PostureGrade {
+    PostureGrade::from_score(score)
+}
+
+/// Returns all unremediated findings with Critical severity.
+pub fn critical_findings<'a>(
+    dimensions: &'a HashMap<String, DimensionScore>,
+) -> Vec<&'a PostureFinding> {
+    dimensions
+        .values()
+        .flat_map(|d| d.findings.iter())
+        .filter(|f| f.severity == SecuritySeverity::Critical && !f.remediated)
+        .collect()
+}
+
+/// Direction of a posture trend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrendDirection {
+    Improving,
+    Stable,
+    Degrading,
+    InsufficientData,
+}
+
+/// Tracks posture scores over time.
+#[derive(Debug, Clone, Default)]
+pub struct PostureTrend {
+    pub scores: Vec<(i64, f64)>,
+}
+
+impl PostureTrend {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(&mut self, score: f64, now: i64) {
+        self.scores.push((now, score));
+    }
+
+    pub fn trend_direction(&self) -> TrendDirection {
+        if self.scores.len() < 3 {
+            return TrendDirection::InsufficientData;
+        }
+        let mid = self.scores.len() / 2;
+        let first_avg: f64 =
+            self.scores[..mid].iter().map(|(_, s)| s).sum::<f64>() / mid as f64;
+        let second_avg: f64 =
+            self.scores[mid..].iter().map(|(_, s)| s).sum::<f64>()
+                / (self.scores.len() - mid) as f64;
+        let delta = second_avg - first_avg;
+        let threshold = 2.0; // 2-point threshold
+        if delta > threshold {
+            TrendDirection::Improving
+        } else if delta < -threshold {
+            TrendDirection::Degrading
+        } else {
+            TrendDirection::Stable
+        }
+    }
+
+    pub fn average_score(&self) -> f64 {
+        if self.scores.is_empty() {
+            return 0.0;
+        }
+        self.scores.iter().map(|(_, s)| s).sum::<f64>() / self.scores.len() as f64
+    }
+
+    pub fn volatility(&self) -> f64 {
+        if self.scores.len() < 2 {
+            return 0.0;
+        }
+        let mean = self.average_score();
+        let variance: f64 = self
+            .scores
+            .iter()
+            .map(|(_, s)| (s - mean).powi(2))
+            .sum::<f64>()
+            / (self.scores.len() - 1) as f64;
+        variance.sqrt()
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -273,5 +431,116 @@ mod tests {
             dim("dp", DimensionCategory::DataProtection, 95.0),
         ]);
         assert_eq!(posture.recommendations.len(), 1);
+    }
+
+    // ── Layer 2 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_dimensions_creates_8() {
+        let dims = default_dimensions();
+        assert_eq!(dims.len(), 8);
+        assert!(dims.contains_key("access_control"));
+        assert!(dims.contains_key("application_security"));
+    }
+
+    #[test]
+    fn test_calculate_overall_weighted_average() {
+        let mut dims = HashMap::new();
+        dims.insert("a".into(), DimensionScore {
+            name: "a".into(),
+            score: 80.0,
+            weight: 2.0,
+            findings: vec![],
+        });
+        dims.insert("b".into(), DimensionScore {
+            name: "b".into(),
+            score: 60.0,
+            weight: 1.0,
+            findings: vec![],
+        });
+        // (80*2 + 60*1) / 3 = 73.33...
+        let overall = calculate_overall(&dims);
+        assert!((overall - 220.0 / 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_posture_grade_a_for_90_plus() {
+        assert_eq!(posture_grade(95.0), PostureGrade::A);
+        assert_eq!(posture_grade(90.0), PostureGrade::A);
+    }
+
+    #[test]
+    fn test_posture_grade_f_for_below_60() {
+        assert_eq!(posture_grade(59.0), PostureGrade::F);
+        assert_eq!(posture_grade(0.0), PostureGrade::F);
+    }
+
+    #[test]
+    fn test_critical_findings_returns_unremediated_critical() {
+        let mut dims = HashMap::new();
+        dims.insert("a".into(), DimensionScore {
+            name: "a".into(),
+            score: 50.0,
+            weight: 1.0,
+            findings: vec![
+                PostureFinding {
+                    id: "f1".into(),
+                    description: "critical issue".into(),
+                    severity: SecuritySeverity::Critical,
+                    remediated: false,
+                },
+                PostureFinding {
+                    id: "f2".into(),
+                    description: "remediated critical".into(),
+                    severity: SecuritySeverity::Critical,
+                    remediated: true,
+                },
+                PostureFinding {
+                    id: "f3".into(),
+                    description: "high issue".into(),
+                    severity: SecuritySeverity::High,
+                    remediated: false,
+                },
+            ],
+        });
+        let crit = critical_findings(&dims);
+        assert_eq!(crit.len(), 1);
+        assert_eq!(crit[0].id, "f1");
+    }
+
+    #[test]
+    fn test_posture_trend_improving() {
+        let mut trend = PostureTrend::new();
+        trend.record(60.0, 1000);
+        trend.record(65.0, 2000);
+        trend.record(80.0, 3000);
+        trend.record(85.0, 4000);
+        trend.record(90.0, 5000);
+        assert_eq!(trend.trend_direction(), TrendDirection::Improving);
+    }
+
+    #[test]
+    fn test_posture_trend_degrading() {
+        let mut trend = PostureTrend::new();
+        trend.record(90.0, 1000);
+        trend.record(85.0, 2000);
+        trend.record(70.0, 3000);
+        trend.record(60.0, 4000);
+        trend.record(55.0, 5000);
+        assert_eq!(trend.trend_direction(), TrendDirection::Degrading);
+    }
+
+    #[test]
+    fn test_posture_trend_volatility() {
+        let mut trend = PostureTrend::new();
+        trend.record(80.0, 1000);
+        trend.record(80.0, 2000);
+        trend.record(80.0, 3000);
+        assert!((trend.volatility()).abs() < 1e-9);
+
+        let mut spread = PostureTrend::new();
+        spread.record(60.0, 1000);
+        spread.record(100.0, 2000);
+        assert!(spread.volatility() > 0.0);
     }
 }

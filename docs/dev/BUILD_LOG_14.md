@@ -352,3 +352,46 @@ cargo test --workspace
 | Assumed Breach | Contradiction detection and resolution provides defense-in-depth against compromised sources; calibrated scoring detects unreliable predictions |
 | No Single Points of Failure | Consensus engine requires agreement from multiple sources; source reliability tracking identifies degraded inputs |
 | Zero Trust Throughout | Every output fingerprint independently verified; ground truth verification with expiration prevents stale trust; statistical consistency tests detect drift |
+
+---
+
+## Session 16 — rune-security Layer 2
+
+**Date:** 2026-04-19
+**Scope:** rune-security Layer 2 upgrade — attack trees, CVSS v3.1 temporal/environmental, context chain verification, incident response, posture scoring, security metrics
+
+### What was built
+
+| Part | Module | What was added |
+|------|--------|----------------|
+| 1 | threat.rs | AttackNode/AttackNodeType (And/Or/Leaf) with risk_score, AttackTree with all_attack_paths/highest_risk_path/unmitigated_leaves, L2AttackSurface/EntryPoint/L2ExposureLevel with risk scoring |
+| 2 | vulnerability.rs | CvssTemporalMetrics (ExploitMaturity/RemediationLevel/ReportConfidence), CvssEnvironmentalMetrics (SecurityRequirement), CvssFullAssessment with overall_score/severity_rating/vector_string |
+| 3 | context.rs | SHA3-256 ContextChainEntry/ContextChainStore with hash chaining and verify_chain, compute_context_hash, ContextDiff/diff_contexts |
+| 4 | incident.rs | ResponsePlaybook/ResponseAction/ResponseStep/PlaybookTrigger, PlaybookStore with match_playbooks, EscalationChain/L2EscalationLevel, IncidentLifecycle with full lifecycle management |
+| 5 | posture.rs | DimensionScore/PostureFinding/SecurityPostureScore, default_dimensions (8), calculate_overall, posture_grade, critical_findings, PostureTrend/TrendDirection with volatility |
+| 6 | metrics.rs | SecurityMetricsTracker with MTTD/MTTR/p95, SecuritySla/SlaComplianceResult, aggregate_metrics |
+| 7 | audit.rs | 15 new SecurityEventType variants covering all Layer 2 operations |
+
+### Dependencies added
+
+- `sha3 = "0.10"` (context chain hashing)
+- `hex = "0.4"` (hash encoding)
+
+### Test results
+
+```
+cargo test -p rune-security
+  156 passed; 0 failed (108 Layer 1 + 48 Layer 2)
+
+cargo test --workspace
+  All passed; 0 failed
+```
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | SHA3-256 context chain verification provides tamper-evident security context propagation; CVSS v3.1 temporal/environmental scoring enables complete vulnerability assessment |
+| Assumed Breach | Attack tree modeling with unmitigated leaf detection identifies gaps; incident response playbooks automate containment; escalation chains ensure no incident goes unaddressed |
+| No Single Points of Failure | Multi-dimensional posture scoring across 8 security domains prevents blind spots; SLA compliance checking catches degradation before it becomes critical |
+| Zero Trust Throughout | Context chain verification detects tampering at any point in the chain; MTTD/MTTR tracking with p95 ensures detection and response stay within bounds |
