@@ -20,6 +20,9 @@ pub enum SafetyError {
     AssessmentFailed(String),
     InvalidConfiguration(String),
     InvalidOperation(String),
+    // ── Layer 2 ──────────────────────────────────────────────────
+    GateNotFound(String),
+    ApprovalNotFound(String),
 }
 
 impl fmt::Display for SafetyError {
@@ -41,6 +44,8 @@ impl fmt::Display for SafetyError {
             Self::AssessmentFailed(reason) => write!(f, "Assessment failed: {reason}"),
             Self::InvalidConfiguration(reason) => write!(f, "Invalid configuration: {reason}"),
             Self::InvalidOperation(reason) => write!(f, "Invalid operation: {reason}"),
+            Self::GateNotFound(id) => write!(f, "Gate not found: {id}"),
+            Self::ApprovalNotFound(id) => write!(f, "Approval not found: {id}"),
         }
     }
 }
@@ -72,10 +77,12 @@ mod tests {
             SafetyError::AssessmentFailed("r".into()),
             SafetyError::InvalidConfiguration("r".into()),
             SafetyError::InvalidOperation("r".into()),
+            SafetyError::GateNotFound("g1".into()),
+            SafetyError::ApprovalNotFound("a1".into()),
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
         }
-        assert_eq!(variants.len(), 14);
+        assert_eq!(variants.len(), 16);
     }
 }

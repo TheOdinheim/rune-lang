@@ -23,6 +23,22 @@ pub enum SafetyEventType {
     BoundaryRestored { boundary_id: String },
     SafetyAssessed { level: String },
     SafetyCaseUpdated { case_id: String, status: String },
+    // ── Layer 2 event types ──────────────────────────────────────
+    BoundaryDefined { boundary_id: String, boundary_type: String },
+    BoundaryViolationDetected { boundary_id: String, enforcement: String },
+    BoundaryCheckPassed { checks: usize, violations: usize },
+    ConstraintVerified { constraint_id: String, passed: bool },
+    ConstraintVerificationReport { total: usize, passed: usize, safe: bool },
+    SafetyTestRun { test_id: String, passed: bool, category: String },
+    SafetyTestSuiteCompleted { total: usize, pass_rate: String },
+    SafetyIncidentReported { incident_id: String, severity: String },
+    SafetyIncidentResolved { incident_id: String, time_to_resolve_ms: String },
+    CorrectiveActionAdded { incident_id: String, action_type: String },
+    SafetyMetricsComputed { safety_score: String, violation_rate: String },
+    SafetyTrendDetected { trend: String },
+    ApprovalGateCreated { gate_id: String, gate_type: String },
+    ApprovalRequested { gate_id: String, decision_id: String },
+    ApprovalDecided { gate_id: String, decision_id: String, status: String },
 }
 
 impl fmt::Display for SafetyEventType {
@@ -60,6 +76,51 @@ impl fmt::Display for SafetyEventType {
             }
             Self::SafetyCaseUpdated { case_id, status } => {
                 write!(f, "SafetyCaseUpdated({case_id}, {status})")
+            }
+            Self::BoundaryDefined { boundary_id, boundary_type } => {
+                write!(f, "BoundaryDefined({boundary_id}, {boundary_type})")
+            }
+            Self::BoundaryViolationDetected { boundary_id, enforcement } => {
+                write!(f, "BoundaryViolationDetected({boundary_id}, {enforcement})")
+            }
+            Self::BoundaryCheckPassed { checks, violations } => {
+                write!(f, "BoundaryCheckPassed({checks}, {violations})")
+            }
+            Self::ConstraintVerified { constraint_id, passed } => {
+                write!(f, "ConstraintVerified({constraint_id}, {passed})")
+            }
+            Self::ConstraintVerificationReport { total, passed, safe } => {
+                write!(f, "ConstraintVerificationReport({total}, {passed}, {safe})")
+            }
+            Self::SafetyTestRun { test_id, passed, category } => {
+                write!(f, "SafetyTestRun({test_id}, {passed}, {category})")
+            }
+            Self::SafetyTestSuiteCompleted { total, pass_rate } => {
+                write!(f, "SafetyTestSuiteCompleted({total}, {pass_rate})")
+            }
+            Self::SafetyIncidentReported { incident_id, severity } => {
+                write!(f, "SafetyIncidentReported({incident_id}, {severity})")
+            }
+            Self::SafetyIncidentResolved { incident_id, time_to_resolve_ms } => {
+                write!(f, "SafetyIncidentResolved({incident_id}, {time_to_resolve_ms})")
+            }
+            Self::CorrectiveActionAdded { incident_id, action_type } => {
+                write!(f, "CorrectiveActionAdded({incident_id}, {action_type})")
+            }
+            Self::SafetyMetricsComputed { safety_score, violation_rate } => {
+                write!(f, "SafetyMetricsComputed({safety_score}, {violation_rate})")
+            }
+            Self::SafetyTrendDetected { trend } => {
+                write!(f, "SafetyTrendDetected({trend})")
+            }
+            Self::ApprovalGateCreated { gate_id, gate_type } => {
+                write!(f, "ApprovalGateCreated({gate_id}, {gate_type})")
+            }
+            Self::ApprovalRequested { gate_id, decision_id } => {
+                write!(f, "ApprovalRequested({gate_id}, {decision_id})")
+            }
+            Self::ApprovalDecided { gate_id, decision_id, status } => {
+                write!(f, "ApprovalDecided({gate_id}, {decision_id}, {status})")
             }
         }
     }
@@ -355,11 +416,26 @@ mod tests {
             SafetyEventType::BoundaryRestored { boundary_id: "b".into() },
             SafetyEventType::SafetyAssessed { level: "Safe".into() },
             SafetyEventType::SafetyCaseUpdated { case_id: "sc".into(), status: "Draft".into() },
+            SafetyEventType::BoundaryDefined { boundary_id: "b".into(), boundary_type: "OutputRange".into() },
+            SafetyEventType::BoundaryViolationDetected { boundary_id: "b".into(), enforcement: "HardStop".into() },
+            SafetyEventType::BoundaryCheckPassed { checks: 5, violations: 0 },
+            SafetyEventType::ConstraintVerified { constraint_id: "c".into(), passed: true },
+            SafetyEventType::ConstraintVerificationReport { total: 3, passed: 3, safe: true },
+            SafetyEventType::SafetyTestRun { test_id: "t".into(), passed: true, category: "Adversarial".into() },
+            SafetyEventType::SafetyTestSuiteCompleted { total: 10, pass_rate: "0.9".into() },
+            SafetyEventType::SafetyIncidentReported { incident_id: "i".into(), severity: "Critical".into() },
+            SafetyEventType::SafetyIncidentResolved { incident_id: "i".into(), time_to_resolve_ms: "5000".into() },
+            SafetyEventType::CorrectiveActionAdded { incident_id: "i".into(), action_type: "Immediate".into() },
+            SafetyEventType::SafetyMetricsComputed { safety_score: "0.95".into(), violation_rate: "0.01".into() },
+            SafetyEventType::SafetyTrendDetected { trend: "Improving".into() },
+            SafetyEventType::ApprovalGateCreated { gate_id: "g".into(), gate_type: "PreExecution".into() },
+            SafetyEventType::ApprovalRequested { gate_id: "g".into(), decision_id: "d".into() },
+            SafetyEventType::ApprovalDecided { gate_id: "g".into(), decision_id: "d".into(), status: "Approved".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 11);
+        assert_eq!(types.len(), 26);
     }
 
     #[test]

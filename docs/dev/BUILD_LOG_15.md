@@ -114,3 +114,38 @@
 | Assumed Breach | Gap analysis identifies missing or expired evidence before auditors do; regulatory change tracking provides early warning of upcoming compliance requirements; maturity trends detect declining posture |
 | No Single Points of Failure | Cross-framework control equivalence enables evidence reuse; multiple gap types (NoEvidence/Expired/Insufficient/Rejected) provide granular diagnostic; built-in skeletons for NIST AI RMF, EU AI Act, and SOC 2 cover major frameworks |
 | Zero Trust Throughout | Every framework operation generates audit events (15 new types); overdue evidence tracking ensures timely collection; unassessed regulatory changes flagged for review; compliance scoring computed per-framework and cross-framework |
+
+---
+
+## rune-safety Layer 2
+
+**Test count**: 106 → 151 (+45 tests, zero failures)
+
+### New Modules
+
+- `l2_boundary.rs` — AI safety boundary enforcement: L2BoundaryType (6 variants: OutputRange/ContentFilter/RateLimit/ConfidenceFloor/ResourceCap/Custom), L2EnforcementMode (HardStop/SoftWarn/Escalate/Monitor), L2SafetyBoundary with threshold, L2BoundaryChecker (check_output_range/check_rate/check_confidence/check_all→L2BoundaryCheckResult with hard_stops/warnings/escalations counts), L2BoundaryViolation with enforcement tracking, L2BoundaryStore (register/record_violation/violation_count/most_violated sorted/boundaries_by_type)
+
+- `l2_constraint.rs` — Safety constraint verification: L2ConstraintType (5 variants: Invariant/PreCondition/PostCondition/ResourceBound/TemporalBound), L2ConstraintPriority (Safety/Security/Performance/Quality), L2SafetyConstraint with evidence tracking, L2ConstraintVerifier (verify_invariant/verify_resource_bound/verify_temporal_bound/verify_all→L2ConstraintVerificationReport with overall_safe based on Safety-priority constraints only)
+
+- `l2_test_harness.rs` — Safety test harness: SafetyTestCategory (5 variants: AdversarialInput/BoundaryProbe/RegressionTest/StressTest/FairnessTest), SafetyTestCase with tags, SafetyTestRunner (add_test/run_test matching expected_safe vs actual_safe/run_all→SafetyTestSuite with by_category tracking/pass_rate/failed_tests/tests_by_category)
+
+- `l2_incident.rs` — Safety incident tracking: SafetyIncidentSeverity (Informational→Catastrophic with Ord), SafetyIncidentCategory (6 variants: BoundaryViolation/UnexpectedBehavior/BiasDetected/DataLeakage/SystemFailure/HumanOversightFailure), SafetyIncidentStatus (Open→Closed), CorrectiveAction with CorrectiveActionType (Immediate/ShortTerm/LongTerm/Preventive) and ActionStatus, SafetyIncidentTracker (report/update_status/assign/set_root_cause/add_corrective_action/open_incidents/incidents_by_severity/mean_time_to_resolve_ms/overdue_actions)
+
+- `l2_dashboard.rs` — Safety metrics dashboard: SafetyMetrics (8 fields including violation_rate/mean_confidence/constraint_pass_rate/test_pass_rate), SafetyDashboard (record_check/compute_metrics/safety_score weighted composite: (1-violation_rate)*0.3+constraint_pass_rate*0.3+test_pass_rate*0.2+(1-open_incident_ratio)*0.2/safety_trend half-split comparison→SafetyTrend Improving/Stable/Declining/InsufficientData)
+
+- `l2_gate.rs` — Human-in-the-loop gate management: GateType (PreExecution/PostExecution/Periodic/ExceptionBased), ApprovalGate with required_approvers/timeout_ms/auto_deny_on_timeout, GateApproval with ApproverRecord/ApproverDecision (Approve/Deny/Abstain), GateStatus (Pending/Approved/Denied/TimedOut/Escalated), GateManager (register_gate/request_approval/record_decision with deny-on-first-deny and approve-when-enough/check_timeouts with auto_deny→TimedOut or Escalated/pending_count/approval_rate/average_decision_time_ms)
+
+### Modified Files
+- `audit.rs` — 15 new SafetyEventType variants for Layer 2 operations (BoundaryDefined/BoundaryViolationDetected/BoundaryCheckPassed/ConstraintVerified/ConstraintVerificationReport/SafetyTestRun/SafetyTestSuiteCompleted/SafetyIncidentReported/SafetyIncidentResolved/CorrectiveActionAdded/SafetyMetricsComputed/SafetyTrendDetected/ApprovalGateCreated/ApprovalRequested/ApprovalDecided), updated Display impl and test (11→26 variants)
+- `error.rs` — 2 new SafetyError variants (GateNotFound/ApprovalNotFound), updated test (14→16 variants)
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports
+- No new Cargo.toml dependencies required
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Structured safety boundaries with enforcement modes (HardStop/SoftWarn/Escalate/Monitor); constraint verification with Safety-priority-aware overall_safe flag; human-in-the-loop gates with multi-approver requirements and timeout enforcement |
+| Assumed Breach | Safety incident tracking with root cause analysis and corrective action management; overdue action detection; mean time to resolve metrics; boundary violation counting with most-violated ranking |
+| No Single Points of Failure | Multiple enforcement modes per boundary; multi-approver gate requirements; five test categories (adversarial/boundary/regression/stress/fairness); composite safety score from four weighted dimensions |
+| Zero Trust Throughout | Every safety operation generates audit events (15 new types); auto-deny on gate timeout prevents unreviewed actions; safety trend detection (Improving/Stable/Declining) enables early warning; constraint verification reports distinguish Safety-priority failures from other priorities |

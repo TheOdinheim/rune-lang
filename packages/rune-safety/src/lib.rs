@@ -14,6 +14,14 @@ pub mod integrity;
 pub mod monitor;
 pub mod safety_case;
 
+// ── Layer 2 modules ─────────────────────────────────────────────────
+pub mod l2_boundary;
+pub mod l2_constraint;
+pub mod l2_dashboard;
+pub mod l2_gate;
+pub mod l2_incident;
+pub mod l2_test_harness;
+
 pub use assessment::{
     HazardSummary, MonitorSummary, SafetyAssessment, SafetyAssessor, SafetyLevel,
 };
@@ -45,4 +53,26 @@ pub use monitor::{
 pub use safety_case::{
     EvidenceStrength, EvidenceType, GoalStatus, SafetyCase, SafetyCaseId, SafetyCaseStatus,
     SafetyCaseStore, SafetyEvidence, SafetyGoal, SafetyStrategy,
+};
+
+// ── Layer 2 re-exports ──────────────────────────────────────────────
+pub use l2_boundary::{
+    L2BoundaryCheckResult, L2BoundaryChecker, L2BoundaryStore, L2BoundaryType, L2BoundaryViolation,
+    L2EnforcementMode, L2SafetyBoundary,
+};
+pub use l2_constraint::{
+    L2ConstraintPriority, L2ConstraintType, L2ConstraintVerification,
+    L2ConstraintVerificationReport, L2ConstraintVerifier, L2SafetyConstraint,
+};
+pub use l2_dashboard::{SafetyDashboard, SafetyMetrics, SafetyTrend};
+pub use l2_gate::{
+    ApprovalGate, ApproverDecision, ApproverRecord, GateApproval, GateManager, GateStatus,
+    GateType,
+};
+pub use l2_incident::{
+    ActionStatus, CorrectiveAction, CorrectiveActionType, SafetyIncident, SafetyIncidentCategory,
+    SafetyIncidentSeverity, SafetyIncidentStatus, SafetyIncidentTracker,
+};
+pub use l2_test_harness::{
+    SafetyTestCase, SafetyTestCategory, SafetyTestResult, SafetyTestRunner, SafetyTestSuite,
 };
