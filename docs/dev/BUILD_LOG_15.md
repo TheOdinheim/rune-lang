@@ -42,3 +42,41 @@
 | Assumed Breach | Hash chain tamper detection reveals document modification; integrity store tracks every version with cryptographic verification; lifecycle state machine prevents unauthorized state transitions |
 | No Single Points of Failure | Multiple classification dimensions (level + categories + score); version diffing provides independent change tracking alongside integrity hashing; compliance packages aggregate multiple documents |
 | Zero Trust Throughout | Every document operation generates audit events (15 new types); legal hold enforcement blocks disposal regardless of expiration; lifecycle policy violations are detected and classified by severity |
+
+---
+
+## rune-policy-ext Layer 2
+
+**Test count**: 93 → 140 (+47 tests, zero failures)
+
+### New Dependencies
+- `sha3 = "0.10"` — SHA3-256 policy version hashing
+- `hex = "0.4"` — hex encoding for hash output
+
+### New Modules
+
+- `l2_conflict.rs` — Enhanced policy conflict detection and resolution: PolicyConflictType (5 variants: DirectContradiction/OverlapAmbiguity/PriorityConflict/ScopeOverlap/TemporalConflict), L2ConflictSeverity (Low/Medium/High/Critical), PolicyEffect (Permit/Deny), PolicyRecord with resources/priority/validity, L2ConflictDetector (add_policy/detect_conflicts/conflicts_for_resource/conflict_count), ConflictResolutionStrategy (6 variants: HighestPriority/MostSpecific/MostRecent/DenyOverrides/PermitOverrides/Manual), resolve_conflict function
+
+- `l2_hierarchy.rs` — Policy inheritance hierarchies: OverrideMode (Inherit/Extend/Override/Replace), PolicyHierarchyNode, PolicyHierarchyStore (add_node/parent_of/children_of/ancestors/depth/root_policies/effective_mode/has_cycle with DFS cycle detection)
+
+- `l2_temporal.rs` — Temporal policy scheduling: PolicyRecurrence (Daily/Weekly/Monthly/None), TemporalPolicy with is_active recurrence checking, TemporalPolicyScheduler (schedule/active_policies/upcoming_activations/expired_policies/overlapping_policies)
+
+- `l2_simulation.rs` — Policy simulation and impact analysis: L2SimulationTestCase/L2SimulationResult/L2PolicySimulation, run_simulation with condition matching, ImpactRisk (Low/Medium/High/Critical), analyze_impact with projected permits/denies and risk assessment, L2SimulationStore (store/get/pass_rate/simulations_for_policy)
+
+- `l2_versioning.rs` — SHA3-256 policy versioning: L2PolicyVersionStatus (Draft/Active/Deprecated/Revoked), compute_policy_hash (SHA3-256 of policy_id:version:content:previous_hash), L2PolicyVersion with hash chain, L2PolicyVersionStore (add_version/current_version/version_history/verify_version_chain/active_versions/deprecate_version), VersionChainVerification
+
+- `l2_dependency.rs` — Cross-policy dependency tracking: PolicyDependencyGraph (add_dependency/dependencies_of/dependents_of/transitive_dependencies/has_cycle/leaf_policies/root_policies), cascade_impact (directly/transitively affected with max_depth), validate_dependencies detecting CyclicDependency/MissingDependency/OrphanPolicy/DeepChain
+
+### Modified Files
+- `audit.rs` — 15 new PolicyExtEventType variants for Layer 2 operations, Display impl and type_name for all new variants
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports with L2 prefix aliases
+- `Cargo.toml` — added sha3 and hex dependencies
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | SHA3-256 policy version integrity with hash chain verification; structured conflict detection with typed severity levels; policy hierarchy enforcement with override modes |
+| Assumed Breach | Version chain tamper detection reveals unauthorized policy modifications; cascade impact analysis shows blast radius before changes; dependency validation catches missing or circular dependencies |
+| No Single Points of Failure | Multiple conflict resolution strategies (6 variants); temporal scheduling with recurrence patterns; policy simulation provides dry-run validation before deployment |
+| Zero Trust Throughout | Every policy operation generates audit events (15 new types); impact analysis with risk assessment before deployment; dependency graph prevents orphan or deeply-chained policies |

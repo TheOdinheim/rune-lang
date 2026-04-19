@@ -23,6 +23,23 @@ pub enum PolicyExtEventType {
     PolicyImported,
     FrameworkBound { framework: String, requirement: String },
     RollbackPerformed { to_version: String },
+
+    // ── Layer 2 event types ────────────────────────────────────────
+    PolicyConflictDetected { policy_a: String, policy_b: String, conflict_type: String },
+    PolicyConflictResolved { conflict_id: String, strategy: String, winner: String },
+    PolicyHierarchyModified { policy_id: String, parent_id: String },
+    PolicyInheritanceApplied { child: String, parent: String, mode: String },
+    TemporalPolicyScheduled { policy_id: String, effective_from: i64 },
+    TemporalPolicyActivated { policy_id: String },
+    TemporalPolicyExpired { policy_id: String },
+    PolicySimulationRun { simulation_id: String, test_cases: usize, pass_rate: f64 },
+    PolicyImpactAnalyzed { policy_id: String, affected: usize, risk: String },
+    PolicyVersionCreated { policy_id: String, version: u32, hash_prefix: String },
+    PolicyVersionDeprecated { policy_id: String, version: u32 },
+    PolicyVersionChainVerified { policy_id: String, valid: bool },
+    PolicyDependencyAdded { policy_id: String, depends_on: String },
+    PolicyCascadeAnalyzed { policy_id: String, total_affected: usize },
+    PolicyDependencyValidated { issues: usize },
 }
 
 impl fmt::Display for PolicyExtEventType {
@@ -49,6 +66,51 @@ impl fmt::Display for PolicyExtEventType {
             Self::RollbackPerformed { to_version } => {
                 write!(f, "rollback-performed:{to_version}")
             }
+            Self::PolicyConflictDetected { policy_a, policy_b, conflict_type } => {
+                write!(f, "l2-conflict-detected:{policy_a}/{policy_b}:{conflict_type}")
+            }
+            Self::PolicyConflictResolved { conflict_id, strategy, winner } => {
+                write!(f, "l2-conflict-resolved:{conflict_id}:{strategy}→{winner}")
+            }
+            Self::PolicyHierarchyModified { policy_id, parent_id } => {
+                write!(f, "l2-hierarchy-modified:{policy_id}→{parent_id}")
+            }
+            Self::PolicyInheritanceApplied { child, parent, mode } => {
+                write!(f, "l2-inheritance-applied:{child}←{parent}:{mode}")
+            }
+            Self::TemporalPolicyScheduled { policy_id, effective_from } => {
+                write!(f, "l2-temporal-scheduled:{policy_id}@{effective_from}")
+            }
+            Self::TemporalPolicyActivated { policy_id } => {
+                write!(f, "l2-temporal-activated:{policy_id}")
+            }
+            Self::TemporalPolicyExpired { policy_id } => {
+                write!(f, "l2-temporal-expired:{policy_id}")
+            }
+            Self::PolicySimulationRun { simulation_id, test_cases, pass_rate } => {
+                write!(f, "l2-simulation-run:{simulation_id}:{test_cases}tc:{pass_rate:.0}%")
+            }
+            Self::PolicyImpactAnalyzed { policy_id, affected, risk } => {
+                write!(f, "l2-impact-analyzed:{policy_id}:{affected}:{risk}")
+            }
+            Self::PolicyVersionCreated { policy_id, version, hash_prefix } => {
+                write!(f, "l2-version-created:{policy_id}@{version}:{hash_prefix}")
+            }
+            Self::PolicyVersionDeprecated { policy_id, version } => {
+                write!(f, "l2-version-deprecated:{policy_id}@{version}")
+            }
+            Self::PolicyVersionChainVerified { policy_id, valid } => {
+                write!(f, "l2-version-chain-verified:{policy_id}:{valid}")
+            }
+            Self::PolicyDependencyAdded { policy_id, depends_on } => {
+                write!(f, "l2-dependency-added:{policy_id}→{depends_on}")
+            }
+            Self::PolicyCascadeAnalyzed { policy_id, total_affected } => {
+                write!(f, "l2-cascade-analyzed:{policy_id}:{total_affected}")
+            }
+            Self::PolicyDependencyValidated { issues } => {
+                write!(f, "l2-dependency-validated:{issues} issues")
+            }
         }
     }
 }
@@ -67,6 +129,21 @@ impl PolicyExtEventType {
             Self::PolicyImported => "policy-imported",
             Self::FrameworkBound { .. } => "framework-bound",
             Self::RollbackPerformed { .. } => "rollback-performed",
+            Self::PolicyConflictDetected { .. } => "l2-conflict-detected",
+            Self::PolicyConflictResolved { .. } => "l2-conflict-resolved",
+            Self::PolicyHierarchyModified { .. } => "l2-hierarchy-modified",
+            Self::PolicyInheritanceApplied { .. } => "l2-inheritance-applied",
+            Self::TemporalPolicyScheduled { .. } => "l2-temporal-scheduled",
+            Self::TemporalPolicyActivated { .. } => "l2-temporal-activated",
+            Self::TemporalPolicyExpired { .. } => "l2-temporal-expired",
+            Self::PolicySimulationRun { .. } => "l2-simulation-run",
+            Self::PolicyImpactAnalyzed { .. } => "l2-impact-analyzed",
+            Self::PolicyVersionCreated { .. } => "l2-version-created",
+            Self::PolicyVersionDeprecated { .. } => "l2-version-deprecated",
+            Self::PolicyVersionChainVerified { .. } => "l2-version-chain-verified",
+            Self::PolicyDependencyAdded { .. } => "l2-dependency-added",
+            Self::PolicyCascadeAnalyzed { .. } => "l2-cascade-analyzed",
+            Self::PolicyDependencyValidated { .. } => "l2-dependency-validated",
         }
     }
 }
@@ -273,11 +350,26 @@ mod tests {
             PolicyExtEventType::PolicyImported,
             PolicyExtEventType::FrameworkBound { framework: "GDPR".into(), requirement: "Art. 5".into() },
             PolicyExtEventType::RollbackPerformed { to_version: "0.1.0".into() },
+            PolicyExtEventType::PolicyConflictDetected { policy_a: "p1".into(), policy_b: "p2".into(), conflict_type: "direct".into() },
+            PolicyExtEventType::PolicyConflictResolved { conflict_id: "c1".into(), strategy: "deny-overrides".into(), winner: "p2".into() },
+            PolicyExtEventType::PolicyHierarchyModified { policy_id: "p1".into(), parent_id: "root".into() },
+            PolicyExtEventType::PolicyInheritanceApplied { child: "c1".into(), parent: "p1".into(), mode: "extend".into() },
+            PolicyExtEventType::TemporalPolicyScheduled { policy_id: "p1".into(), effective_from: 1000 },
+            PolicyExtEventType::TemporalPolicyActivated { policy_id: "p1".into() },
+            PolicyExtEventType::TemporalPolicyExpired { policy_id: "p1".into() },
+            PolicyExtEventType::PolicySimulationRun { simulation_id: "sim-1".into(), test_cases: 10, pass_rate: 0.9 },
+            PolicyExtEventType::PolicyImpactAnalyzed { policy_id: "p1".into(), affected: 50, risk: "Medium".into() },
+            PolicyExtEventType::PolicyVersionCreated { policy_id: "p1".into(), version: 1, hash_prefix: "abc123".into() },
+            PolicyExtEventType::PolicyVersionDeprecated { policy_id: "p1".into(), version: 1 },
+            PolicyExtEventType::PolicyVersionChainVerified { policy_id: "p1".into(), valid: true },
+            PolicyExtEventType::PolicyDependencyAdded { policy_id: "p1".into(), depends_on: "p2".into() },
+            PolicyExtEventType::PolicyCascadeAnalyzed { policy_id: "p1".into(), total_affected: 3 },
+            PolicyExtEventType::PolicyDependencyValidated { issues: 0 },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
             assert!(!t.type_name().is_empty());
         }
-        assert_eq!(types.len(), 11);
+        assert_eq!(types.len(), 26);
     }
 }

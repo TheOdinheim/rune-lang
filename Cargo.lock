@@ -1694,10 +1694,12 @@ dependencies = [
 name = "rune-policy-ext"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "rune-lang",
  "rune-security",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]
