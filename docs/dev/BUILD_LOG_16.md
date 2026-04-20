@@ -206,3 +206,61 @@ New classification methods: `is_credential_event()`, `is_authentication_event()`
 | Assumed Breach | IdentityEventSubscriber enables real-time identity lifecycle streaming; filtered subscribers isolate security events; federation flow state tokens are SHA3-256 hashed |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 identity export formats prevent vendor lock-in; IdentityBackend and CredentialMaterialStore separate storage concerns |
 | Zero Trust Throughout | NIST SP 800-63B factor type classification; JWT signing/verification split from structure validation; federation flows require state token + assertion hash verification |
+
+---
+
+## rune-permissions Layer 3 — External Integration Trait Boundaries
+
+**Test count**: 227 (151→227, +76 new tests)
+
+**Clippy**: Zero new warnings in Layer 3 files
+
+### New Modules (7)
+
+| Module | Tests | Purpose |
+|--------|-------|---------|
+| `backend.rs` | 14 | PermissionBackend trait (17 methods), IdentityRef/RoleRef newtypes, StoredPolicyDefinition, StoredRoleDefinition, PermissionGrantRecord, InMemoryPermissionBackend |
+| `decision_engine.rs` | 12 | AuthorizationDecisionEngine trait with XACML four-outcome model (Permit/Deny/Indeterminate/NotApplicable), RbacDecisionEngine, AbacDecisionEngine with AttributeRule, DenyAll/AllowAll |
+| `policy_export.rs` | 7 | PolicyExporter trait + 5 formats: Rego, Cedar, XACML, OPA Bundle, JSON |
+| `decision_stream.rs` | 11 | DecisionSubscriber trait, registry, collector, filtered subscriber, 17 DecisionLifecycleEventType variants |
+| `external_evaluator.rs` | 5 | ExternalPolicyEvaluator trait, NullExternalEvaluator (Indeterminate not Deny), RecordingExternalEvaluator |
+| `role_provider.rs` | 11 | RoleProvider trait, InMemoryRoleProvider, CachedRoleProvider with TTL cache and RefCell interior mutability |
+| `capability_verifier.rs` | 12 | CapabilityVerifier trait, HMAC-SHA3-256 signing with constant-time comparison, ExpiryAwareCapabilityVerifier composable wrapper, NullCapabilityVerifier |
+
+### Trait Contracts
+
+- **PermissionBackend**: 17 methods — store/retrieve/delete/list policies, roles, grants, flush, backend_info. IdentityRef decouples from rune-identity's SubjectId (From<SubjectId> conversion provided). RoleRef parallel newtype for role identifiers.
+- **AuthorizationDecisionEngine**: XACML four-outcome decision model (Permit/Deny/Indeterminate/NotApplicable) — the most architecturally significant trait because Layer 5 formal verification will target this interface. EngineType enum (Rbac/Abac/Rebac/Hybrid). AbacDecisionEngine supports composable AttributeRules.
+- **PolicyExporter**: One-way export only (round-trip parsing requires dedicated parser crates). Five formats: Rego (OPA), Cedar (AWS Verified Permissions), XACML 3.0, OPA Bundle, JSON.
+- **DecisionSubscriber**: Streaming decision lifecycle events. FilteredDecisionSubscriber filters by decision type. DecisionCollector reference implementation.
+- **ExternalPolicyEvaluator**: Integration point for OPA/Cedar/AuthZed. NullExternalEvaluator returns Indeterminate (not Deny) so unavailability does not silently become denial. RecordingExternalEvaluator wraps + records all calls via RefCell.
+- **RoleProvider**: External role membership source (LDAP/AD/SCIM). CachedRoleProvider is first-class architectural component — role lookups against external directories are the classic authorization bottleneck. TTL-aware cache with invalidate/invalidate_all.
+- **CapabilityVerifier**: Runtime capability token verification complementing compile-time types. HMAC-SHA3-256 signing with constant-time comparison. ExpiryAwareCapabilityVerifier wraps another verifier (composable, not baked into base trait).
+
+### Audit Enhancement
+
+23 new PermissionEventType variants: PermissionBackendChanged, PolicyDefinitionStored, PolicyDefinitionRemoved, RoleDefinitionStored, RoleDefinitionRemoved, PermissionGrantRecordCreated, PermissionGrantRecordRevoked, AuthorizationDecisionMade, AuthorizationPermit, AuthorizationDeny, AuthorizationIndeterminate, AuthorizationNotApplicable, DecisionEngineInvoked, PolicyExported, PolicyExportFailed, DecisionSubscriberRegistered, DecisionSubscriberRemoved, DecisionEventPublished, ExternalEvaluatorInvoked, ExternalEvaluatorFailed, RoleProviderQueried, CapabilityTokenVerified, CapabilityTokenRejected. New classification methods: is_backend_event, is_decision_event, is_export_event, is_external_event, is_capability_event.
+
+### Dependencies Added
+
+- `sha3 = "0.10"`, `hex = "0.4"`, `hmac = "0.12"` — HMAC-SHA3-256 capability token signing
+
+### Design Decisions
+
+- **XACML four-outcome model**: Permit/Deny/Indeterminate/NotApplicable specifically chosen for formal verification alignment at Layer 5. Indeterminate means the engine cannot decide (external system down, policy error); NotApplicable means no policy matched.
+- **IdentityRef decouples from rune-identity**: rune-permissions defines its own IdentityRef newtype to avoid tight coupling with rune-identity's IdentityId. From<SubjectId> conversion provided for internal use.
+- **NullExternalEvaluator returns Indeterminate**: External evaluator unavailability must not silently become denial — Indeterminate flows through the decision engine's fallback logic.
+- **CachedRoleProvider as first-class component**: Role lookups against LDAP/AD directories are the classic performance bottleneck in authorization systems. TTL-aware cache with per-identity and bulk invalidation.
+- **ExpiryAwareCapabilityVerifier is composable**: Wraps another verifier rather than baking expiry into the base trait — customers may apply expiry checks selectively.
+- **Policy exports are one-way**: All five exporters produce text from policies. Round-trip parsing (Rego→Policy, Cedar→Policy) requires dedicated parser crates.
+- **Naming collision resolution**: StoredPolicyDefinition (vs Permission), StoredRoleDefinition (vs Role), AuthorizationDecision (vs AccessDecision), AuthorizationDecisionEngine (vs RbacEngine), PermissionGrantRecord (vs Grant), PermissionBackendInfo (vs existing types).
+- **evaluation_latency_us as String**: f64 cannot derive Eq; latency stored as formatted string for Eq compatibility.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | AuthorizationDecisionEngine enforces four-outcome XACML model for formal verification; PermissionBackend ensures all policy/role/grant storage satisfies governance contracts; PolicyExporter formats embed governance metadata |
+| Assumed Breach | DecisionSubscriber enables real-time authorization decision streaming; ExternalPolicyEvaluator integrates external engines; RecordingExternalEvaluator provides complete audit trail of all external calls |
+| No Single Points of Failure | All 7 traits decouple from implementations; 5 policy export formats prevent vendor lock-in; CachedRoleProvider prevents external directory failures from blocking authorization |
+| Zero Trust Throughout | HMAC-SHA3-256 capability token signing with constant-time comparison; NullExternalEvaluator returns Indeterminate not Deny; CapabilityVerifier requires explicit token verification at runtime |

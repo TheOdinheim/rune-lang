@@ -29,6 +29,13 @@ pub mod context;
 pub mod decision;
 pub mod error;
 pub mod store;
+pub mod backend;
+pub mod decision_engine;
+pub mod policy_export;
+pub mod decision_stream;
+pub mod external_evaluator;
+pub mod role_provider;
+pub mod capability_verifier;
 
 pub use types::{
     Action, ClassificationLevel, Condition, Permission, PermissionId,
@@ -47,4 +54,35 @@ pub use store::{
     PermissionStore, RestoreResult, RoleComparison, RoleConflict, RoleConflictType,
     SimulationResult, SimulationRisk, SodCheckResult, SodEnforcement, SodPolicy,
     SodViolation, TemporalDelegation,
+};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use backend::{
+    PermissionBackend, InMemoryPermissionBackend, IdentityRef, RoleRef,
+    StoredPolicyDefinition, StoredRoleDefinition, PermissionGrantRecord, PermissionBackendInfo,
+};
+pub use decision_engine::{
+    AuthorizationDecisionEngine, AuthorizationRequest, AuthorizationDecision, EngineType,
+    RbacDecisionEngine, AbacDecisionEngine, DenyAllDecisionEngine, AllowAllDecisionEngine,
+    AttributeRule,
+};
+pub use policy_export::{
+    PolicyExporter, RegoExporter, CedarExporter, XacmlExporter, OpaBundleExporter,
+    JsonPolicyExporter,
+};
+pub use decision_stream::{
+    DecisionSubscriber, DecisionSubscriberRegistry, DecisionCollector,
+    FilteredDecisionSubscriber, DecisionLifecycleEvent, DecisionLifecycleEventType,
+};
+pub use external_evaluator::{
+    ExternalPolicyEvaluator, ExternalEvaluatorType, ExternalEvaluationResult,
+    NullExternalEvaluator, RecordingExternalEvaluator,
+};
+pub use role_provider::{
+    RoleProvider, InMemoryRoleProvider, CachedRoleProvider,
+};
+pub use capability_verifier::{
+    CapabilityVerifier, CapabilityToken, RequiredCapability, CapabilityVerificationResult,
+    HmacSha3CapabilityVerifier, ExpiryAwareCapabilityVerifier, NullCapabilityVerifier,
 };

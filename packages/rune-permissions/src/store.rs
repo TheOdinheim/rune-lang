@@ -48,6 +48,30 @@ pub enum PermissionEventType {
     RoleConflictDetected,
     SodViolationDetected,
     SodPolicyAdded,
+    // Layer 3
+    PermissionBackendChanged { backend_type: String },
+    PolicyDefinitionStored { policy_id: String },
+    PolicyDefinitionRemoved { policy_id: String },
+    RoleDefinitionStored { role_id: String },
+    RoleDefinitionRemoved { role_id: String },
+    PermissionGrantRecordCreated { grant_id: String },
+    PermissionGrantRecordRevoked { grant_id: String },
+    AuthorizationDecisionMade { outcome: String },
+    AuthorizationPermit { matched_policies: String },
+    AuthorizationDeny { reason: String },
+    AuthorizationIndeterminate { reason: String },
+    AuthorizationNotApplicable,
+    DecisionEngineInvoked { engine_id: String },
+    PolicyExported { format: String },
+    PolicyExportFailed { format: String, reason: String },
+    DecisionSubscriberRegistered { subscriber_id: String },
+    DecisionSubscriberRemoved { subscriber_id: String },
+    DecisionEventPublished { event_type: String },
+    ExternalEvaluatorInvoked { evaluator_id: String },
+    ExternalEvaluatorFailed { evaluator_id: String, reason: String },
+    RoleProviderQueried { provider_id: String },
+    CapabilityTokenVerified { token_id: String },
+    CapabilityTokenRejected { token_id: String, reason: String },
 }
 
 impl std::fmt::Display for PermissionEventType {
@@ -76,6 +100,73 @@ impl std::fmt::Display for PermissionEventType {
             Self::RoleConflictDetected => "RoleConflictDetected",
             Self::SodViolationDetected => "SodViolationDetected",
             Self::SodPolicyAdded => "SodPolicyAdded",
+            Self::PermissionBackendChanged { backend_type } => {
+                return write!(f, "PermissionBackendChanged({backend_type})");
+            }
+            Self::PolicyDefinitionStored { policy_id } => {
+                return write!(f, "PolicyDefinitionStored({policy_id})");
+            }
+            Self::PolicyDefinitionRemoved { policy_id } => {
+                return write!(f, "PolicyDefinitionRemoved({policy_id})");
+            }
+            Self::RoleDefinitionStored { role_id } => {
+                return write!(f, "RoleDefinitionStored({role_id})");
+            }
+            Self::RoleDefinitionRemoved { role_id } => {
+                return write!(f, "RoleDefinitionRemoved({role_id})");
+            }
+            Self::PermissionGrantRecordCreated { grant_id } => {
+                return write!(f, "PermissionGrantRecordCreated({grant_id})");
+            }
+            Self::PermissionGrantRecordRevoked { grant_id } => {
+                return write!(f, "PermissionGrantRecordRevoked({grant_id})");
+            }
+            Self::AuthorizationDecisionMade { outcome } => {
+                return write!(f, "AuthorizationDecisionMade({outcome})");
+            }
+            Self::AuthorizationPermit { matched_policies } => {
+                return write!(f, "AuthorizationPermit({matched_policies})");
+            }
+            Self::AuthorizationDeny { reason } => {
+                return write!(f, "AuthorizationDeny({reason})");
+            }
+            Self::AuthorizationIndeterminate { reason } => {
+                return write!(f, "AuthorizationIndeterminate({reason})");
+            }
+            Self::AuthorizationNotApplicable => "AuthorizationNotApplicable",
+            Self::DecisionEngineInvoked { engine_id } => {
+                return write!(f, "DecisionEngineInvoked({engine_id})");
+            }
+            Self::PolicyExported { format } => {
+                return write!(f, "PolicyExported({format})");
+            }
+            Self::PolicyExportFailed { format, reason } => {
+                return write!(f, "PolicyExportFailed({format}: {reason})");
+            }
+            Self::DecisionSubscriberRegistered { subscriber_id } => {
+                return write!(f, "DecisionSubscriberRegistered({subscriber_id})");
+            }
+            Self::DecisionSubscriberRemoved { subscriber_id } => {
+                return write!(f, "DecisionSubscriberRemoved({subscriber_id})");
+            }
+            Self::DecisionEventPublished { event_type } => {
+                return write!(f, "DecisionEventPublished({event_type})");
+            }
+            Self::ExternalEvaluatorInvoked { evaluator_id } => {
+                return write!(f, "ExternalEvaluatorInvoked({evaluator_id})");
+            }
+            Self::ExternalEvaluatorFailed { evaluator_id, reason } => {
+                return write!(f, "ExternalEvaluatorFailed({evaluator_id}: {reason})");
+            }
+            Self::RoleProviderQueried { provider_id } => {
+                return write!(f, "RoleProviderQueried({provider_id})");
+            }
+            Self::CapabilityTokenVerified { token_id } => {
+                return write!(f, "CapabilityTokenVerified({token_id})");
+            }
+            Self::CapabilityTokenRejected { token_id, reason } => {
+                return write!(f, "CapabilityTokenRejected({token_id}: {reason})");
+            }
         };
         write!(f, "{}", name)
     }
@@ -107,7 +198,80 @@ impl PermissionEventType {
             Self::RoleConflictDetected => "RoleConflictDetected",
             Self::SodViolationDetected => "SodViolationDetected",
             Self::SodPolicyAdded => "SodPolicyAdded",
+            Self::PermissionBackendChanged { .. } => "PermissionBackendChanged",
+            Self::PolicyDefinitionStored { .. } => "PolicyDefinitionStored",
+            Self::PolicyDefinitionRemoved { .. } => "PolicyDefinitionRemoved",
+            Self::RoleDefinitionStored { .. } => "RoleDefinitionStored",
+            Self::RoleDefinitionRemoved { .. } => "RoleDefinitionRemoved",
+            Self::PermissionGrantRecordCreated { .. } => "PermissionGrantRecordCreated",
+            Self::PermissionGrantRecordRevoked { .. } => "PermissionGrantRecordRevoked",
+            Self::AuthorizationDecisionMade { .. } => "AuthorizationDecisionMade",
+            Self::AuthorizationPermit { .. } => "AuthorizationPermit",
+            Self::AuthorizationDeny { .. } => "AuthorizationDeny",
+            Self::AuthorizationIndeterminate { .. } => "AuthorizationIndeterminate",
+            Self::AuthorizationNotApplicable => "AuthorizationNotApplicable",
+            Self::DecisionEngineInvoked { .. } => "DecisionEngineInvoked",
+            Self::PolicyExported { .. } => "PolicyExported",
+            Self::PolicyExportFailed { .. } => "PolicyExportFailed",
+            Self::DecisionSubscriberRegistered { .. } => "DecisionSubscriberRegistered",
+            Self::DecisionSubscriberRemoved { .. } => "DecisionSubscriberRemoved",
+            Self::DecisionEventPublished { .. } => "DecisionEventPublished",
+            Self::ExternalEvaluatorInvoked { .. } => "ExternalEvaluatorInvoked",
+            Self::ExternalEvaluatorFailed { .. } => "ExternalEvaluatorFailed",
+            Self::RoleProviderQueried { .. } => "RoleProviderQueried",
+            Self::CapabilityTokenVerified { .. } => "CapabilityTokenVerified",
+            Self::CapabilityTokenRejected { .. } => "CapabilityTokenRejected",
         }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PermissionBackendChanged { .. }
+                | Self::PolicyDefinitionStored { .. }
+                | Self::PolicyDefinitionRemoved { .. }
+                | Self::RoleDefinitionStored { .. }
+                | Self::RoleDefinitionRemoved { .. }
+                | Self::PermissionGrantRecordCreated { .. }
+                | Self::PermissionGrantRecordRevoked { .. }
+        )
+    }
+
+    pub fn is_decision_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AuthorizationDecisionMade { .. }
+                | Self::AuthorizationPermit { .. }
+                | Self::AuthorizationDeny { .. }
+                | Self::AuthorizationIndeterminate { .. }
+                | Self::AuthorizationNotApplicable
+                | Self::DecisionEngineInvoked { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PolicyExported { .. }
+                | Self::PolicyExportFailed { .. }
+        )
+    }
+
+    pub fn is_external_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ExternalEvaluatorInvoked { .. }
+                | Self::ExternalEvaluatorFailed { .. }
+                | Self::RoleProviderQueried { .. }
+        )
+    }
+
+    pub fn is_capability_event(&self) -> bool {
+        matches!(
+            self,
+            Self::CapabilityTokenVerified { .. }
+                | Self::CapabilityTokenRejected { .. }
+        )
     }
 }
 
@@ -2497,5 +2661,80 @@ mod tests {
     fn test_role_conflict_type_display() {
         assert_eq!(RoleConflictType::MutuallyExclusive.to_string(), "MutuallyExclusive");
         assert_eq!(RoleConflictType::PermissionOverlap.to_string(), "PermissionOverlap");
+    }
+
+    // ── Layer 3: Audit Enhancement Tests ─────────────────────────────
+
+    #[test]
+    fn test_layer3_event_types_display() {
+        let events: Vec<PermissionEventType> = vec![
+            PermissionEventType::PermissionBackendChanged { backend_type: "postgres".into() },
+            PermissionEventType::PolicyDefinitionStored { policy_id: "pol-1".into() },
+            PermissionEventType::PolicyDefinitionRemoved { policy_id: "pol-1".into() },
+            PermissionEventType::RoleDefinitionStored { role_id: "admin".into() },
+            PermissionEventType::RoleDefinitionRemoved { role_id: "admin".into() },
+            PermissionEventType::PermissionGrantRecordCreated { grant_id: "g-1".into() },
+            PermissionEventType::PermissionGrantRecordRevoked { grant_id: "g-1".into() },
+            PermissionEventType::AuthorizationDecisionMade { outcome: "permit".into() },
+            PermissionEventType::AuthorizationPermit { matched_policies: "p1,p2".into() },
+            PermissionEventType::AuthorizationDeny { reason: "no access".into() },
+            PermissionEventType::AuthorizationIndeterminate { reason: "error".into() },
+            PermissionEventType::AuthorizationNotApplicable,
+            PermissionEventType::DecisionEngineInvoked { engine_id: "rbac-1".into() },
+            PermissionEventType::PolicyExported { format: "rego".into() },
+            PermissionEventType::PolicyExportFailed { format: "xacml".into(), reason: "io".into() },
+            PermissionEventType::DecisionSubscriberRegistered { subscriber_id: "s1".into() },
+            PermissionEventType::DecisionSubscriberRemoved { subscriber_id: "s1".into() },
+            PermissionEventType::DecisionEventPublished { event_type: "Permit".into() },
+            PermissionEventType::ExternalEvaluatorInvoked { evaluator_id: "opa-1".into() },
+            PermissionEventType::ExternalEvaluatorFailed { evaluator_id: "opa-1".into(), reason: "timeout".into() },
+            PermissionEventType::RoleProviderQueried { provider_id: "ldap-1".into() },
+            PermissionEventType::CapabilityTokenVerified { token_id: "tok-1".into() },
+            PermissionEventType::CapabilityTokenRejected { token_id: "tok-1".into(), reason: "expired".into() },
+        ];
+        for e in &events {
+            assert!(!e.to_string().is_empty());
+            assert!(!e.type_name().is_empty());
+        }
+        assert_eq!(events.len(), 23);
+    }
+
+    #[test]
+    fn test_layer3_backend_event_classification() {
+        assert!(PermissionEventType::PolicyDefinitionStored { policy_id: "x".into() }.is_backend_event());
+        assert!(PermissionEventType::RoleDefinitionRemoved { role_id: "x".into() }.is_backend_event());
+        assert!(PermissionEventType::PermissionGrantRecordCreated { grant_id: "x".into() }.is_backend_event());
+        assert!(!PermissionEventType::AuthorizationPermit { matched_policies: "x".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_layer3_decision_event_classification() {
+        assert!(PermissionEventType::AuthorizationPermit { matched_policies: "x".into() }.is_decision_event());
+        assert!(PermissionEventType::AuthorizationDeny { reason: "x".into() }.is_decision_event());
+        assert!(PermissionEventType::AuthorizationNotApplicable.is_decision_event());
+        assert!(PermissionEventType::DecisionEngineInvoked { engine_id: "x".into() }.is_decision_event());
+        assert!(!PermissionEventType::PolicyExported { format: "x".into() }.is_decision_event());
+    }
+
+    #[test]
+    fn test_layer3_export_event_classification() {
+        assert!(PermissionEventType::PolicyExported { format: "rego".into() }.is_export_event());
+        assert!(PermissionEventType::PolicyExportFailed { format: "x".into(), reason: "y".into() }.is_export_event());
+        assert!(!PermissionEventType::AuthorizationPermit { matched_policies: "x".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_layer3_external_event_classification() {
+        assert!(PermissionEventType::ExternalEvaluatorInvoked { evaluator_id: "x".into() }.is_external_event());
+        assert!(PermissionEventType::ExternalEvaluatorFailed { evaluator_id: "x".into(), reason: "y".into() }.is_external_event());
+        assert!(PermissionEventType::RoleProviderQueried { provider_id: "x".into() }.is_external_event());
+        assert!(!PermissionEventType::AuthorizationDeny { reason: "x".into() }.is_external_event());
+    }
+
+    #[test]
+    fn test_layer3_capability_event_classification() {
+        assert!(PermissionEventType::CapabilityTokenVerified { token_id: "x".into() }.is_capability_event());
+        assert!(PermissionEventType::CapabilityTokenRejected { token_id: "x".into(), reason: "y".into() }.is_capability_event());
+        assert!(!PermissionEventType::PolicyExported { format: "x".into() }.is_capability_event());
     }
 }
