@@ -188,3 +188,41 @@
 | Assumed Breach | SHA3-256 communication audit chain with tamper detection via hash recomputation; violation tracking across policies and agents; trust decay over time requires continuous good behavior |
 | No Single Points of Failure | Six coordination protocol types (LeaderFollower/Consensus/Pipeline/Broadcast/RequestResponse/Auction); delegation chains with redelegation depth tracking; multiple enforcement actions (Allow/Deny/RequireApproval/RateLimit/Log/Quarantine) |
 | Zero Trust Throughout | Every agent operation generates audit events (15 new types); capability expiration enforced on every check; behavioral policy evaluation with wildcard agent matching; trust scoring penalizes failures 2x harder than successes reward |
+
+---
+
+## rune-networking-ext Layer 2
+
+**Test count**: 116 → 162 (+46 tests, zero failures)
+
+### New Dependencies
+- `sha3 = "0.10"` — SHA3-256 traffic audit chain hashing and certificate fingerprinting
+- `hex = "0.4"` — hex encoding for hash output
+
+### New Modules
+
+- `l2_certificate.rs` — TLS certificate management with SHA3-256 fingerprinting: L2KeyAlgorithm (Rsa/Ecdsa/Ed25519/Unknown), L2Certificate with SHA3-256 fingerprint computed at construction, L2CertificateStore (add/get/is_valid/expiring_within/expired/certificates_for_subject/ca_certificates), CertificateIssue (7 variants: Expired/NotYetValid/WeakKeySize/WeakAlgorithm/MissingSan/SelfSigned/ExpiresWithinDays), validate_certificate with min_key_bits enforcement
+
+- `l2_policy.rs` — Network policy enforcement: NetworkAction (Allow/Deny/Log/RateLimit), TrafficDirection (Inbound/Outbound/Both), NetworkMatch (Any/IpAddress/IpRange/Hostname/Tag), NetworkRule with direction+source+destination+port_range matching, L2NetworkPolicy with priority and enabled flag, NetworkPolicyEngine with priority-ordered first-match evaluation, NetworkPolicyDecision with matched_policy_id/matched_rule_id
+
+- `l2_pool.rs` — Connection pool governance: L2ConnectionState (Active/Idle/Draining/Closed), PooledConnection with use_count tracking, GovernedConnectionPool (acquire/release/close/evict_idle/evict_expired/active_count/idle_count/utilization/pool_stats), PoolStats (6 fields)
+
+- `l2_traffic_chain.rs` — SHA3-256 network traffic audit chain: TrafficRecord with hash chaining (id||source||dest||port||action||prev||timestamp), TrafficAuditChain (append/verify_chain/chain_length/records_for_source/records_for_destination/denied_traffic/traffic_volume_bytes), TrafficChainVerification (valid/verified_links/broken_at)
+
+- `l2_dns.rs` — DNS security verification: DnsRecordType (9 variants: A/AAAA/CNAME/MX/TXT/NS/SOA/SRV/CAA), DnsRecord with DNSSEC validation flag, DnsSecurityChecker (blocklist+allowlist modes, check_domain/is_blocked/is_allowed), DnsCache with TTL-aware lookup and eviction
+
+- `l2_segmentation.rs` — Network segmentation policy: ZoneTrustLevel (5 levels: Untrusted/Dmz/Internal/Restricted/HighSecurity with Ord), L2NetworkZone with egress/ingress lists and tags, InterZoneRule with justification, L2SegmentationPolicy (add_zone/add_rule/can_communicate/zone_for_host tag matching/violations detecting untrusted-to-higher-trust without rules)
+
+### Modified Files
+- `audit.rs` — 15 new NetworkEventType variants for Layer 2 operations (CertificateAdded/CertificateExpiringL2/CertificateValidatedL2/NetworkPolicyEvaluated/NetworkPolicyAdded/ConnectionAcquired/ConnectionReleased/ConnectionPoolEvicted/TrafficRecorded/TrafficChainVerified/DnsDomainChecked/DnsCacheHit/DnsCacheMiss/ZoneCommunicationChecked/SegmentationViolationDetected), updated Display impl and test (15→30 variants)
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports with L2 prefix aliases for name collisions
+- `Cargo.toml` — added sha3 and hex dependencies
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | SHA3-256 certificate fingerprinting with validation (expired/weak key/missing SAN/self-signed); network policy enforcement with priority-ordered first-match evaluation; DNS security with blocklist/allowlist modes and DNSSEC awareness |
+| Assumed Breach | SHA3-256 traffic audit chain with tamper detection via hash recomputation; connection pool eviction tracks idle and expired connections; segmentation violation detection identifies untrusted-to-high-security paths without explicit rules |
+| No Single Points of Failure | Five zone trust levels with ordered enforcement; multiple network match types (IP/Range/Hostname/Tag); DNS cache with TTL-aware eviction prevents stale lookups; certificate store tracks CA certificates separately |
+| Zero Trust Throughout | Every network operation generates audit events (15 new types); network policy decisions recorded with matched policy/rule IDs; inter-zone communication requires explicit egress+ingress configuration; connection pool capacity limits prevent resource exhaustion |

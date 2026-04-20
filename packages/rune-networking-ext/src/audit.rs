@@ -29,6 +29,22 @@ pub enum NetworkEventType {
     DnsQueryAllowed { domain: String },
     RateLimitExceeded { limit_type: String, source: String },
     FirewallRuleMatched { rule_id: String, action: String },
+    // Layer 2
+    CertificateAdded { cert_id: String, subject: String, expires_at: String },
+    CertificateExpiringL2 { cert_id: String, days_remaining: String },
+    CertificateValidatedL2 { cert_id: String, valid: bool, issues: String },
+    NetworkPolicyEvaluated { policy_id: String, action: String },
+    NetworkPolicyAdded { policy_id: String, rules: String },
+    ConnectionAcquired { pool_id: String, connection_id: String },
+    ConnectionReleased { pool_id: String, connection_id: String },
+    ConnectionPoolEvicted { pool_id: String, evicted: String },
+    TrafficRecorded { source: String, destination: String, action: String },
+    TrafficChainVerified { chain_length: String, valid: bool },
+    DnsDomainChecked { hostname: String, allowed: bool },
+    DnsCacheHit { hostname: String },
+    DnsCacheMiss { hostname: String },
+    ZoneCommunicationChecked { from_zone: String, to_zone: String, allowed: bool },
+    SegmentationViolationDetected { from_zone: String, to_zone: String },
 }
 
 impl fmt::Display for NetworkEventType {
@@ -70,6 +86,51 @@ impl fmt::Display for NetworkEventType {
             }
             Self::FirewallRuleMatched { rule_id, action } => {
                 write!(f, "FirewallRuleMatched({rule_id}: {action})")
+            }
+            Self::CertificateAdded { cert_id, subject, expires_at } => {
+                write!(f, "CertificateAdded({cert_id}, {subject}, expires={expires_at})")
+            }
+            Self::CertificateExpiringL2 { cert_id, days_remaining } => {
+                write!(f, "CertificateExpiring({cert_id}, {days_remaining}d)")
+            }
+            Self::CertificateValidatedL2 { cert_id, valid, issues } => {
+                write!(f, "CertificateValidated({cert_id}, valid={valid}, issues={issues})")
+            }
+            Self::NetworkPolicyEvaluated { policy_id, action } => {
+                write!(f, "NetworkPolicyEvaluated({policy_id}, {action})")
+            }
+            Self::NetworkPolicyAdded { policy_id, rules } => {
+                write!(f, "NetworkPolicyAdded({policy_id}, rules={rules})")
+            }
+            Self::ConnectionAcquired { pool_id, connection_id } => {
+                write!(f, "ConnectionAcquired({pool_id}, {connection_id})")
+            }
+            Self::ConnectionReleased { pool_id, connection_id } => {
+                write!(f, "ConnectionReleased({pool_id}, {connection_id})")
+            }
+            Self::ConnectionPoolEvicted { pool_id, evicted } => {
+                write!(f, "ConnectionPoolEvicted({pool_id}, evicted={evicted})")
+            }
+            Self::TrafficRecorded { source, destination, action } => {
+                write!(f, "TrafficRecorded({source}→{destination}, {action})")
+            }
+            Self::TrafficChainVerified { chain_length, valid } => {
+                write!(f, "TrafficChainVerified(len={chain_length}, valid={valid})")
+            }
+            Self::DnsDomainChecked { hostname, allowed } => {
+                write!(f, "DnsDomainChecked({hostname}, allowed={allowed})")
+            }
+            Self::DnsCacheHit { hostname } => {
+                write!(f, "DnsCacheHit({hostname})")
+            }
+            Self::DnsCacheMiss { hostname } => {
+                write!(f, "DnsCacheMiss({hostname})")
+            }
+            Self::ZoneCommunicationChecked { from_zone, to_zone, allowed } => {
+                write!(f, "ZoneCommunicationChecked({from_zone}→{to_zone}, allowed={allowed})")
+            }
+            Self::SegmentationViolationDetected { from_zone, to_zone } => {
+                write!(f, "SegmentationViolationDetected({from_zone}→{to_zone})")
             }
         }
     }
@@ -342,10 +403,26 @@ mod tests {
             NetworkEventType::DnsQueryAllowed { domain: "good.com".into() },
             NetworkEventType::RateLimitExceeded { limit_type: "per-source".into(), source: "1.2.3.4".into() },
             NetworkEventType::FirewallRuleMatched { rule_id: "r1".into(), action: "Deny".into() },
+            // Layer 2
+            NetworkEventType::CertificateAdded { cert_id: "c1".into(), subject: "CN=test".into(), expires_at: "2025-01-01".into() },
+            NetworkEventType::CertificateExpiringL2 { cert_id: "c1".into(), days_remaining: "7".into() },
+            NetworkEventType::CertificateValidatedL2 { cert_id: "c1".into(), valid: true, issues: "none".into() },
+            NetworkEventType::NetworkPolicyEvaluated { policy_id: "p1".into(), action: "Allow".into() },
+            NetworkEventType::NetworkPolicyAdded { policy_id: "p1".into(), rules: "3".into() },
+            NetworkEventType::ConnectionAcquired { pool_id: "pool1".into(), connection_id: "c1".into() },
+            NetworkEventType::ConnectionReleased { pool_id: "pool1".into(), connection_id: "c1".into() },
+            NetworkEventType::ConnectionPoolEvicted { pool_id: "pool1".into(), evicted: "2".into() },
+            NetworkEventType::TrafficRecorded { source: "1.2.3.4".into(), destination: "5.6.7.8".into(), action: "allow".into() },
+            NetworkEventType::TrafficChainVerified { chain_length: "10".into(), valid: true },
+            NetworkEventType::DnsDomainChecked { hostname: "example.com".into(), allowed: true },
+            NetworkEventType::DnsCacheHit { hostname: "example.com".into() },
+            NetworkEventType::DnsCacheMiss { hostname: "new.com".into() },
+            NetworkEventType::ZoneCommunicationChecked { from_zone: "dmz".into(), to_zone: "internal".into(), allowed: true },
+            NetworkEventType::SegmentationViolationDetected { from_zone: "untrusted".into(), to_zone: "secure".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 15);
+        assert_eq!(types.len(), 30);
     }
 }

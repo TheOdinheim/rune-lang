@@ -16,6 +16,14 @@ pub mod rate_limit;
 pub mod segmentation;
 pub mod traffic;
 
+// Layer 2 modules
+pub mod l2_certificate;
+pub mod l2_dns;
+pub mod l2_policy;
+pub mod l2_pool;
+pub mod l2_segmentation;
+pub mod l2_traffic_chain;
+
 // ── Re-exports ───────────────────────────────────────────────────────
 
 pub use audit::{NetworkAuditEvent, NetworkAuditLog, NetworkEventType};
@@ -46,3 +54,22 @@ pub use traffic::{
     TrafficClassification, TrafficClassifier, TrafficCondition, TrafficRule, TrustLevel,
     evaluate_traffic_condition, is_in_cidr,
 };
+
+// ── Layer 2 re-exports ──────────────────────────────────────────────
+
+pub use l2_certificate::{
+    CertificateIssue, L2Certificate, L2CertificateStore, L2CertificateValidation,
+    L2KeyAlgorithm, validate_certificate,
+};
+pub use l2_dns::{DnsCache, DnsCheckResult, DnsRecord, DnsRecordType, DnsSecurityChecker};
+pub use l2_policy::{
+    L2NetworkPolicy, NetworkAction, NetworkMatch, NetworkPolicyDecision, NetworkPolicyEngine,
+    NetworkRule, TrafficDirection,
+};
+pub use l2_pool::{
+    GovernedConnectionPool, L2ConnectionState, PoolStats, PooledConnection,
+};
+pub use l2_segmentation::{
+    InterZoneRule, L2NetworkZone, L2SegmentationPolicy, SegmentationViolation, ZoneTrustLevel,
+};
+pub use l2_traffic_chain::{TrafficAuditChain, TrafficChainVerification, TrafficRecord};
