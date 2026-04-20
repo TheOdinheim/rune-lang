@@ -320,3 +320,50 @@ New classification methods: `is_credential_event()`, `is_authentication_event()`
 | Assumed Breach | SubjectRightsSubscriber enables real-time DSAR streaming; FilteredSubjectRightsSubscriber isolates SLA-critical events; PiiClassifier provides pluggable detection boundary |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 DSAR export formats prevent vendor lock-in; ConsentRecordStore separates consent lifecycle from general privacy storage |
 | Zero Trust Throughout | HMAC-SHA3-256 tokenization with deterministic tokens; SHA3-256 consent text hashing; Luhn check on credit card detection; LegalHold prevents retention-driven deletion under investigation |
+
+---
+
+## rune-provenance — Layer 3
+
+**Commit:** `feat(rune-provenance): Layer 3 — provenance backend, attestation signature verifier, provenance export formats, lineage tracker, custody chain recorder, provenance event streaming, predicate validator, model attestation verifier`
+
+### New Modules (7)
+
+1. **backend.rs** — `ProvenanceBackend` trait (17 methods) for pluggable attestation/lineage/custody/transparency-log storage. `ArtifactRef`/`CustodianRef` newtypes decoupling from `ArtifactId`. `InMemoryProvenanceBackend` with `verify_chain_integrity` checking predecessor chain links. `StoredAttestation`/`StoredLineageRecord`/`StoredCustodyEvent`/`StoredTransparencyLogEntry` record types.
+
+2. **attestation_verifier.rs** — `AttestationSignatureVerifier` trait separate from `JwtSignatureVerifier` (different envelope formats: DSSE, in-toto, Sigstore, SCITT). `EnvelopeFormat` enum (7 variants). `HmacSha3AttestationVerifier` (HMAC-SHA3-256 with constant-time comparison and `sign_attestation`). `DsseEnvelopeStructureVerifier` (structure-only validation). `NullAttestationVerifier`. `AttestationVerificationResult` (Valid/Invalid/UnsupportedEnvelopeFormat/KeyUnknown).
+
+3. **provenance_export.rs** — `ProvenanceExporter` trait with canonical form (alphabetically sorted fields, no trailing whitespace, byte-level encoding). 5 implementations: `JsonProvenanceExporter`, `SlsaProvenanceV1Exporter` (SLSA v1.0 buildDefinition/runDetails), `InTotoStatementExporter` (in-toto Statement v1), `DsseEnvelopeExporter` (payload/payloadType/signatures), `SpdxSbomExporter` (SPDX 2.3, rejects non-SBOM predicates).
+
+4. **lineage_tracker.rs** — `LineageTracker` trait for artifact-to-artifact derivation graphs with typed relationships. `LineageRelationship` enum (DerivedFrom/TransformedFrom/MergedFrom/ExtractedFrom/Signed/Copied). `InMemoryLineageTracker` with DFS cycle detection on insert. `DepthLimitedLineageTracker` composable wrapper enforcing maximum ancestry depth. `LineageQueryResult` with ancestor list and depth.
+
+5. **custody_chain.rs** — `CustodyChainRecorder` trait for possession transfers (distinct from lineage derivation). `CustodyTransfer` with `signature_of_transfer`. `InMemoryCustodyChainRecorder`. `ContinuityEnforcingCustodyChainRecorder` composable wrapper rejecting gap-creating transfers (from_custodian must match current holder). `CustodySnapshot` for point-in-time queries.
+
+6. **provenance_stream.rs** — `ProvenanceEventSubscriber` trait with push-based notification. `ProvenanceEventSubscriberRegistry` for fan-out. `ProvenanceEventCollector` (RefCell-based test helper). `FilteredProvenanceEventSubscriber` with artifact_ref pattern and event_type filters. `ProvenanceLifecycleEventType` (14 variants covering attestation/lineage/custody/predicate/model/export lifecycle).
+
+7. **predicate_validator.rs** — `PredicateValidator` trait for structural predicate validation. `PredicateType` enum with `from_uri`/`uri()` roundtrip (SlsaProvenanceV1/InTotoStatementV1/SpdxSbomV23/CycloneDxBomV15/Custom). 5 validators: `SlsaProvenanceV1Validator` (buildDefinition+runDetails), `InTotoStatementValidator` (subject+predicateType), `SpdxSbomValidator` (spdxVersion+SPDXID), `NullPredicateValidator`, `PermissivePredicateValidator` (**WARNING: Not for production use**). `ModelAttestationVerifier` trait binding model artifact hashes to stored attestations (bridges rune-detection's `DetectionModelAdapter.attestation_hash()`). `Sha3ModelAttestationVerifier` with SHA3-256.
+
+### Audit Events (24 new variants)
+
+`ProvenanceBackendChanged`, `AttestationStored`, `AttestationDeleted`, `AttestationSignatureVerified`, `AttestationSignatureFailed`, `LineageEdgeRecorded`, `LineageQueryExecuted`, `LineageCycleRejected`, `CustodyTransferRecorded`, `CustodyContinuityViolation`, `CustodySnapshotQueried`, `TransparencyLogEntryStored`, `PredicateValidated`, `PredicateValidationFailed`, `PredicateTypeUnsupported`, `ModelAttestationVerified`, `ModelAttestationFailed`, `ProvenanceExportCompleted`, `ProvenanceExportFailed`, `ProvenanceSubscriberRegistered`, `ProvenanceSubscriberRemoved`, `ProvenanceEventPublished`, `DsseStructureVerified`, `ChainIntegrityVerified`
+
+Classification methods: `backend_events`, `attestation_events`, `lineage_events`, `custody_events`, `transparency_events`, `model_attestation_events`
+
+### Test Results
+
+- **251 tests** (up from 170), all passing
+- Zero clippy warnings in rune-provenance
+- Workspace builds cleanly
+
+### Dependencies Added
+
+- `hmac = "0.12"` — HMAC-SHA3-256 attestation signing
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | AttestationSignatureVerifier separate from JWT (different envelope formats); DSSE/in-toto/Sigstore/SCITT envelope support; ModelAttestationVerifier binds model hashes to attestations; PermissivePredicateValidator carries explicit production-use warning |
+| Assumed Breach | ProvenanceEventSubscriber enables real-time attestation streaming; FilteredProvenanceEventSubscriber isolates critical events; CustodyChainRecorder tracks possession changes; verify_chain_integrity detects attestation chain tampering |
+| No Single Points of Failure | All 8 traits decouple from implementations; 5 export formats prevent vendor lock-in; PredicateType Custom{uri} extensible beyond known schemas; ContinuityEnforcingCustodyChainRecorder composable over any recorder |
+| Zero Trust Throughout | HMAC-SHA3-256 attestation signing with constant-time comparison; canonical attestation bytes for reproducible signatures; DFS cycle detection prevents lineage graph corruption; custody continuity enforcement prevents gap-creating transfers |

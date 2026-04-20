@@ -1730,6 +1730,7 @@ name = "rune-provenance"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hmac",
  "rune-identity",
  "rune-lang",
  "rune-permissions",

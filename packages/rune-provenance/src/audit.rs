@@ -45,6 +45,31 @@ pub enum ProvenanceEventType {
     TrainingDataRegistered,
     ModelCardGenerated,
     DependencyGraphAnalyzed,
+    // Layer 3 event types
+    ProvenanceBackendChanged,
+    AttestationStored,
+    AttestationDeleted,
+    AttestationSignatureVerified,
+    AttestationSignatureFailed,
+    LineageEdgeRecorded,
+    LineageQueryExecuted,
+    LineageCycleRejected,
+    CustodyTransferRecorded,
+    CustodyContinuityViolation,
+    CustodySnapshotQueried,
+    TransparencyLogEntryStored,
+    PredicateValidated,
+    PredicateValidationFailed,
+    PredicateTypeUnsupported,
+    ModelAttestationVerified,
+    ModelAttestationFailed,
+    ProvenanceExportCompleted,
+    ProvenanceExportFailed,
+    ProvenanceSubscriberRegistered,
+    ProvenanceSubscriberRemoved,
+    ProvenanceEventPublished,
+    DsseStructureVerified,
+    ChainIntegrityVerified,
 }
 
 impl fmt::Display for ProvenanceEventType {
@@ -78,6 +103,30 @@ impl fmt::Display for ProvenanceEventType {
             Self::TrainingDataRegistered => f.write_str("training-data-registered"),
             Self::ModelCardGenerated => f.write_str("model-card-generated"),
             Self::DependencyGraphAnalyzed => f.write_str("dependency-graph-analyzed"),
+            Self::ProvenanceBackendChanged => f.write_str("provenance-backend-changed"),
+            Self::AttestationStored => f.write_str("attestation-stored"),
+            Self::AttestationDeleted => f.write_str("attestation-deleted"),
+            Self::AttestationSignatureVerified => f.write_str("attestation-signature-verified"),
+            Self::AttestationSignatureFailed => f.write_str("attestation-signature-failed"),
+            Self::LineageEdgeRecorded => f.write_str("lineage-edge-recorded"),
+            Self::LineageQueryExecuted => f.write_str("lineage-query-executed"),
+            Self::LineageCycleRejected => f.write_str("lineage-cycle-rejected"),
+            Self::CustodyTransferRecorded => f.write_str("custody-transfer-recorded"),
+            Self::CustodyContinuityViolation => f.write_str("custody-continuity-violation"),
+            Self::CustodySnapshotQueried => f.write_str("custody-snapshot-queried"),
+            Self::TransparencyLogEntryStored => f.write_str("transparency-log-entry-stored"),
+            Self::PredicateValidated => f.write_str("predicate-validated"),
+            Self::PredicateValidationFailed => f.write_str("predicate-validation-failed"),
+            Self::PredicateTypeUnsupported => f.write_str("predicate-type-unsupported"),
+            Self::ModelAttestationVerified => f.write_str("model-attestation-verified"),
+            Self::ModelAttestationFailed => f.write_str("model-attestation-failed"),
+            Self::ProvenanceExportCompleted => f.write_str("provenance-export-completed"),
+            Self::ProvenanceExportFailed => f.write_str("provenance-export-failed"),
+            Self::ProvenanceSubscriberRegistered => f.write_str("provenance-subscriber-registered"),
+            Self::ProvenanceSubscriberRemoved => f.write_str("provenance-subscriber-removed"),
+            Self::ProvenanceEventPublished => f.write_str("provenance-event-published"),
+            Self::DsseStructureVerified => f.write_str("dsse-structure-verified"),
+            Self::ChainIntegrityVerified => f.write_str("chain-integrity-verified"),
         }
     }
 }
@@ -181,6 +230,57 @@ impl ProvenanceAuditLog {
 
     pub fn count(&self) -> usize {
         self.events.len()
+    }
+
+    // ── Layer 3 classification methods ──────────────────────────────
+
+    pub fn backend_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(e.event_type, ProvenanceEventType::ProvenanceBackendChanged)).collect()
+    }
+
+    pub fn attestation_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(
+            e.event_type,
+            ProvenanceEventType::AttestationStored
+                | ProvenanceEventType::AttestationDeleted
+                | ProvenanceEventType::AttestationSignatureVerified
+                | ProvenanceEventType::AttestationSignatureFailed
+                | ProvenanceEventType::DsseStructureVerified
+        )).collect()
+    }
+
+    pub fn lineage_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(
+            e.event_type,
+            ProvenanceEventType::LineageEdgeRecorded
+                | ProvenanceEventType::LineageQueryExecuted
+                | ProvenanceEventType::LineageCycleRejected
+        )).collect()
+    }
+
+    pub fn custody_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(
+            e.event_type,
+            ProvenanceEventType::CustodyTransferRecorded
+                | ProvenanceEventType::CustodyContinuityViolation
+                | ProvenanceEventType::CustodySnapshotQueried
+        )).collect()
+    }
+
+    pub fn transparency_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(
+            e.event_type,
+            ProvenanceEventType::TransparencyLogEntryStored
+                | ProvenanceEventType::ChainIntegrityVerified
+        )).collect()
+    }
+
+    pub fn model_attestation_events(&self) -> Vec<&ProvenanceAuditEvent> {
+        self.events.iter().filter(|e| matches!(
+            e.event_type,
+            ProvenanceEventType::ModelAttestationVerified
+                | ProvenanceEventType::ModelAttestationFailed
+        )).collect()
     }
 }
 
@@ -330,6 +430,96 @@ mod tests {
     #[test]
     fn test_layer2_event_serialization() {
         let et = ProvenanceEventType::ModelCardGenerated;
+        let json = serde_json::to_string(&et).unwrap();
+        let deserialized: ProvenanceEventType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, et);
+    }
+
+    // ── Layer 3 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer3_event_type_display() {
+        assert_eq!(ProvenanceEventType::ProvenanceBackendChanged.to_string(), "provenance-backend-changed");
+        assert_eq!(ProvenanceEventType::AttestationStored.to_string(), "attestation-stored");
+        assert_eq!(ProvenanceEventType::AttestationDeleted.to_string(), "attestation-deleted");
+        assert_eq!(ProvenanceEventType::AttestationSignatureVerified.to_string(), "attestation-signature-verified");
+        assert_eq!(ProvenanceEventType::AttestationSignatureFailed.to_string(), "attestation-signature-failed");
+        assert_eq!(ProvenanceEventType::LineageEdgeRecorded.to_string(), "lineage-edge-recorded");
+        assert_eq!(ProvenanceEventType::LineageQueryExecuted.to_string(), "lineage-query-executed");
+        assert_eq!(ProvenanceEventType::LineageCycleRejected.to_string(), "lineage-cycle-rejected");
+        assert_eq!(ProvenanceEventType::CustodyTransferRecorded.to_string(), "custody-transfer-recorded");
+        assert_eq!(ProvenanceEventType::CustodyContinuityViolation.to_string(), "custody-continuity-violation");
+        assert_eq!(ProvenanceEventType::CustodySnapshotQueried.to_string(), "custody-snapshot-queried");
+        assert_eq!(ProvenanceEventType::TransparencyLogEntryStored.to_string(), "transparency-log-entry-stored");
+        assert_eq!(ProvenanceEventType::PredicateValidated.to_string(), "predicate-validated");
+        assert_eq!(ProvenanceEventType::PredicateValidationFailed.to_string(), "predicate-validation-failed");
+        assert_eq!(ProvenanceEventType::PredicateTypeUnsupported.to_string(), "predicate-type-unsupported");
+        assert_eq!(ProvenanceEventType::ModelAttestationVerified.to_string(), "model-attestation-verified");
+        assert_eq!(ProvenanceEventType::ModelAttestationFailed.to_string(), "model-attestation-failed");
+        assert_eq!(ProvenanceEventType::ProvenanceExportCompleted.to_string(), "provenance-export-completed");
+        assert_eq!(ProvenanceEventType::ProvenanceExportFailed.to_string(), "provenance-export-failed");
+        assert_eq!(ProvenanceEventType::ProvenanceSubscriberRegistered.to_string(), "provenance-subscriber-registered");
+        assert_eq!(ProvenanceEventType::ProvenanceSubscriberRemoved.to_string(), "provenance-subscriber-removed");
+        assert_eq!(ProvenanceEventType::ProvenanceEventPublished.to_string(), "provenance-event-published");
+        assert_eq!(ProvenanceEventType::DsseStructureVerified.to_string(), "dsse-structure-verified");
+        assert_eq!(ProvenanceEventType::ChainIntegrityVerified.to_string(), "chain-integrity-verified");
+    }
+
+    #[test]
+    fn test_layer3_attestation_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::AttestationStored, "a1", 1000));
+        log.record(event(ProvenanceEventType::AttestationSignatureVerified, "a1", 2000));
+        log.record(event(ProvenanceEventType::DsseStructureVerified, "a1", 3000));
+        log.record(event(ProvenanceEventType::ArtifactRegistered, "a1", 4000));
+        assert_eq!(log.attestation_events().len(), 3);
+    }
+
+    #[test]
+    fn test_layer3_lineage_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::LineageEdgeRecorded, "a1", 1000));
+        log.record(event(ProvenanceEventType::LineageCycleRejected, "a1", 2000));
+        log.record(event(ProvenanceEventType::ArtifactRegistered, "a1", 3000));
+        assert_eq!(log.lineage_events().len(), 2);
+    }
+
+    #[test]
+    fn test_layer3_custody_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::CustodyTransferRecorded, "a1", 1000));
+        log.record(event(ProvenanceEventType::CustodyContinuityViolation, "a1", 2000));
+        log.record(event(ProvenanceEventType::CustodySnapshotQueried, "a1", 3000));
+        assert_eq!(log.custody_events().len(), 3);
+    }
+
+    #[test]
+    fn test_layer3_transparency_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::TransparencyLogEntryStored, "a1", 1000));
+        log.record(event(ProvenanceEventType::ChainIntegrityVerified, "a1", 2000));
+        assert_eq!(log.transparency_events().len(), 2);
+    }
+
+    #[test]
+    fn test_layer3_model_attestation_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::ModelAttestationVerified, "m1", 1000));
+        log.record(event(ProvenanceEventType::ModelAttestationFailed, "m2", 2000));
+        log.record(event(ProvenanceEventType::AttestationStored, "a1", 3000));
+        assert_eq!(log.model_attestation_events().len(), 2);
+    }
+
+    #[test]
+    fn test_layer3_backend_events() {
+        let mut log = ProvenanceAuditLog::new();
+        log.record(event(ProvenanceEventType::ProvenanceBackendChanged, "a1", 1000));
+        assert_eq!(log.backend_events().len(), 1);
+    }
+
+    #[test]
+    fn test_layer3_event_serialization() {
+        let et = ProvenanceEventType::CustodyTransferRecorded;
         let json = serde_json::to_string(&et).unwrap();
         let deserialized: ProvenanceEventType = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, et);

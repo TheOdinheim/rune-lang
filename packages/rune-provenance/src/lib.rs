@@ -14,6 +14,15 @@ pub mod supply_chain;
 pub mod transform;
 pub mod verification;
 
+// Layer 3 modules
+pub mod attestation_verifier;
+pub mod backend;
+pub mod custody_chain;
+pub mod lineage_tracker;
+pub mod predicate_validator;
+pub mod provenance_export;
+pub mod provenance_stream;
+
 pub use artifact::{
     Artifact, ArtifactId, ArtifactStore, ArtifactType, ArtifactVersion,
     // Layer 2
@@ -59,4 +68,37 @@ pub use transform::{
 pub use verification::{
     ProvenanceVerifier, VerificationCheck, VerificationCheckType, VerificationResult,
     VerificationStatus,
+};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use backend::{
+    ArtifactRef, CustodianRef, InMemoryProvenanceBackend, ProvenanceBackend,
+    ProvenanceBackendInfo, StoredAttestation, StoredCustodyEvent, StoredLineageRecord,
+    StoredTransparencyLogEntry,
+};
+pub use attestation_verifier::{
+    AttestationSignatureVerifier, AttestationVerificationResult, DsseEnvelopeStructureVerifier,
+    EnvelopeFormat, HmacSha3AttestationVerifier, NullAttestationVerifier,
+};
+pub use provenance_export::{
+    DsseEnvelopeExporter, InTotoStatementExporter, JsonProvenanceExporter,
+    ProvenanceExporter, SlsaProvenanceV1Exporter, SpdxSbomExporter,
+};
+pub use lineage_tracker::{
+    DepthLimitedLineageTracker, InMemoryLineageTracker, LineageEdge, LineageQueryResult,
+    LineageRelationship, LineageTracker,
+};
+pub use custody_chain::{
+    ContinuityEnforcingCustodyChainRecorder, CustodyChainRecorder, CustodySnapshot,
+    CustodyTransfer, InMemoryCustodyChainRecorder,
+};
+pub use provenance_stream::{
+    FilteredProvenanceEventSubscriber, ProvenanceEventCollector, ProvenanceEventSubscriber,
+    ProvenanceEventSubscriberRegistry, ProvenanceLifecycleEvent, ProvenanceLifecycleEventType,
+};
+pub use predicate_validator::{
+    InTotoStatementValidator, ModelAttestationResult, ModelAttestationVerifier,
+    NullPredicateValidator, PermissivePredicateValidator, PredicateType, PredicateValidator,
+    Sha3ModelAttestationVerifier, SlsaProvenanceV1Validator, SpdxSbomValidator, ValidationResult,
 };
