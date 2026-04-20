@@ -57,3 +57,59 @@
 | Assumed Breach | ThreatFeedSource enables real-time threat intelligence ingestion; VerdictSubscriber enables streaming verdict monitoring; metrics exporters track per-rule hit rates and false-positive rates |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 export formats prevent vendor lock-in; ChainedEnforcementHook enables multi-hook pipelines |
 | Zero Trust Throughout | SHA3-256 integrity validation on signature packs before installation; sorted deterministic hashing; VerdictSubscriber filtering enforces need-to-know verdict visibility |
+
+---
+
+## rune-detection Layer 3
+
+**Test count**: 155 → 228 (+73 tests, zero failures)
+
+**Clippy**: Zero new warnings (pre-existing Layer 1/2 warnings only)
+
+### New Modules (7)
+
+| Module | Lines | Tests | Purpose |
+|--------|-------|-------|---------|
+| `backend.rs` | ~225 | 12 | DetectionBackend trait + InMemoryDetectionBackend |
+| `model_adapter.rs` | ~200 | 10 | DetectionModelAdapter trait + NullDetectionModel + RulesOnlyModel |
+| `alert_export.rs` | ~280 | 9 | AlertExporter trait + 5 format implementations |
+| `finding_stream.rs` | ~250 | 10 | FindingSubscriber trait + registry + filtering |
+| `correlation.rs` | ~240 | 12 | FindingCorrelator trait + TimeWindowCorrelator + AttributeCorrelator |
+| `baseline_store.rs` | ~190 | 10 | BaselineStore trait + InMemoryBaselineStore |
+| `timeseries_ingest.rs` | ~180 | 10 | TimeSeriesIngestor trait + InMemoryTimeSeriesIngestor |
+
+### Trait Contracts
+
+- **DetectionBackend**: 16 methods — store/retrieve/delete/list findings, store/retrieve/list rules, store/retrieve/list/count baselines, findings_by_severity/findings_in_time_range, flush, backend_info. InMemoryDetectionBackend with duplicate-finding rejection.
+- **DetectionModelAdapter**: 6 methods — load_model/predict/batch_predict/model_info/is_loaded/unload. NullDetectionModel (always-zero, SHA3-256 attestation hash). RulesOnlyModel (threshold on specific feature index).
+- **AlertExporter**: 4 methods — export_finding/export_batch/format_name/content_type. Five implementations: JsonAlertExporter, CefAlertExporter (CEF:0|Odin's LLC|RUNE-Detection|1.0), OcsfAlertExporter (class_uid 2004), EcsAlertExporter (Elastic Common Schema), SplunkNotableExporter (notable event JSON with urgency mapping).
+- **FindingSubscriber**: 3 methods — on_finding/subscriber_id/is_active. FindingSubscriberRegistry with register/notify/notify_batch/active_count/remove_inactive. FindingCollector records all findings. FilteredFindingSubscriber filters by min severity, category, or source.
+- **FindingCorrelator**: 4 methods — correlate/correlation_rule_id/supported_correlation_types/is_active. Named FindingCorrelator (not AlertCorrelator) to avoid collision with existing Layer 2 AlertCorrelator struct. TimeWindowCorrelator groups findings within time window by source. AttributeCorrelator groups by shared category.
+- **BaselineStore**: 7 methods — store/retrieve/update/delete/list/count/metadata. Separate from DetectionBackend because baselines have retrain/rollback lifecycle. InMemoryBaselineStore with duplicate rejection and update-requires-existence.
+- **TimeSeriesIngestor**: 7 methods — ingest_metric/ingest_batch/query_range/last_ingest_at/source_name/supported_metric_types/is_active. One-way ingestion; retrieval protocols belong in adapter crates. InMemoryTimeSeriesIngestor with configurable retention and purge_expired.
+
+### Audit Enhancement
+
+19 new DetectionEventType variants: DetectionBackendChanged, FindingPersisted, FindingQueried, DetectionModelLoaded, DetectionModelUnloaded, ModelPredictionMade, ModelLoadFailed, AlertExported, AlertExportFailed, FindingSubscriberRegistered, FindingSubscriberRemoved, FindingPublished, CorrelationExecuted, CorrelationRuleRegistered, BaselineStored, BaselineUpdated, BaselineRetrieved, TimeSeriesIngested, TimeSeriesIngestFailed. New classification methods: is_backend(), is_model(), is_streaming(), is_baseline(), is_timeseries(). Updated kind() and Display with full test coverage.
+
+### Dependencies Added
+
+- `sha3 = "0.10"` — SHA3-256 attestation hashing for detection model integrity
+
+### Design Decisions
+
+- **FindingCorrelator avoids name collision**: Existing AlertCorrelator struct in alert.rs is a Layer 2 concrete correlator for alerts. Layer 3 trait uses FindingCorrelator name to distinguish the pluggable boundary from the existing implementation.
+- **BaselineStore is separate from DetectionBackend**: Baselines have retrain/rollback lifecycle distinct from finding persistence. BaselineStore adds update_baseline, delete_baseline, and baseline_metadata.
+- **TimeSeriesIngestor is one-way**: Ingestion and retrieval are separate concerns. The trait defines ingest_metric and query_range for local use; full retrieval protocols belong in downstream adapter crates.
+- **OCSF class_uid 2004 overlaps with rune-shield**: Deliberate schema convergence — both crates produce Detection Finding events.
+- **CorrelationResult.confidence uses String**: f64 cannot derive Eq; confidence stored as formatted string (e.g., "0.900").
+- **FilteredFindingSubscriber composes FindingCollector**: Same pattern as rune-shield's FilteredVerdictSubscriber.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | DetectionBackend trait ensures all finding storage satisfies governance contracts; AlertExporter formats produce standards-compliant output (CEF, OCSF 2004, ECS, Splunk) |
+| Assumed Breach | FindingSubscriber enables real-time streaming of detection findings; TimeSeriesIngestor ingests metrics for anomaly detection; FindingCorrelator discovers multi-finding attack patterns |
+| No Single Points of Failure | All 7 traits decouple from implementations; 5 export formats prevent vendor lock-in; BaselineStore separates baseline lifecycle from finding storage |
+| Zero Trust Throughout | SHA3-256 attestation hash on model load verifies model integrity; DetectionModelAdapter contracts enforce loaded-before-predict; inactive ingestors reject writes |

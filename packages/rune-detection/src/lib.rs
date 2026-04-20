@@ -19,6 +19,15 @@ pub mod rule;
 pub mod scoring;
 pub mod signal;
 
+// Layer 3 modules
+pub mod alert_export;
+pub mod backend;
+pub mod baseline_store;
+pub mod correlation;
+pub mod finding_stream;
+pub mod model_adapter;
+pub mod timeseries_ingest;
+
 pub use alert::{Alert, AlertId, AlertManager, AlertSource, AlertStatus};
 pub use alert::{
     AlertCorrelator, CorrelatedAlert, CorrelationCondition, CorrelationRule,
@@ -48,3 +57,26 @@ pub use rule::{
 };
 pub use scoring::{DetectionScore, DetectionScorer, DetectionWeights, ScoreComponent};
 pub use signal::{Signal, SignalBatch, SignalSource, SignalType, SignalValue};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────
+pub use alert_export::{
+    AlertExporter, CefAlertExporter, EcsAlertExporter, JsonAlertExporter,
+    OcsfAlertExporter, SplunkNotableExporter,
+};
+pub use backend::{
+    BackendInfo, DetectionBackend, DetectionFinding, InMemoryDetectionBackend, StoredBaseline,
+};
+pub use baseline_store::{Baseline, BaselineMetadata, BaselineStore, InMemoryBaselineStore};
+pub use correlation::{
+    AttributeCorrelator, CorrelationResult, FindingCorrelator, TimeWindowCorrelator,
+};
+pub use finding_stream::{
+    FilteredFindingSubscriber, FindingCollector, FindingLifecycleEvent,
+    FindingLifecycleEventType, FindingSubscriber, FindingSubscriberRegistry,
+};
+pub use model_adapter::{
+    DetectionModelAdapter, ModelInfo, NullDetectionModel, PredictionResult, RulesOnlyModel,
+};
+pub use timeseries_ingest::{
+    InMemoryTimeSeriesIngestor, TimeSeriesIngestor, TimeSeriesPoint,
+};
