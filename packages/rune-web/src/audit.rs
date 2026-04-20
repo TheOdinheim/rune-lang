@@ -37,6 +37,30 @@ pub enum WebEventType {
     CorsViolationLogged { origin: String, reason: String },
     MiddlewareExecuted { middleware_name: String, result: String },
     GatewayTimingRecorded { total_us: i64 },
+    // Layer 3 additions
+    WebBackendChanged { backend_type: String },
+    BackendSessionCreated { session_id: String },
+    SessionExpired { session_id: String },
+    SessionRevoked { session_id: String },
+    RoutePolicyStored { route: String },
+    RoutePolicyUpdated { route: String },
+    HttpRequestIntercepted { adapter: String, method: String, path: String },
+    HttpResponseEmitted { adapter: String, status_code: u16 },
+    RateLimitAllowed { key: String, remaining: u64 },
+    RateLimitThrottled { key: String, retry_after_secs: u64 },
+    RateLimitBucketReset { key: String },
+    RequestLogExported { format: String, entry_count: usize },
+    RequestLogExportFailed { format: String, reason: String },
+    RequestSubscriberRegistered { subscriber_id: String },
+    RequestSubscriberRemoved { subscriber_id: String },
+    RequestEventPublished { event_type: String, subscriber_count: usize },
+    CorsPolicyStored { policy_id: String, origin: String },
+    CorsPreflightAllowed { origin: String },
+    CorsPreflightDenied { origin: String, reason: String },
+    TokenValidationSucceeded { validator_id: String, token_type: String },
+    TokenValidationFailed { validator_id: String, reason: String },
+    ApiKeyBindingCreated { key_id: String },
+    ApiKeyBindingRevoked { key_id: String },
 }
 
 impl fmt::Display for WebEventType {
@@ -102,6 +126,75 @@ impl fmt::Display for WebEventType {
             }
             Self::GatewayTimingRecorded { total_us } => {
                 write!(f, "GatewayTimingRecorded({total_us}us)")
+            }
+            Self::WebBackendChanged { backend_type } => {
+                write!(f, "WebBackendChanged({backend_type})")
+            }
+            Self::BackendSessionCreated { session_id } => {
+                write!(f, "BackendSessionCreated({session_id})")
+            }
+            Self::SessionExpired { session_id } => {
+                write!(f, "SessionExpired({session_id})")
+            }
+            Self::SessionRevoked { session_id } => {
+                write!(f, "SessionRevoked({session_id})")
+            }
+            Self::RoutePolicyStored { route } => {
+                write!(f, "RoutePolicyStored({route})")
+            }
+            Self::RoutePolicyUpdated { route } => {
+                write!(f, "RoutePolicyUpdated({route})")
+            }
+            Self::HttpRequestIntercepted { adapter, method, path } => {
+                write!(f, "HttpRequestIntercepted({adapter}: {method} {path})")
+            }
+            Self::HttpResponseEmitted { adapter, status_code } => {
+                write!(f, "HttpResponseEmitted({adapter}: {status_code})")
+            }
+            Self::RateLimitAllowed { key, remaining } => {
+                write!(f, "RateLimitAllowed({key}, remaining={remaining})")
+            }
+            Self::RateLimitThrottled { key, retry_after_secs } => {
+                write!(f, "RateLimitThrottled({key}, retry={retry_after_secs}s)")
+            }
+            Self::RateLimitBucketReset { key } => {
+                write!(f, "RateLimitBucketReset({key})")
+            }
+            Self::RequestLogExported { format, entry_count } => {
+                write!(f, "RequestLogExported({format}, {entry_count} entries)")
+            }
+            Self::RequestLogExportFailed { format, reason } => {
+                write!(f, "RequestLogExportFailed({format}: {reason})")
+            }
+            Self::RequestSubscriberRegistered { subscriber_id } => {
+                write!(f, "RequestSubscriberRegistered({subscriber_id})")
+            }
+            Self::RequestSubscriberRemoved { subscriber_id } => {
+                write!(f, "RequestSubscriberRemoved({subscriber_id})")
+            }
+            Self::RequestEventPublished { event_type, subscriber_count } => {
+                write!(f, "RequestEventPublished({event_type}, {subscriber_count} subscribers)")
+            }
+            Self::CorsPolicyStored { policy_id, origin } => {
+                write!(f, "CorsPolicyStored({policy_id}: {origin})")
+            }
+            Self::CorsPreflightAllowed { origin } => {
+                write!(f, "CorsPreflightAllowed({origin})")
+            }
+            Self::CorsPreflightDenied { origin, reason } => {
+                write!(f, "CorsPreflightDenied({origin}: {reason})")
+            }
+            Self::TokenValidationSucceeded { validator_id, token_type } => {
+                write!(f, "TokenValidationSucceeded({validator_id}: {token_type})")
+            }
+            Self::TokenValidationFailed { validator_id, reason } => {
+                write!(f, "TokenValidationFailed({validator_id}: {reason})")
+            }
+            Self::ApiKeyBindingCreated { key_id } => {
+                write!(f, "ApiKeyBindingCreated({key_id})")
+            }
+            Self::ApiKeyBindingRevoked { key_id } => {
+                write!(f, "ApiKeyBindingRevoked({key_id})")
             }
         }
     }
@@ -175,7 +268,11 @@ impl WebAuditLog {
             .filter(|e| {
                 matches!(
                     e.event_type,
-                    WebEventType::SessionCreated { .. } | WebEventType::SessionInvalidated { .. }
+                    WebEventType::SessionCreated { .. }
+                        | WebEventType::SessionInvalidated { .. }
+                        | WebEventType::BackendSessionCreated { .. }
+                        | WebEventType::SessionExpired { .. }
+                        | WebEventType::SessionRevoked { .. }
                 )
             })
             .collect()
@@ -185,6 +282,60 @@ impl WebAuditLog {
         self.events
             .iter()
             .filter(|e| matches!(e.event_type, WebEventType::DataLeakageDetected { .. }))
+            .collect()
+    }
+
+    pub fn request_events(&self) -> Vec<&WebAuditEvent> {
+        self.events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    WebEventType::RequestReceived { .. }
+                        | WebEventType::RequestAllowed { .. }
+                        | WebEventType::RequestDenied { .. }
+                        | WebEventType::HttpRequestIntercepted { .. }
+                        | WebEventType::HttpResponseEmitted { .. }
+                        | WebEventType::RequestLogExported { .. }
+                        | WebEventType::RequestLogExportFailed { .. }
+                        | WebEventType::RequestSubscriberRegistered { .. }
+                        | WebEventType::RequestSubscriberRemoved { .. }
+                        | WebEventType::RequestEventPublished { .. }
+                )
+            })
+            .collect()
+    }
+
+    pub fn auth_events(&self) -> Vec<&WebAuditEvent> {
+        self.events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    WebEventType::AuthRequired { .. }
+                        | WebEventType::MfaRequired { .. }
+                        | WebEventType::TokenValidationSucceeded { .. }
+                        | WebEventType::TokenValidationFailed { .. }
+                        | WebEventType::ApiKeyBindingCreated { .. }
+                        | WebEventType::ApiKeyBindingRevoked { .. }
+                )
+            })
+            .collect()
+    }
+
+    pub fn cors_events(&self) -> Vec<&WebAuditEvent> {
+        self.events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    WebEventType::CorsBlocked { .. }
+                        | WebEventType::CorsViolationLogged { .. }
+                        | WebEventType::CorsPolicyStored { .. }
+                        | WebEventType::CorsPreflightAllowed { .. }
+                        | WebEventType::CorsPreflightDenied { .. }
+                )
+            })
             .collect()
     }
 
@@ -349,10 +500,63 @@ mod tests {
             WebEventType::CorsViolationLogged { origin: "evil.com".into(), reason: "not allowed".into() },
             WebEventType::MiddlewareExecuted { middleware_name: "auth".into(), result: "continue".into() },
             WebEventType::GatewayTimingRecorded { total_us: 1500 },
+            // Layer 3
+            WebEventType::WebBackendChanged { backend_type: "postgres".into() },
+            WebEventType::BackendSessionCreated { session_id: "s2".into() },
+            WebEventType::SessionExpired { session_id: "s2".into() },
+            WebEventType::SessionRevoked { session_id: "s2".into() },
+            WebEventType::RoutePolicyStored { route: "/api/v2".into() },
+            WebEventType::RoutePolicyUpdated { route: "/api/v2".into() },
+            WebEventType::HttpRequestIntercepted { adapter: "axum".into(), method: "GET".into(), path: "/api".into() },
+            WebEventType::HttpResponseEmitted { adapter: "axum".into(), status_code: 200 },
+            WebEventType::RateLimitAllowed { key: "user-1".into(), remaining: 9 },
+            WebEventType::RateLimitThrottled { key: "user-1".into(), retry_after_secs: 5 },
+            WebEventType::RateLimitBucketReset { key: "user-1".into() },
+            WebEventType::RequestLogExported { format: "json".into(), entry_count: 50 },
+            WebEventType::RequestLogExportFailed { format: "ecs".into(), reason: "IO error".into() },
+            WebEventType::RequestSubscriberRegistered { subscriber_id: "sub-1".into() },
+            WebEventType::RequestSubscriberRemoved { subscriber_id: "sub-1".into() },
+            WebEventType::RequestEventPublished { event_type: "RequestReceived".into(), subscriber_count: 3 },
+            WebEventType::CorsPolicyStored { policy_id: "p1".into(), origin: "https://app.com".into() },
+            WebEventType::CorsPreflightAllowed { origin: "https://app.com".into() },
+            WebEventType::CorsPreflightDenied { origin: "https://evil.com".into(), reason: "no policy".into() },
+            WebEventType::TokenValidationSucceeded { validator_id: "v1".into(), token_type: "api-key".into() },
+            WebEventType::TokenValidationFailed { validator_id: "v1".into(), reason: "expired".into() },
+            WebEventType::ApiKeyBindingCreated { key_id: "k1".into() },
+            WebEventType::ApiKeyBindingRevoked { key_id: "k1".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 23);
+        assert_eq!(types.len(), 46);
+    }
+
+    #[test]
+    fn test_layer3_classification_methods() {
+        let mut log = WebAuditLog::new();
+        log.record(sample_event(
+            WebEventType::HttpRequestIntercepted { adapter: "axum".into(), method: "GET".into(), path: "/api".into() },
+            SecuritySeverity::Info,
+            None,
+        ));
+        log.record(sample_event(
+            WebEventType::TokenValidationSucceeded { validator_id: "v1".into(), token_type: "api-key".into() },
+            SecuritySeverity::Info,
+            None,
+        ));
+        log.record(sample_event(
+            WebEventType::CorsPreflightAllowed { origin: "https://app.com".into() },
+            SecuritySeverity::Info,
+            None,
+        ));
+        log.record(sample_event(
+            WebEventType::BackendSessionCreated { session_id: "s1".into() },
+            SecuritySeverity::Info,
+            None,
+        ));
+        assert_eq!(log.request_events().len(), 1);
+        assert_eq!(log.auth_events().len(), 1);
+        assert_eq!(log.cors_events().len(), 1);
+        assert_eq!(log.session_events().len(), 1);
     }
 }

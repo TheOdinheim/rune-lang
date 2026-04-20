@@ -5,11 +5,18 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 pub mod audit;
+pub mod auth_validator;
+pub mod backend;
 pub mod cors;
+pub mod cors_policy;
 pub mod endpoint;
 pub mod error;
 pub mod gateway;
+pub mod http_adapter;
+pub mod rate_limit;
 pub mod request;
+pub mod request_log_export;
+pub mod request_stream;
 pub mod response;
 pub mod session;
 pub mod signing;
@@ -49,3 +56,30 @@ pub use signing::{
     SigningConfig, derive_signing_key,
 };
 pub use threat::{WebThreatCheck, WebThreatDetector, WebThreatType};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use auth_validator::{
+    ApiKeyValidator, JwtStructureValidator, SessionCookieValidator, TokenValidator,
+    ValidationResult,
+};
+pub use backend::{ApiKeyBinding, BackendInfo, InMemoryWebBackend, RoutePolicy, WebBackend};
+pub use cors_policy::{
+    CorsDecision, CorsPolicyBackendInfo, CorsPolicyStore, InMemoryCorsPolicyStore,
+    StoredCorsPolicy,
+};
+pub use http_adapter::{
+    HttpAdapter, InterceptResult, PassThroughHttpAdapter, RecordingHttpAdapter,
+};
+pub use rate_limit::{
+    BucketStatus, InMemoryLeakyBucket, InMemorySlidingWindow, InMemoryTokenBucket,
+    RateLimitBackend, RateLimitBackendInfo, RateLimitDecision,
+};
+pub use request_log_export::{
+    CombinedLogFormatExporter, CommonLogFormatExporter, EcsHttpExporter, JsonRequestLogExporter,
+    OtelHttpExporter, RequestLogEntry, RequestLogExporter,
+};
+pub use request_stream::{
+    FilteredRequestSubscriber, RequestCollector, RequestEvent, RequestLifecycleEvent,
+    RequestLifecycleEventType, RequestSubscriber, RequestSubscriberRegistry,
+};

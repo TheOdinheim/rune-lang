@@ -113,3 +113,47 @@
 | Assumed Breach | FindingSubscriber enables real-time streaming of detection findings; TimeSeriesIngestor ingests metrics for anomaly detection; FindingCorrelator discovers multi-finding attack patterns |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 export formats prevent vendor lock-in; BaselineStore separates baseline lifecycle from finding storage |
 | Zero Trust Throughout | SHA3-256 attestation hash on model load verifies model integrity; DetectionModelAdapter contracts enforce loaded-before-predict; inactive ingestors reject writes |
+
+---
+
+## rune-web Layer 3
+
+**Test count**: 163 → 252 (+89 tests, zero failures)
+**Clippy**: no new warnings (24 pre-existing from L1/L2 code)
+**Workspace**: all crates pass
+
+### New Modules (7)
+
+| Module | Purpose | Tests |
+|--------|---------|-------|
+| `backend.rs` | WebBackend trait — pluggable session/route/API-key storage with InMemoryWebBackend reference impl; RoutePolicy, ApiKeyBinding (SHA3-256 hash_key) | 16 |
+| `http_adapter.rs` | HttpAdapter trait — framework-neutral HTTP interception; InterceptResult (Continue/Modified/Reject); RecordingHttpAdapter, PassThroughHttpAdapter | 9 |
+| `rate_limit.rs` | RateLimitBackend trait — token bucket, leaky bucket, sliding window; RateLimitDecision (Allowed/Throttled); BucketStatus | 18 |
+| `request_log_export.rs` | RequestLogExporter trait — 5 formats (JSON, CLF, Combined, ECS, OTEL); RequestLogEntry with Authorization header auto-redaction | 10 |
+| `request_stream.rs` | RequestSubscriber trait — event streaming registry; RequestCollector, FilteredRequestSubscriber (method/status/route filters); 10 RequestLifecycleEventType variants | 10 |
+| `cors_policy.rs` | CorsPolicyStore trait — CORS policy storage with wildcard matching; StoredCorsPolicy, CorsDecision (Allow/Deny); exact-match-wins-over-wildcard | 11 |
+| `auth_validator.rs` | TokenValidator trait — token shape/binding validation (NOT identity auth); ApiKeyValidator (SHA3-256 constant-time), JwtStructureValidator (structure+claims, NOT signature), SessionCookieValidator | 14 |
+
+### Audit Additions (23 new WebEventType variants → 46 total)
+
+WebBackendChanged, BackendSessionCreated, SessionExpired, SessionRevoked, RoutePolicyStored, RoutePolicyUpdated, HttpRequestIntercepted, HttpResponseEmitted, RateLimitAllowed, RateLimitThrottled, RateLimitBucketReset, RequestLogExported, RequestLogExportFailed, RequestSubscriberRegistered, RequestSubscriberRemoved, RequestEventPublished, CorsPolicyStored, CorsPreflightAllowed, CorsPreflightDenied, TokenValidationSucceeded, TokenValidationFailed, ApiKeyBindingCreated, ApiKeyBindingRevoked
+
+New classification methods: `request_events()`, `auth_events()`, `cors_events()` (existing `session_events()` updated to include L3 session variants).
+
+### Design Decisions
+
+- **StoredCorsPolicy avoids name collision**: Existing cors.rs has `CorsPolicy` struct. Layer 3 uses `StoredCorsPolicy` in cors_policy.rs. Similarly `CorsDecision` avoids colliding with existing `CorsResult`.
+- **BackendSessionCreated avoids SessionCreated collision**: Existing L1 audit.rs has `SessionCreated { session_id }`. Layer 3 uses `BackendSessionCreated` for the backend-tracked variant; `SessionExpired` and `SessionRevoked` added directly (no collision).
+- **TokenValidator scope**: Validates token shape/binding only. JwtStructureValidator validates structure + required claims but NOT the signing key (rune-identity's job).
+- **Authorization header redaction**: RequestLogEntry.from_request() auto-redacts Authorization headers to "[REDACTED]" — defense in depth regardless of exporter format.
+- **API key SHA3-256 hashing**: ApiKeyBinding.hash_key() and ApiKeyValidator use SHA3-256 digests with constant_time_eq — raw keys never stored or compared directly.
+- **Rate limit backends are in-memory only**: Distributed backends (Redis, Memcached) belong in adapter crates, not the trait boundary layer.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | TokenValidator enforces shape/binding without identity coupling; Authorization header redaction in all 5 export formats; CORS policy store with wildcard matching |
+| Assumed Breach | RequestSubscriber enables real-time request event streaming; FilteredRequestSubscriber isolates error/admin traffic; rate limit backends provide throttling contracts |
+| No Single Points of Failure | All 7 traits decouple from implementations; 5 request log export formats prevent vendor lock-in; WebBackend abstracts session/route/key storage |
+| Zero Trust Throughout | SHA3-256 constant-time API key comparison; JWT structure validation without trusting signatures; session cookie validation checks existence + expiry |
