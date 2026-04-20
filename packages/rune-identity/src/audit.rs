@@ -51,6 +51,30 @@ pub enum IdentityEventType {
     FederatedIdentityLinked { provider: String },
     FederatedIdentityUnlinked { provider: String },
     MfaPolicyEnforced { operation: String },
+    // Layer 3
+    IdentityBackendChanged { backend_type: String },
+    IdentityPersisted,
+    IdentityQueried,
+    IdentityExported { format: String },
+    IdentityExportFailed { format: String, reason: String },
+    CredentialStoreChanged { store_type: String },
+    PasswordHashStored,
+    PasswordHashUpdated,
+    TotpSecretEnrolled,
+    WebAuthnKeyEnrolled,
+    RecoveryCodesGenerated { count: usize },
+    RecoveryCodeConsumedEvent,
+    AuthenticatorInvoked { authenticator_id: String },
+    AuthenticationOutcomeRecorded { outcome: String },
+    JwtSigned { algorithm: String },
+    JwtSignatureVerified,
+    JwtSignatureRejected { reason: String },
+    FederationFlowStarted { provider_id: String },
+    FederationFlowCompleted { provider_id: String },
+    FederationFlowFailed { provider_id: String, reason: String },
+    IdentitySubscriberRegistered { subscriber_id: String },
+    IdentitySubscriberRemoved { subscriber_id: String },
+    IdentityEventPublished { event_type: String },
 }
 
 impl IdentityEventType {
@@ -64,6 +88,50 @@ impl IdentityEventType {
                 | Self::MfaFailed
                 | Self::SessionFingerprintMismatch
                 | Self::TrustDecayApplied { .. }
+                | Self::JwtSignatureRejected { .. }
+                | Self::FederationFlowFailed { .. }
+                | Self::IdentityExportFailed { .. }
+        )
+    }
+
+    pub fn is_credential_event(&self) -> bool {
+        matches!(
+            self,
+            Self::CredentialStoreChanged { .. }
+                | Self::PasswordHashStored
+                | Self::PasswordHashUpdated
+                | Self::TotpSecretEnrolled
+                | Self::WebAuthnKeyEnrolled
+                | Self::RecoveryCodesGenerated { .. }
+                | Self::RecoveryCodeConsumedEvent
+        )
+    }
+
+    pub fn is_authentication_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AuthenticatorInvoked { .. }
+                | Self::AuthenticationOutcomeRecorded { .. }
+                | Self::JwtSigned { .. }
+                | Self::JwtSignatureVerified
+                | Self::JwtSignatureRejected { .. }
+        )
+    }
+
+    pub fn is_federation_event(&self) -> bool {
+        matches!(
+            self,
+            Self::FederationFlowStarted { .. }
+                | Self::FederationFlowCompleted { .. }
+                | Self::FederationFlowFailed { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::IdentityExported { .. }
+                | Self::IdentityExportFailed { .. }
         )
     }
 }
@@ -118,6 +186,55 @@ impl fmt::Display for IdentityEventType {
             }
             Self::MfaPolicyEnforced { operation } => {
                 write!(f, "MfaPolicyEnforced({operation})")
+            }
+            Self::IdentityBackendChanged { backend_type } => {
+                write!(f, "IdentityBackendChanged({backend_type})")
+            }
+            Self::IdentityPersisted => write!(f, "IdentityPersisted"),
+            Self::IdentityQueried => write!(f, "IdentityQueried"),
+            Self::IdentityExported { format } => write!(f, "IdentityExported({format})"),
+            Self::IdentityExportFailed { format, reason } => {
+                write!(f, "IdentityExportFailed({format}: {reason})")
+            }
+            Self::CredentialStoreChanged { store_type } => {
+                write!(f, "CredentialStoreChanged({store_type})")
+            }
+            Self::PasswordHashStored => write!(f, "PasswordHashStored"),
+            Self::PasswordHashUpdated => write!(f, "PasswordHashUpdated"),
+            Self::TotpSecretEnrolled => write!(f, "TotpSecretEnrolled"),
+            Self::WebAuthnKeyEnrolled => write!(f, "WebAuthnKeyEnrolled"),
+            Self::RecoveryCodesGenerated { count } => {
+                write!(f, "RecoveryCodesGenerated({count})")
+            }
+            Self::RecoveryCodeConsumedEvent => write!(f, "RecoveryCodeConsumedEvent"),
+            Self::AuthenticatorInvoked { authenticator_id } => {
+                write!(f, "AuthenticatorInvoked({authenticator_id})")
+            }
+            Self::AuthenticationOutcomeRecorded { outcome } => {
+                write!(f, "AuthenticationOutcomeRecorded({outcome})")
+            }
+            Self::JwtSigned { algorithm } => write!(f, "JwtSigned({algorithm})"),
+            Self::JwtSignatureVerified => write!(f, "JwtSignatureVerified"),
+            Self::JwtSignatureRejected { reason } => {
+                write!(f, "JwtSignatureRejected({reason})")
+            }
+            Self::FederationFlowStarted { provider_id } => {
+                write!(f, "FederationFlowStarted({provider_id})")
+            }
+            Self::FederationFlowCompleted { provider_id } => {
+                write!(f, "FederationFlowCompleted({provider_id})")
+            }
+            Self::FederationFlowFailed { provider_id, reason } => {
+                write!(f, "FederationFlowFailed({provider_id}: {reason})")
+            }
+            Self::IdentitySubscriberRegistered { subscriber_id } => {
+                write!(f, "IdentitySubscriberRegistered({subscriber_id})")
+            }
+            Self::IdentitySubscriberRemoved { subscriber_id } => {
+                write!(f, "IdentitySubscriberRemoved({subscriber_id})")
+            }
+            Self::IdentityEventPublished { event_type } => {
+                write!(f, "IdentityEventPublished({event_type})")
             }
         }
     }
@@ -341,5 +458,83 @@ mod tests {
         assert!(IdentityEventType::TrustDecayApplied { old_score: 0.8, new_score: 0.5 }.is_security_event());
         assert!(!IdentityEventType::CredentialHashed.is_security_event());
         assert!(!IdentityEventType::TotpVerified.is_security_event());
+    }
+
+    // ── Layer 3: Audit Enhancement Tests ─────────────────────────────
+
+    #[test]
+    fn test_layer3_event_types_display() {
+        let events: Vec<IdentityEventType> = vec![
+            IdentityEventType::IdentityBackendChanged { backend_type: "postgres".into() },
+            IdentityEventType::IdentityPersisted,
+            IdentityEventType::IdentityQueried,
+            IdentityEventType::IdentityExported { format: "SCIM".into() },
+            IdentityEventType::IdentityExportFailed { format: "LDIF".into(), reason: "io".into() },
+            IdentityEventType::CredentialStoreChanged { store_type: "vault".into() },
+            IdentityEventType::PasswordHashStored,
+            IdentityEventType::PasswordHashUpdated,
+            IdentityEventType::TotpSecretEnrolled,
+            IdentityEventType::WebAuthnKeyEnrolled,
+            IdentityEventType::RecoveryCodesGenerated { count: 10 },
+            IdentityEventType::RecoveryCodeConsumedEvent,
+            IdentityEventType::AuthenticatorInvoked { authenticator_id: "pwd-1".into() },
+            IdentityEventType::AuthenticationOutcomeRecorded { outcome: "success".into() },
+            IdentityEventType::JwtSigned { algorithm: "HS256".into() },
+            IdentityEventType::JwtSignatureVerified,
+            IdentityEventType::JwtSignatureRejected { reason: "expired".into() },
+            IdentityEventType::FederationFlowStarted { provider_id: "oidc-1".into() },
+            IdentityEventType::FederationFlowCompleted { provider_id: "oidc-1".into() },
+            IdentityEventType::FederationFlowFailed { provider_id: "saml-1".into(), reason: "timeout".into() },
+            IdentityEventType::IdentitySubscriberRegistered { subscriber_id: "sub-1".into() },
+            IdentityEventType::IdentitySubscriberRemoved { subscriber_id: "sub-1".into() },
+            IdentityEventType::IdentityEventPublished { event_type: "Created".into() },
+        ];
+        for e in &events {
+            assert!(!e.to_string().is_empty());
+        }
+        assert_eq!(events.len(), 23);
+    }
+
+    #[test]
+    fn test_layer3_security_events() {
+        assert!(IdentityEventType::JwtSignatureRejected { reason: "tampered".into() }.is_security_event());
+        assert!(IdentityEventType::FederationFlowFailed { provider_id: "x".into(), reason: "y".into() }.is_security_event());
+        assert!(IdentityEventType::IdentityExportFailed { format: "x".into(), reason: "y".into() }.is_security_event());
+        assert!(!IdentityEventType::PasswordHashStored.is_security_event());
+        assert!(!IdentityEventType::JwtSignatureVerified.is_security_event());
+    }
+
+    #[test]
+    fn test_credential_event_classification() {
+        assert!(IdentityEventType::PasswordHashStored.is_credential_event());
+        assert!(IdentityEventType::TotpSecretEnrolled.is_credential_event());
+        assert!(IdentityEventType::WebAuthnKeyEnrolled.is_credential_event());
+        assert!(IdentityEventType::RecoveryCodesGenerated { count: 8 }.is_credential_event());
+        assert!(IdentityEventType::RecoveryCodeConsumedEvent.is_credential_event());
+        assert!(!IdentityEventType::JwtSigned { algorithm: "x".into() }.is_credential_event());
+    }
+
+    #[test]
+    fn test_authentication_event_classification() {
+        assert!(IdentityEventType::AuthenticatorInvoked { authenticator_id: "x".into() }.is_authentication_event());
+        assert!(IdentityEventType::JwtSigned { algorithm: "HS256".into() }.is_authentication_event());
+        assert!(IdentityEventType::JwtSignatureVerified.is_authentication_event());
+        assert!(IdentityEventType::JwtSignatureRejected { reason: "x".into() }.is_authentication_event());
+        assert!(!IdentityEventType::PasswordHashStored.is_authentication_event());
+    }
+
+    #[test]
+    fn test_federation_event_classification() {
+        assert!(IdentityEventType::FederationFlowStarted { provider_id: "x".into() }.is_federation_event());
+        assert!(IdentityEventType::FederationFlowCompleted { provider_id: "x".into() }.is_federation_event());
+        assert!(IdentityEventType::FederationFlowFailed { provider_id: "x".into(), reason: "y".into() }.is_federation_event());
+        assert!(!IdentityEventType::JwtSigned { algorithm: "x".into() }.is_federation_event());
+    }
+
+    #[test]
+    fn test_export_event_classification() {
+        assert!(IdentityEventType::IdentityExported { format: "SCIM".into() }.is_export_event());
+        assert!(IdentityEventType::IdentityExportFailed { format: "x".into(), reason: "y".into() }.is_export_event());
+        assert!(!IdentityEventType::IdentityPersisted.is_export_event());
     }
 }

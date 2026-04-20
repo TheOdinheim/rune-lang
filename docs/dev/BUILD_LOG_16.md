@@ -157,3 +157,52 @@ New classification methods: `request_events()`, `auth_events()`, `cors_events()`
 | Assumed Breach | RequestSubscriber enables real-time request event streaming; FilteredRequestSubscriber isolates error/admin traffic; rate limit backends provide throttling contracts |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 request log export formats prevent vendor lock-in; WebBackend abstracts session/route/key storage |
 | Zero Trust Throughout | SHA3-256 constant-time API key comparison; JWT structure validation without trusting signatures; session cookie validation checks existence + expiry |
+
+---
+
+## rune-identity Layer 3 — External Integration Trait Boundaries
+
+**Test count**: 279 (188→279, +91 new tests)
+
+### New Modules (7)
+
+1. **backend.rs** — `IdentityBackend` trait (16 methods: store/retrieve/delete/list/count/exists for identities, credential records, MFA enrollments, flush, backend_info), `InMemoryIdentityBackend` reference implementation, `CredentialRecord` (metadata pointer not material), `MfaEnrollment`, `IdentityBackendInfo`. 15 tests.
+
+2. **credential_material_store.rs** — `CredentialMaterialStore` trait (13 methods), `InMemoryCredentialMaterialStore`, `PasswordHashRecord`, `TotpSecretHashRecord`, `WebAuthnPublicKeyRecord`, `StoredRecoveryCodeSet`. SHA3-256 hashing, constant-time comparison for recovery codes. Separate from IdentityBackend (different lifecycle/access patterns). 13 tests.
+
+3. **authentication_provider.rs** — `AuthenticationProvider` trait (authenticate/authenticator_id/authentication_factor_type/supported_credential_types/is_active), `FactorType` (Knowledge/Possession/Inherence per NIST SP 800-63B), `AuthenticationChallenge`, `AuthenticationResult` (Succeeded/Failed/Locked/MfaRequired), `PasswordAuthenticator` (SHA3-256 salt+password), `TotpAuthenticator` (HMAC-SHA3-256 RFC 6238), `RecoveryCodeAuthenticator`, `NullAuthenticator`. 15 tests.
+
+4. **jwt_signing.rs** — `JwtSigner`/`JwtSignatureVerifier` traits (complement rune-web's JwtStructureValidator: structure vs signature), `JwtAlgorithm` (9 variants), `JwtClaims`, `SignatureVerification` (Valid/Invalid/AlgorithmMismatch/Expired), `HmacSha3Sha256JwtSigner`/`HmacSha3Sha256JwtSignatureVerifier` reference implementations, `NullJwtSigner`/`NullJwtSignatureVerifier`. Base64url encode/decode, constant-time signature comparison. 14 tests.
+
+5. **federation_provider.rs** — `FederationAuthProvider` trait (begin_authentication_flow/complete_authentication_flow/provider_id/provider_type/supported_assertion_formats/is_active), `ProviderType` (Oidc/Saml/Ldap), `FlowContext` with SHA3-256 state token, `ExternalIdentity` with SHA3-256 assertion hash. `InMemoryOidcFederationStub`, `InMemorySamlFederationStub`, `InMemoryLdapFederationStub` — stubs exercise trait interface. 11 tests.
+
+6. **identity_stream.rs** — `IdentityEventSubscriber` trait (on_event/subscriber_id/is_active), `IdentityEventSubscriberRegistry` (register/unregister/publish), `IdentityEventCollector`, `FilteredIdentityEventSubscriber`, `IdentityLifecycleEvent`, `IdentityLifecycleEventType` (15 variants). 12 tests.
+
+7. **identity_export.rs** — `IdentityExporter` trait (export_identity/export_format/exporter_id), `ExportFormat` (Scim/OcsfIam/Ecs/Ldif/Json), `ScimIdentityExporter`, `OcsfIamExporter`, `EcsUserExporter`, `LdifExporter`, `JsonIdentityExporter`. All 5 formats verified to exclude credential material (defense in depth). 11 tests.
+
+### Audit Enhancements
+
+23 new `IdentityEventType` variants: IdentityBackendChanged, IdentityPersisted, IdentityQueried, IdentityExported, IdentityExportFailed, CredentialStoreChanged, PasswordHashStored, PasswordHashUpdated, TotpSecretEnrolled, WebAuthnKeyEnrolled, RecoveryCodesGenerated, RecoveryCodeConsumedEvent, AuthenticatorInvoked, AuthenticationOutcomeRecorded, JwtSigned, JwtSignatureVerified, JwtSignatureRejected, FederationFlowStarted, FederationFlowCompleted, FederationFlowFailed, IdentitySubscriberRegistered, IdentitySubscriberRemoved, IdentityEventPublished.
+
+New classification methods: `is_credential_event()`, `is_authentication_event()`, `is_federation_event()`, `is_export_event()`.
+
+### Design Decisions
+
+- **CredentialMaterialStore separates from IdentityBackend**: Different lifecycle and access patterns — credential material is write-heavy with stricter access controls, identity metadata is read-heavy.
+- **CredentialMaterialStore avoids name collision**: Existing credential.rs has `CredentialStore` struct. Layer 3 uses `CredentialMaterialStore` trait.
+- **AuthenticationProvider avoids name collision**: Existing authn.rs has `Authenticator` struct. Layer 3 uses `AuthenticationProvider` trait.
+- **FederationAuthProvider avoids name collision**: Existing federation.rs has `FederationProvider` struct. Layer 3 uses `FederationAuthProvider` trait in `federation_provider.rs`.
+- **NIST SP 800-63B factor types**: Knowledge/Possession/Inherence — the three standard authentication factor categories.
+- **Only HMAC-SHA3-256 reference implementations**: Asymmetric JWT (RS256/ES256/EdDSA) requires adapter crates — the trait boundary accepts all 9 algorithm variants.
+- **WebAuthn cryptographic verification deferred**: webauthn-rs is too substantial for a trait boundary layer — the trait defines the contract, adapters implement the crypto.
+- **Federation stubs exercise trait interface**: Not actual OIDC/SAML/LDAP flows — stubs demonstrate the contract pattern.
+- **RecoveryCodeAuthenticator immutability**: AuthenticationProvider.authenticate takes `&dyn CredentialMaterialStore` (immutable); code consumption deferred to caller via mutable store.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | All 5 export formats exclude credential material; SHA3-256 hashing for passwords/TOTP/recovery codes; constant-time comparison everywhere |
+| Assumed Breach | IdentityEventSubscriber enables real-time identity lifecycle streaming; filtered subscribers isolate security events; federation flow state tokens are SHA3-256 hashed |
+| No Single Points of Failure | All 7 traits decouple from implementations; 5 identity export formats prevent vendor lock-in; IdentityBackend and CredentialMaterialStore separate storage concerns |
+| Zero Trust Throughout | NIST SP 800-63B factor type classification; JWT signing/verification split from structure validation; federation flows require state token + assertion hash verification |

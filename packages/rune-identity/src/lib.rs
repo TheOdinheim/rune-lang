@@ -18,6 +18,13 @@ pub mod claims;
 pub mod federation;
 pub mod audit;
 pub mod error;
+pub mod backend;
+pub mod credential_material_store;
+pub mod authentication_provider;
+pub mod jwt_signing;
+pub mod federation_provider;
+pub mod identity_stream;
+pub mod identity_export;
 
 // ── Re-exports ───────────────────────────────────────────────────────
 
@@ -63,3 +70,35 @@ pub use federation::{
 };
 pub use audit::{IdentityAuditEvent, IdentityAuditLog, IdentityEventType};
 pub use error::IdentityError;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use backend::{
+    IdentityBackend, InMemoryIdentityBackend, CredentialRecord, MfaEnrollment, IdentityBackendInfo,
+};
+pub use credential_material_store::{
+    CredentialMaterialStore, InMemoryCredentialMaterialStore,
+    PasswordHashRecord, TotpSecretHashRecord, WebAuthnPublicKeyRecord, StoredRecoveryCodeSet,
+    CredentialStoreInfo,
+};
+pub use authentication_provider::{
+    AuthenticationProvider, FactorType, AuthenticationChallenge, AuthenticationResult,
+    PasswordAuthenticator, TotpAuthenticator, RecoveryCodeAuthenticator, NullAuthenticator,
+};
+pub use jwt_signing::{
+    JwtSigner, JwtSignatureVerifier, JwtAlgorithm, JwtClaims, SignatureVerification,
+    HmacSha3Sha256JwtSigner, HmacSha3Sha256JwtSignatureVerifier,
+    NullJwtSigner, NullJwtSignatureVerifier,
+};
+pub use federation_provider::{
+    FederationAuthProvider, ProviderType, FlowContext, ExternalIdentity,
+    InMemoryOidcFederationStub, InMemorySamlFederationStub, InMemoryLdapFederationStub,
+};
+pub use identity_stream::{
+    IdentityEventSubscriber, IdentityEventSubscriberRegistry, IdentityEventCollector,
+    FilteredIdentityEventSubscriber, IdentityLifecycleEvent, IdentityLifecycleEventType,
+};
+pub use identity_export::{
+    IdentityExporter, ExportFormat, ExportedIdentity,
+    ScimIdentityExporter, OcsfIamExporter, EcsUserExporter, LdifExporter, JsonIdentityExporter,
+};
