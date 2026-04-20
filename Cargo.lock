@@ -1792,6 +1792,7 @@ dependencies = [
  "rune-security",
  "serde",
  "serde_json",
+ "sha3",
 ]
 
 [[package]]

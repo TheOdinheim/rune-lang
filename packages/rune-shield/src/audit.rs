@@ -32,6 +32,24 @@ pub enum ShieldEventType {
     ExfiltrationAttempt { risk_score: f64, detail: String },
     FingerprintRecorded { hash: String },
     AttackPatternRecognized { fingerprint: String, seen_count: u64 },
+    // Layer 3 event types
+    RuleBackendChanged { backend_type: String },
+    SignaturePackLoaded { pack_name: String, rule_count: usize },
+    SignaturePackRejected { pack_name: String, reason: String },
+    VerdictExported { format: String, count: usize },
+    VerdictExportFailed { format: String, reason: String },
+    VerdictSubscriberRegistered { subscriber_id: String },
+    VerdictSubscriberRemoved { subscriber_id: String },
+    VerdictPublished { subscriber_count: usize },
+    ThreatFeedRefreshed { feed_name: String, indicator_count: usize },
+    ThreatFeedFailed { feed_name: String, reason: String },
+    IndicatorAdded { indicator_id: String, indicator_type: String },
+    IndicatorExpired { indicator_id: String },
+    EnforcementHookRegistered { hook_id: String },
+    EnforcementActionRouted { action: String, hook_id: String },
+    EnforcementActionRejected { action: String, reason: String },
+    MetricsExported { format: String },
+    MetricsExportFailed { format: String, reason: String },
 }
 
 impl ShieldEventType {
@@ -58,6 +76,23 @@ impl ShieldEventType {
             Self::ExfiltrationAttempt { .. } => "ExfiltrationAttempt",
             Self::FingerprintRecorded { .. } => "FingerprintRecorded",
             Self::AttackPatternRecognized { .. } => "AttackPatternRecognized",
+            Self::RuleBackendChanged { .. } => "RuleBackendChanged",
+            Self::SignaturePackLoaded { .. } => "SignaturePackLoaded",
+            Self::SignaturePackRejected { .. } => "SignaturePackRejected",
+            Self::VerdictExported { .. } => "VerdictExported",
+            Self::VerdictExportFailed { .. } => "VerdictExportFailed",
+            Self::VerdictSubscriberRegistered { .. } => "VerdictSubscriberRegistered",
+            Self::VerdictSubscriberRemoved { .. } => "VerdictSubscriberRemoved",
+            Self::VerdictPublished { .. } => "VerdictPublished",
+            Self::ThreatFeedRefreshed { .. } => "ThreatFeedRefreshed",
+            Self::ThreatFeedFailed { .. } => "ThreatFeedFailed",
+            Self::IndicatorAdded { .. } => "IndicatorAdded",
+            Self::IndicatorExpired { .. } => "IndicatorExpired",
+            Self::EnforcementHookRegistered { .. } => "EnforcementHookRegistered",
+            Self::EnforcementActionRouted { .. } => "EnforcementActionRouted",
+            Self::EnforcementActionRejected { .. } => "EnforcementActionRejected",
+            Self::MetricsExported { .. } => "MetricsExported",
+            Self::MetricsExportFailed { .. } => "MetricsExportFailed",
         }
     }
 
@@ -140,6 +175,57 @@ impl fmt::Display for ShieldEventType {
             }
             Self::AttackPatternRecognized { fingerprint, seen_count } => {
                 write!(f, "AttackPatternRecognized({}, {seen_count})", &fingerprint[..8.min(fingerprint.len())])
+            }
+            Self::RuleBackendChanged { backend_type } => {
+                write!(f, "RuleBackendChanged({backend_type})")
+            }
+            Self::SignaturePackLoaded { pack_name, rule_count } => {
+                write!(f, "SignaturePackLoaded({pack_name}, {rule_count})")
+            }
+            Self::SignaturePackRejected { pack_name, reason } => {
+                write!(f, "SignaturePackRejected({pack_name}, {reason})")
+            }
+            Self::VerdictExported { format, count } => {
+                write!(f, "VerdictExported({format}, {count})")
+            }
+            Self::VerdictExportFailed { format, reason } => {
+                write!(f, "VerdictExportFailed({format}, {reason})")
+            }
+            Self::VerdictSubscriberRegistered { subscriber_id } => {
+                write!(f, "VerdictSubscriberRegistered({subscriber_id})")
+            }
+            Self::VerdictSubscriberRemoved { subscriber_id } => {
+                write!(f, "VerdictSubscriberRemoved({subscriber_id})")
+            }
+            Self::VerdictPublished { subscriber_count } => {
+                write!(f, "VerdictPublished({subscriber_count})")
+            }
+            Self::ThreatFeedRefreshed { feed_name, indicator_count } => {
+                write!(f, "ThreatFeedRefreshed({feed_name}, {indicator_count})")
+            }
+            Self::ThreatFeedFailed { feed_name, reason } => {
+                write!(f, "ThreatFeedFailed({feed_name}, {reason})")
+            }
+            Self::IndicatorAdded { indicator_id, indicator_type } => {
+                write!(f, "IndicatorAdded({indicator_id}, {indicator_type})")
+            }
+            Self::IndicatorExpired { indicator_id } => {
+                write!(f, "IndicatorExpired({indicator_id})")
+            }
+            Self::EnforcementHookRegistered { hook_id } => {
+                write!(f, "EnforcementHookRegistered({hook_id})")
+            }
+            Self::EnforcementActionRouted { action, hook_id } => {
+                write!(f, "EnforcementActionRouted({action}, {hook_id})")
+            }
+            Self::EnforcementActionRejected { action, reason } => {
+                write!(f, "EnforcementActionRejected({action}, {reason})")
+            }
+            Self::MetricsExported { format } => {
+                write!(f, "MetricsExported({format})")
+            }
+            Self::MetricsExportFailed { format, reason } => {
+                write!(f, "MetricsExportFailed({format}, {reason})")
             }
         }
     }
@@ -322,6 +408,50 @@ mod tests {
             ShieldEventType::ExfiltrationAttempt { risk_score: 0.8, detail: "pii+secrets".into() },
             ShieldEventType::FingerprintRecorded { hash: "abcdef1234567890".into() },
             ShieldEventType::AttackPatternRecognized { fingerprint: "abcdef1234567890".into(), seen_count: 3 },
+            ShieldEventType::RuleBackendChanged { backend_type: "mem".into() },
+            ShieldEventType::SignaturePackLoaded { pack_name: "p".into(), rule_count: 1 },
+            ShieldEventType::SignaturePackRejected { pack_name: "p".into(), reason: "r".into() },
+            ShieldEventType::VerdictExported { format: "json".into(), count: 1 },
+            ShieldEventType::VerdictExportFailed { format: "x".into(), reason: "r".into() },
+            ShieldEventType::VerdictSubscriberRegistered { subscriber_id: "s".into() },
+            ShieldEventType::VerdictSubscriberRemoved { subscriber_id: "s".into() },
+            ShieldEventType::VerdictPublished { subscriber_count: 1 },
+            ShieldEventType::ThreatFeedRefreshed { feed_name: "f".into(), indicator_count: 1 },
+            ShieldEventType::ThreatFeedFailed { feed_name: "f".into(), reason: "r".into() },
+            ShieldEventType::IndicatorAdded { indicator_id: "i".into(), indicator_type: "Ip".into() },
+            ShieldEventType::IndicatorExpired { indicator_id: "i".into() },
+            ShieldEventType::EnforcementHookRegistered { hook_id: "h".into() },
+            ShieldEventType::EnforcementActionRouted { action: "Deny".into(), hook_id: "h".into() },
+            ShieldEventType::EnforcementActionRejected { action: "Q".into(), reason: "r".into() },
+            ShieldEventType::MetricsExported { format: "prom".into() },
+            ShieldEventType::MetricsExportFailed { format: "x".into(), reason: "r".into() },
+        ];
+        for e in &events {
+            assert!(!e.to_string().is_empty());
+            assert!(!e.kind().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_l3_event_types_display() {
+        let events = [
+            ShieldEventType::RuleBackendChanged { backend_type: "postgres".into() },
+            ShieldEventType::SignaturePackLoaded { pack_name: "p1".into(), rule_count: 5 },
+            ShieldEventType::SignaturePackRejected { pack_name: "p2".into(), reason: "bad hash".into() },
+            ShieldEventType::VerdictExported { format: "json".into(), count: 10 },
+            ShieldEventType::VerdictExportFailed { format: "stix".into(), reason: "timeout".into() },
+            ShieldEventType::VerdictSubscriberRegistered { subscriber_id: "s1".into() },
+            ShieldEventType::VerdictSubscriberRemoved { subscriber_id: "s1".into() },
+            ShieldEventType::VerdictPublished { subscriber_count: 3 },
+            ShieldEventType::ThreatFeedRefreshed { feed_name: "f1".into(), indicator_count: 100 },
+            ShieldEventType::ThreatFeedFailed { feed_name: "f2".into(), reason: "unreachable".into() },
+            ShieldEventType::IndicatorAdded { indicator_id: "i1".into(), indicator_type: "Ip".into() },
+            ShieldEventType::IndicatorExpired { indicator_id: "i2".into() },
+            ShieldEventType::EnforcementHookRegistered { hook_id: "h1".into() },
+            ShieldEventType::EnforcementActionRouted { action: "Deny".into(), hook_id: "h1".into() },
+            ShieldEventType::EnforcementActionRejected { action: "Quarantine".into(), reason: "disabled".into() },
+            ShieldEventType::MetricsExported { format: "prometheus".into() },
+            ShieldEventType::MetricsExportFailed { format: "otel".into(), reason: "error".into() },
         ];
         for e in &events {
             assert!(!e.to_string().is_empty());

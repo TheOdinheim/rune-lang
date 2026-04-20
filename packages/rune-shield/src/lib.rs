@@ -9,19 +9,26 @@
 
 pub mod adversarial;
 pub mod audit;
+pub mod backend;
+pub mod enforcement;
 pub mod error;
 pub mod exfiltration;
+pub mod export_format;
 pub mod fingerprint;
 pub mod injection;
 pub mod input;
 pub mod memory;
+pub mod metrics_export;
 pub mod output;
 pub mod pattern;
 pub mod policy;
 pub mod quarantine;
 pub mod response;
 pub mod shield;
+pub mod signature_loader;
+pub mod threat_feed;
 pub mod token;
+pub mod verdict_stream;
 
 pub use adversarial::{
     AdversarialDetector, AdversarialFinding, AdversarialResult, AdversarialType,
@@ -55,3 +62,32 @@ pub use quarantine::{
 };
 pub use response::{CheckResult, GovernanceDecision, ShieldAction, ShieldVerdict};
 pub use shield::{Shield, ShieldStats};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    BackendInfo, DetectionRule, DetectionRuleBackend, DetectionSignature,
+    InMemoryShieldBackend, StoredVerdict,
+};
+pub use enforcement::{
+    ChainedEnforcementHook, EnforcementHook, MitigationAction,
+    RecordingEnforcementHook, verdict_to_mitigation,
+};
+pub use export_format::{
+    JsonVerdictExporter, MispVerdictExporter, OcsfVerdictExporter,
+    SigmaRuleExporter, StixVerdictExporter, VerdictExporter,
+};
+pub use metrics_export::{
+    CounterMetric, GaugeMetric, HistogramMetric, OtelMetricsExporter,
+    PrometheusMetricsExporter, ShieldMetricsExporter, ShieldMetricsStore,
+};
+pub use signature_loader::{
+    InMemorySignatureLoader, JsonSignatureLoader, RulePack,
+    RulePackValidationError, SignatureLoader,
+};
+pub use threat_feed::{
+    InMemoryThreatFeed, IndicatorType, ThreatFeedSource, ThreatIndicator,
+};
+pub use verdict_stream::{
+    FilteredVerdictSubscriber, VerdictCollector, VerdictLifecycleEvent,
+    VerdictLifecycleEventType, VerdictSubscriber, VerdictSubscriberRegistry,
+};
