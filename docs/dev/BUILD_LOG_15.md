@@ -226,3 +226,49 @@
 | Assumed Breach | SHA3-256 traffic audit chain with tamper detection via hash recomputation; connection pool eviction tracks idle and expired connections; segmentation violation detection identifies untrusted-to-high-security paths without explicit rules |
 | No Single Points of Failure | Five zone trust levels with ordered enforcement; multiple network match types (IP/Range/Hostname/Tag); DNS cache with TTL-aware eviction prevents stale lookups; certificate store tracks CA certificates separately |
 | Zero Trust Throughout | Every network operation generates audit events (15 new types); network policy decisions recorded with matched policy/rule IDs; inter-zone communication requires explicit egress+ingress configuration; connection pool capacity limits prevent resource exhaustion |
+
+---
+
+## RUNE_08 Framework Coverage Reference Document
+
+**File**: `docs/architecture/RUNE_08_Framework_Coverage.md` (317 lines)
+
+### Purpose
+Maps every regulatory and compliance framework referenced across all RUNE crates to its actual implementation depth. Single point of truth for framework coverage.
+
+### Encoding Depth Taxonomy
+- **Structural** — full type-level encoding with scoring algorithms and evidence collection
+- **Operational** — working enforcement logic but not exhaustive control coverage
+- **Skeleton** — data structures and registry entries without enforcement logic
+- **Reference-Only** — string constants or documentation mentions only
+
+### Coverage Summary
+
+| Framework | Depth | Primary Crate |
+|---|---|---|
+| SLSA v1.0 | Structural | rune-provenance |
+| CVSS v3.1 | Structural | rune-security |
+| IEC 61508 (SIL) | Structural | rune-safety |
+| DO-178C (DAL) | Structural | rune-safety |
+| ISO 26262 (ASIL) | Structural | rune-safety |
+| GDPR | Operational | rune-privacy, rune-explainability |
+| CCPA | Operational | rune-privacy |
+| EU AI Act | Operational/Skeleton | rune-explainability, rune-framework |
+| NIST AI RMF 1.0 | Skeleton | rune-framework |
+| SOC 2 Type II | Skeleton | rune-framework |
+
+### Document Sections
+1. Framework Coverage Summary Table
+2. Per-Framework Detail (10 frameworks with what-is/what-is-not-encoded)
+3. Cross-Framework Equivalence Mappings (NIST→SOC2 built-in, gap identification)
+4. Gap Analysis (structural gaps, operational gaps, skeleton gaps, mapping gaps)
+5. Encoding Depth Upgrade Path (prioritised skeleton→operational→structural upgrades)
+
+### Four-Pillar Alignment
+
+| Pillar | How This Document Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Documents that CVSS and SLSA have structural encoding; identifies GDPR gaps (no DPIA, no breach notification) for prioritisation |
+| Assumed Breach | Gap analysis reveals where framework coverage is weakest; upgrade path prioritises post-incident capabilities |
+| No Single Points of Failure | Cross-framework equivalence mappings prevent single-framework dependency; multiple crates implement overlapping regulatory checks |
+| Zero Trust Throughout | Documents that enforcement exists at decision boundaries (EU AI Act Art 13/14); identifies where skeleton frameworks lack enforcement |
