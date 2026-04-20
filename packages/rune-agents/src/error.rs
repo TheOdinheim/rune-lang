@@ -24,6 +24,10 @@ pub enum AgentError {
     ReasoningChainNotActive(String),
     BudgetExhausted { agent_id: String, max: u64, used: u64 },
     InvalidOperation(String),
+    // Layer 2
+    ProtocolNotFound(String),
+    SessionNotFound(String),
+    L2TaskNotFound(String),
 }
 
 impl fmt::Display for AgentError {
@@ -53,6 +57,9 @@ impl fmt::Display for AgentError {
                 write!(f, "Budget exhausted for agent {agent_id}: {used}/{max}")
             }
             Self::InvalidOperation(msg) => write!(f, "Invalid operation: {msg}"),
+            Self::ProtocolNotFound(id) => write!(f, "Protocol not found: {id}"),
+            Self::SessionNotFound(id) => write!(f, "Session not found: {id}"),
+            Self::L2TaskNotFound(id) => write!(f, "L2 task not found: {id}"),
         }
     }
 }
@@ -96,12 +103,15 @@ mod tests {
             AgentError::ReasoningChainNotActive("rc1".into()),
             AgentError::BudgetExhausted { agent_id: "a1".into(), max: 10, used: 10 },
             AgentError::InvalidOperation("bad op".into()),
+            AgentError::ProtocolNotFound("proto1".into()),
+            AgentError::SessionNotFound("sess1".into()),
+            AgentError::L2TaskNotFound("task1".into()),
         ];
         for e in &errors {
             assert!(!e.to_string().is_empty());
             let _ = format!("{e:?}");
             let _: &dyn std::error::Error = e;
         }
-        assert_eq!(errors.len(), 18);
+        assert_eq!(errors.len(), 21);
     }
 }

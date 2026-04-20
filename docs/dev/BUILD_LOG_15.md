@@ -149,3 +149,42 @@
 | Assumed Breach | Safety incident tracking with root cause analysis and corrective action management; overdue action detection; mean time to resolve metrics; boundary violation counting with most-violated ranking |
 | No Single Points of Failure | Multiple enforcement modes per boundary; multi-approver gate requirements; five test categories (adversarial/boundary/regression/stress/fairness); composite safety score from four weighted dimensions |
 | Zero Trust Throughout | Every safety operation generates audit events (15 new types); auto-deny on gate timeout prevents unreviewed actions; safety trend detection (Improving/Stable/Declining) enables early warning; constraint verification reports distinguish Safety-priority failures from other priorities |
+
+---
+
+## rune-agents Layer 2
+
+**Test count**: 106 → 153 (+47 tests, zero failures)
+
+### New Dependencies
+- `sha3 = "0.10"` — SHA3-256 communication chain hashing
+- `hex = "0.4"` — hex encoding for hash output
+
+### New Modules
+
+- `l2_coordination.rs` — Multi-agent coordination protocols: ProtocolType (6 variants: LeaderFollower/Consensus/Pipeline/Broadcast/RequestResponse/Auction), L2CoordinationProtocol with participant tracking, SessionStatus (Active/Completed/Failed/TimedOut/Cancelled), L2MessageType (Propose/Accept/Reject/Inform/Query/Delegate/Acknowledge), CoordinationMessage, L2CoordinationSession with message_count(), L2CoordinationManager (register_protocol/start_session/send_message/complete_session/active_sessions/sessions_for_agent/check_timeouts)
+
+- `l2_capability.rs` — Agent capability governance: CapabilityType (6 variants: Read/Write/Execute/Delegate/Communicate/Model with resource/action lists), CapabilityRiskLevel (Low/Medium/High/Critical with Ord), AgentCapability with expiration tracking and is_expired(), AgentCapabilityRegistry (grant/revoke/has_capability with expiration check/capabilities_for_agent/agents_with_capability reverse lookup/expired_capabilities/high_risk_capabilities filtering ≥High)
+
+- `l2_comm_chain.rs` — Cryptographic communication audit chain: SHA3-256 payload hashing and record hash chaining (id||from||to||payload_hash||prev||timestamp), CommunicationRecord with record_hash chain, CommunicationChain (append with auto-chaining/verify_chain with hash recomputation/records_for_agent sender+receiver/records_for_session/message_count_by_agent/busiest_pair/messages_in_window), ChainVerification (valid/verified_links/broken_at)
+
+- `l2_trust.rs` — Dynamic agent trust scoring: AgentTrustProfile (8 fields: trust/reliability/safety/cooperation scores, interaction counts, violation count), AgentTrustEngine with decay_rate/recovery_rate, weighted trust formula (reliability*0.4 + safety*0.35 + cooperation*0.25), record_success/record_failure/record_violation/record_cooperation, apply_decay (exponential: score *= e^(-decay_rate * elapsed_hours)), agents_above/below_threshold, least/most_trusted sorted
+
+- `l2_delegation.rs` — Task delegation with approval gates: TaskPriority (Low/Medium/High/Critical with Ord), L2DelegationStatus (7 variants: Pending/Accepted/InProgress/Completed/Failed/Rejected/TimedOut), DelegatedTask with required_capabilities/deadline/is_terminal(), L2DelegationManager with delegation chains (delegate/accept_task/reject_task/complete_task/fail_task/redelegate with chain tracking/check_deadlines/tasks_for_agent/tasks_by_agent/delegation_depth/completion_rate/average_completion_time_ms)
+
+- `l2_behavioral.rs` — Behavioral policy enforcement: RuleAction (6 variants: Allow/Deny/RequireApproval/RateLimit/Log/Quarantine), PolicyEnforcement (Strict/Permissive/AuditOnly), BehavioralRule with condition keyword matching and priority sorting, BehavioralPolicy with wildcard "*" agent matching, BehavioralViolation tracking, PolicyEvaluation (allowed/matched_rules/requires_approval/rate_limited), BehavioralPolicyEngine (add_policy/evaluate/record_violation/violations_for_agent/violations_for_policy/most_violated_policies/agents_with_violations)
+
+### Modified Files
+- `audit.rs` — 15 new AgentEventType variants for Layer 2 operations (CoordinationProtocolRegistered/CoordinationSessionStarted/CoordinationSessionCompleted/CoordinationMessageSent/CapabilityGranted/CapabilityRevoked/CommunicationChainAppended/CommunicationChainVerified/TrustScoreUpdated/TrustDecayApplied/TaskDelegated/TaskCompleted/TaskRedelegated/BehavioralPolicyEvaluated/BehavioralViolationRecorded), updated Display impl and test (18→33 variants)
+- `error.rs` — 3 new AgentError variants (ProtocolNotFound/SessionNotFound/L2TaskNotFound), updated test (18→21 variants)
+- `lib.rs` — 6 new module declarations and Layer 2 re-exports with L2 prefix aliases for name collisions
+- `Cargo.toml` — added sha3 and hex dependencies
+
+### Four-Pillar Alignment
+
+| Pillar | How This Upgrade Serves It |
+|--------|---------------------------|
+| Security/Privacy/Governance Baked In | Capability governance with risk-level classification and expiration; behavioral policy enforcement with strict/permissive/audit-only modes; multi-dimensional trust scoring with weighted formula |
+| Assumed Breach | SHA3-256 communication audit chain with tamper detection via hash recomputation; violation tracking across policies and agents; trust decay over time requires continuous good behavior |
+| No Single Points of Failure | Six coordination protocol types (LeaderFollower/Consensus/Pipeline/Broadcast/RequestResponse/Auction); delegation chains with redelegation depth tracking; multiple enforcement actions (Allow/Deny/RequireApproval/RateLimit/Log/Quarantine) |
+| Zero Trust Throughout | Every agent operation generates audit events (15 new types); capability expiration enforced on every check; behavioral policy evaluation with wildcard agent matching; trust scoring penalizes failures 2x harder than successes reward |

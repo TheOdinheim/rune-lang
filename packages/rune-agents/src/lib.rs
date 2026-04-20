@@ -16,6 +16,14 @@ pub mod error;
 pub mod reasoning;
 pub mod tool;
 
+// Layer 2 modules
+pub mod l2_behavioral;
+pub mod l2_capability;
+pub mod l2_comm_chain;
+pub mod l2_coordination;
+pub mod l2_delegation;
+pub mod l2_trust;
+
 // ── Re-exports ───────────────────────────────────────────────────────
 
 pub use action::{
@@ -47,3 +55,22 @@ pub use tool::{
     ToolDefinition, ToolId, ToolInvocation, ToolInvocationStatus, ToolPermission,
     ToolPermissionOutcome, ToolRegistry,
 };
+
+// ── Layer 2 re-exports ──────────────────────────────────────────────
+
+pub use l2_behavioral::{
+    BehavioralPolicy, BehavioralPolicyEngine, BehavioralRule, BehavioralViolation,
+    PolicyEnforcement, PolicyEvaluation, RuleAction,
+};
+pub use l2_capability::{
+    AgentCapability, AgentCapabilityRegistry, CapabilityRiskLevel, CapabilityType,
+};
+pub use l2_comm_chain::{ChainVerification, CommunicationChain, CommunicationRecord};
+pub use l2_coordination::{
+    CoordinationMessage, L2CoordinationManager, L2CoordinationProtocol,
+    L2CoordinationSession, L2MessageType, ProtocolType, SessionStatus,
+};
+pub use l2_delegation::{
+    DelegatedTask, L2DelegationManager, L2DelegationStatus, TaskPriority,
+};
+pub use l2_trust::{AgentTrustEngine, AgentTrustProfile};

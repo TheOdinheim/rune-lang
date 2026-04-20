@@ -33,6 +33,22 @@ pub enum AgentEventType {
     MessageBlocked { from: String, to: String, reason: String },
     CollectiveDecisionMade { outcome: String },
     AutonomyBoundaryViolation { boundary: String, action: String },
+    // Layer 2
+    CoordinationProtocolRegistered { protocol_id: String, protocol_type: String },
+    CoordinationSessionStarted { session_id: String, protocol_id: String },
+    CoordinationSessionCompleted { session_id: String, message_count: String },
+    CoordinationMessageSent { session_id: String, from: String, to: String },
+    CapabilityGranted { agent_id: String, capability_id: String, risk_level: String },
+    CapabilityRevoked { agent_id: String, capability_id: String },
+    CommunicationChainAppended { from: String, to: String, chain_length: String },
+    CommunicationChainVerified { valid: bool, verified_links: String },
+    TrustScoreUpdated { agent_id: String, score: String },
+    TrustDecayApplied { agents_affected: String },
+    TaskDelegated { task_id: String, delegator: String, delegatee: String },
+    TaskCompleted { task_id: String, success: bool },
+    TaskRedelegated { task_id: String, new_delegatee: String },
+    BehavioralPolicyEvaluated { agent_id: String, action: String, allowed: bool },
+    BehavioralViolationRecorded { policy_id: String, agent_id: String },
 }
 
 impl fmt::Display for AgentEventType {
@@ -81,6 +97,51 @@ impl fmt::Display for AgentEventType {
             }
             Self::AutonomyBoundaryViolation { boundary, action } => {
                 write!(f, "AutonomyViolation({boundary}: {action})")
+            }
+            Self::CoordinationProtocolRegistered { protocol_id, protocol_type } => {
+                write!(f, "CoordinationProtocolRegistered({protocol_id}, {protocol_type})")
+            }
+            Self::CoordinationSessionStarted { session_id, protocol_id } => {
+                write!(f, "CoordinationSessionStarted({session_id}, {protocol_id})")
+            }
+            Self::CoordinationSessionCompleted { session_id, message_count } => {
+                write!(f, "CoordinationSessionCompleted({session_id}, msgs={message_count})")
+            }
+            Self::CoordinationMessageSent { session_id, from, to } => {
+                write!(f, "CoordinationMessageSent({session_id}, {from}→{to})")
+            }
+            Self::CapabilityGranted { agent_id, capability_id, risk_level } => {
+                write!(f, "CapabilityGranted({agent_id}, {capability_id}, risk={risk_level})")
+            }
+            Self::CapabilityRevoked { agent_id, capability_id } => {
+                write!(f, "CapabilityRevoked({agent_id}, {capability_id})")
+            }
+            Self::CommunicationChainAppended { from, to, chain_length } => {
+                write!(f, "CommunicationChainAppended({from}→{to}, len={chain_length})")
+            }
+            Self::CommunicationChainVerified { valid, verified_links } => {
+                write!(f, "CommunicationChainVerified(valid={valid}, links={verified_links})")
+            }
+            Self::TrustScoreUpdated { agent_id, score } => {
+                write!(f, "TrustScoreUpdated({agent_id}, score={score})")
+            }
+            Self::TrustDecayApplied { agents_affected } => {
+                write!(f, "TrustDecayApplied(agents={agents_affected})")
+            }
+            Self::TaskDelegated { task_id, delegator, delegatee } => {
+                write!(f, "TaskDelegated({task_id}, {delegator}→{delegatee})")
+            }
+            Self::TaskCompleted { task_id, success } => {
+                write!(f, "TaskCompleted({task_id}, success={success})")
+            }
+            Self::TaskRedelegated { task_id, new_delegatee } => {
+                write!(f, "TaskRedelegated({task_id}, →{new_delegatee})")
+            }
+            Self::BehavioralPolicyEvaluated { agent_id, action, allowed } => {
+                write!(f, "BehavioralPolicyEvaluated({agent_id}, {action}, allowed={allowed})")
+            }
+            Self::BehavioralViolationRecorded { policy_id, agent_id } => {
+                write!(f, "BehavioralViolationRecorded({policy_id}, {agent_id})")
             }
         }
     }
@@ -314,10 +375,26 @@ mod tests {
             AgentEventType::MessageBlocked { from: "a1".into(), to: "a3".into(), reason: "denied".into() },
             AgentEventType::CollectiveDecisionMade { outcome: "approved".into() },
             AgentEventType::AutonomyBoundaryViolation { boundary: "b1".into(), action: "delete".into() },
+            // Layer 2
+            AgentEventType::CoordinationProtocolRegistered { protocol_id: "p1".into(), protocol_type: "Consensus".into() },
+            AgentEventType::CoordinationSessionStarted { session_id: "s1".into(), protocol_id: "p1".into() },
+            AgentEventType::CoordinationSessionCompleted { session_id: "s1".into(), message_count: "5".into() },
+            AgentEventType::CoordinationMessageSent { session_id: "s1".into(), from: "a1".into(), to: "a2".into() },
+            AgentEventType::CapabilityGranted { agent_id: "a1".into(), capability_id: "c1".into(), risk_level: "High".into() },
+            AgentEventType::CapabilityRevoked { agent_id: "a1".into(), capability_id: "c1".into() },
+            AgentEventType::CommunicationChainAppended { from: "a1".into(), to: "a2".into(), chain_length: "10".into() },
+            AgentEventType::CommunicationChainVerified { valid: true, verified_links: "10".into() },
+            AgentEventType::TrustScoreUpdated { agent_id: "a1".into(), score: "0.85".into() },
+            AgentEventType::TrustDecayApplied { agents_affected: "3".into() },
+            AgentEventType::TaskDelegated { task_id: "t1".into(), delegator: "a1".into(), delegatee: "a2".into() },
+            AgentEventType::TaskCompleted { task_id: "t1".into(), success: true },
+            AgentEventType::TaskRedelegated { task_id: "t1".into(), new_delegatee: "a3".into() },
+            AgentEventType::BehavioralPolicyEvaluated { agent_id: "a1".into(), action: "delete".into(), allowed: false },
+            AgentEventType::BehavioralViolationRecorded { policy_id: "p1".into(), agent_id: "a1".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 18);
+        assert_eq!(types.len(), 33);
     }
 }
