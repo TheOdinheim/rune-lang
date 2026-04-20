@@ -272,3 +272,56 @@ Maps every regulatory and compliance framework referenced across all RUNE crates
 | Assumed Breach | Gap analysis reveals where framework coverage is weakest; upgrade path prioritises post-incident capabilities |
 | No Single Points of Failure | Cross-framework equivalence mappings prevent single-framework dependency; multiple crates implement overlapping regulatory checks |
 | Zero Trust Throughout | Documents that enforcement exists at decision boundaries (EU AI Act Art 13/14); identifies where skeleton frameworks lack enforcement |
+
+---
+
+## rune-audit-ext Layer 3 — Storage Backend Trait, Export Formats, Streaming Subscribers, Batch Export, Enrichment Pipeline, Query Interface
+
+**Date:** 2026-04-19
+**Tests:** 201 (136→201, +65 new)
+**Commit:** `feat(rune-audit-ext): Layer 3 — storage backend trait, export formats (CEF/OCSF/JSON), streaming subscribers, batch export, enrichment pipeline, query interface`
+
+### What Changed
+
+Layer 3 adds trait boundaries that define contracts for pluggable audit system components. Six new modules, twelve new audit event types.
+
+### New Modules
+
+1. **backend.rs** — `AuditBackend` trait (store_event/store_batch/get/query_by_type/query_by_time_range/query_by_source/event_count/all_events/verify_chain_integrity/flush), `InMemoryAuditBackend` reference implementation with SHA3-256 chain integrity, enricher support, max_events cap, `ChainIntegrityResult`. 10 tests.
+
+2. **format.rs** — `AuditFormatExporter` trait (export_event→Vec<u8>/export_batch/format_name/content_type), `CefExporter` producing CEF:0|Odin's LLC|RUNE|1.0 format, `OcsfExporter` producing OCSF v1.1 JSON (class_uid 2001 for threats, 3001 for audit), `JsonExporter` with optional pretty-print. 17 tests.
+
+3. **subscriber.rs** — `AuditSubscriber` trait (on_event/on_batch/subscriber_id/is_active), `AuditSubscriberRegistry` with register/notify_all/notify_batch/active_count/remove_inactive, `CollectorSubscriber` for testing, `FilteredSubscriber` with action-based filtering. 8 tests.
+
+4. **batch.rs** — `AcceptResult` enum (Accepted/BatchReady/Dropped), `BatchExportConfig` (max_batch_size/max_pending_batches/flush_interval_ms), `BatchExportManager` with backpressure signaling (under backpressure, auto-batch disabled, events buffer to max_pending then drop), `BatchExportStats` with drop_rate as String (not f64, because AuditExtEventType derives Eq). 7 tests.
+
+5. **pipeline.rs** — `AuditEnricher` trait (enrich/enricher_name), `TimestampNormalizer` (timezone offset), `SourceTagger` (metadata tags), `SeverityMapper` (severity→numeric 1-10), `EnrichmentPipeline` with ordered enricher chain and batch support. 8 tests.
+
+6. **l3_query.rs** — `L3AuditQuery` with `AuditQueryBuilder` fluent API (event_type/time_range/source/severity_at_least/contains_text/has_metadata/sort_by/limit/offset), `L3QueryFilter` (6 variants), `SortField`/`SortOrder`, `execute_query` working against `&dyn AuditBackend`, `L3QueryResult`. 10 tests.
+
+### Modified Files
+
+- **audit.rs** — 12 new `AuditExtEventType` variants (ExportFormatted, ExportBatchCompleted, BackpressureActivated, BackpressureDeactivated, EventDropped, SubscriberRegistered, SubscriberRemoved, EnrichmentApplied, L3QueryExecuted, BackendFlushed, ChainIntegrityChecked, StorageBackendChanged). Variant count 15→27.
+- **lib.rs** — 6 new module declarations and Layer 3 re-exports.
+
+### Name Collision Avoidance
+
+- Existing `AuditExporter` (struct) preserved → new trait: `AuditFormatExporter`
+- Existing `QueryFilter`/`AuditQuery`/`QueryResult` preserved → new: `L3QueryFilter`/`L3AuditQuery`/`L3QueryResult`
+- Existing `EventEnricher` (struct with rules) preserved → new trait: `AuditEnricher`
+
+### Design Decisions
+
+- **Backpressure semantics:** Under backpressure, BatchReady does NOT auto-fire. Events buffer up to `max_batch_size * max_pending_batches`, then drop. Manual flush() still available. This prevents sending batches to an overwhelmed export target.
+- **drop_rate as String:** `BatchExportStats` uses String for drop_rate because `AuditExtEventType` derives `Eq` and f64 does not implement Eq.
+- **OCSF class_uid:** 2001 (Security Finding) for ThreatDetection events, 3001 (Audit Activity) for all others.
+- **execute_query works against `&dyn AuditBackend`**, not the old `AuditStore`, enabling custom backend implementations.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | Pluggable backends and export formats ensure audit data can flow to any compliance/SIEM target; enrichment pipeline normalizes events for governance dashboards |
+| Assumed Breach | Streaming subscribers enable real-time breach detection; batch export with backpressure ensures audit data survives export target overload |
+| No Single Points of Failure | `AuditBackend` trait decouples audit storage from implementation; multiple export format implementations (CEF/OCSF/JSON) prevent vendor lock-in |
+| Zero Trust Throughout | Chain integrity verification built into backend trait; structured query interface enables forensic investigation against any backend |

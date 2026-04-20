@@ -28,6 +28,19 @@ pub enum AuditExtEventType {
     ArchiveCompleted { archived_count: usize, policy: String },
     RetentionValidated { policy_count: usize, issues: usize },
     ExportValidated { format: String, event_count: usize, valid: bool },
+    // Layer 3
+    ExportFormatted { format: String, event_count: String },
+    ExportBatchCompleted { batch_size: String, format: String },
+    BackpressureActivated { pending: String },
+    BackpressureDeactivated { pending: String },
+    EventDropped { reason: String },
+    SubscriberRegistered { subscriber_id: String },
+    SubscriberRemoved { subscriber_id: String },
+    EnrichmentApplied { enricher: String, events: String },
+    L3QueryExecuted { filters: String, results: String },
+    BackendFlushed { events: String },
+    ChainIntegrityChecked { valid: bool, verified: String },
+    StorageBackendChanged { backend_type: String },
 }
 
 impl fmt::Display for AuditExtEventType {
@@ -76,6 +89,39 @@ impl fmt::Display for AuditExtEventType {
             Self::ExportValidated { format, event_count, valid } => {
                 write!(f, "export-validated:{format} ({event_count} events, valid={valid})")
             }
+            // Layer 3
+            Self::ExportFormatted { format, event_count } => {
+                write!(f, "export-formatted:{format} ({event_count} events)")
+            }
+            Self::ExportBatchCompleted { batch_size, format } => {
+                write!(f, "export-batch-completed:{batch_size} events ({format})")
+            }
+            Self::BackpressureActivated { pending } => {
+                write!(f, "backpressure-activated:{pending} pending")
+            }
+            Self::BackpressureDeactivated { pending } => {
+                write!(f, "backpressure-deactivated:{pending} pending")
+            }
+            Self::EventDropped { reason } => write!(f, "event-dropped:{reason}"),
+            Self::SubscriberRegistered { subscriber_id } => {
+                write!(f, "subscriber-registered:{subscriber_id}")
+            }
+            Self::SubscriberRemoved { subscriber_id } => {
+                write!(f, "subscriber-removed:{subscriber_id}")
+            }
+            Self::EnrichmentApplied { enricher, events } => {
+                write!(f, "enrichment-applied:{enricher} ({events} events)")
+            }
+            Self::L3QueryExecuted { filters, results } => {
+                write!(f, "l3-query-executed:{filters} filters ({results} results)")
+            }
+            Self::BackendFlushed { events } => write!(f, "backend-flushed:{events} events"),
+            Self::ChainIntegrityChecked { valid, verified } => {
+                write!(f, "chain-integrity-checked:valid={valid} ({verified} verified)")
+            }
+            Self::StorageBackendChanged { backend_type } => {
+                write!(f, "storage-backend-changed:{backend_type}")
+            }
         }
     }
 }
@@ -98,6 +144,19 @@ impl AuditExtEventType {
             Self::ArchiveCompleted { .. } => "archive-completed",
             Self::RetentionValidated { .. } => "retention-validated",
             Self::ExportValidated { .. } => "export-validated",
+            // Layer 3
+            Self::ExportFormatted { .. } => "export-formatted",
+            Self::ExportBatchCompleted { .. } => "export-batch-completed",
+            Self::BackpressureActivated { .. } => "backpressure-activated",
+            Self::BackpressureDeactivated { .. } => "backpressure-deactivated",
+            Self::EventDropped { .. } => "event-dropped",
+            Self::SubscriberRegistered { .. } => "subscriber-registered",
+            Self::SubscriberRemoved { .. } => "subscriber-removed",
+            Self::EnrichmentApplied { .. } => "enrichment-applied",
+            Self::L3QueryExecuted { .. } => "l3-query-executed",
+            Self::BackendFlushed { .. } => "backend-flushed",
+            Self::ChainIntegrityChecked { .. } => "chain-integrity-checked",
+            Self::StorageBackendChanged { .. } => "storage-backend-changed",
         }
     }
 }
@@ -250,12 +309,25 @@ mod tests {
             AuditExtEventType::ArchiveCompleted { archived_count: 25, policy: "p1".into() },
             AuditExtEventType::RetentionValidated { policy_count: 3, issues: 1 },
             AuditExtEventType::ExportValidated { format: "cef".into(), event_count: 50, valid: true },
+            // Layer 3
+            AuditExtEventType::ExportFormatted { format: "CEF".into(), event_count: "10".into() },
+            AuditExtEventType::ExportBatchCompleted { batch_size: "100".into(), format: "JSON".into() },
+            AuditExtEventType::BackpressureActivated { pending: "500".into() },
+            AuditExtEventType::BackpressureDeactivated { pending: "50".into() },
+            AuditExtEventType::EventDropped { reason: "backpressure".into() },
+            AuditExtEventType::SubscriberRegistered { subscriber_id: "sub-1".into() },
+            AuditExtEventType::SubscriberRemoved { subscriber_id: "sub-1".into() },
+            AuditExtEventType::EnrichmentApplied { enricher: "SeverityMapper".into(), events: "5".into() },
+            AuditExtEventType::L3QueryExecuted { filters: "3".into(), results: "42".into() },
+            AuditExtEventType::BackendFlushed { events: "10".into() },
+            AuditExtEventType::ChainIntegrityChecked { valid: true, verified: "100".into() },
+            AuditExtEventType::StorageBackendChanged { backend_type: "InMemory".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
             assert!(!t.type_name().is_empty());
         }
-        assert_eq!(types.len(), 15);
+        assert_eq!(types.len(), 27);
     }
 
     #[test]

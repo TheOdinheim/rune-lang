@@ -16,6 +16,14 @@ pub mod retention;
 pub mod store;
 pub mod timeline;
 
+// Layer 3 modules
+pub mod backend;
+pub mod batch;
+pub mod format;
+pub mod l3_query;
+pub mod pipeline;
+pub mod subscriber;
+
 pub use audit::{AuditExtAuditEvent, AuditExtEventType, AuditExtLog};
 pub use correlation::{CorrelationChain, CorrelationEngine};
 pub use enrichment::{Enrichment, EnrichmentCondition, EnrichmentRule, EventEnricher};
@@ -41,3 +49,19 @@ pub use store::{
     AuditStore, EventIndex, StorageStats,
 };
 pub use timeline::{bucketize, Timeline, TimelineBuilder, TimelineEntry};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────
+
+pub use backend::{AuditBackend, ChainIntegrityResult, InMemoryAuditBackend};
+pub use batch::{AcceptResult, BatchExportConfig, BatchExportManager, BatchExportStats};
+pub use format::{AuditFormatExporter, CefExporter, JsonExporter, OcsfExporter};
+pub use l3_query::{
+    execute_query, AuditQueryBuilder, L3AuditQuery, L3QueryFilter, L3QueryResult,
+    SortField, SortOrder,
+};
+pub use pipeline::{
+    AuditEnricher, EnrichmentPipeline, SeverityMapper, SourceTagger, TimestampNormalizer,
+};
+pub use subscriber::{
+    AuditSubscriber, AuditSubscriberRegistry, CollectorSubscriber, FilteredSubscriber,
+};
