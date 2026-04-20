@@ -37,6 +37,31 @@ pub enum PrivacyEventType {
     DataSubjectRequestCompleted { request_id: String, right: String },
     DataSubjectRequestOverdue { request_id: String, deadline: i64 },
     PiaScoreCalculated { score: f64, risk_level: String },
+    // Layer 3
+    PrivacyBackendChanged,
+    PiiClassificationStored { classification_id: String },
+    PiiClassifierInvoked { classifier_id: String },
+    PiiClassifierFailed { classifier_id: String, reason: String },
+    DataSubjectRecordPersisted { subject_ref: String },
+    DataSubjectRequestReceived { request_id: String, request_type: String },
+    DataSubjectRequestFulfilled { request_id: String },
+    DataSubjectRequestRefused { request_id: String, reason: String },
+    ConsentStoreChanged,
+    ConsentRecordStored { consent_id: String },
+    L3ConsentWithdrawn { consent_id: String },
+    L3ConsentExpired { consent_id: String },
+    ConsentSuperseded { old_consent_id: String, new_consent_id: String },
+    RedactionApplied { strategy_id: String, category: String },
+    RedactionFailed { strategy_id: String, reason: String },
+    DsarExported { format: String, subject_ref: String },
+    DsarExportFailed { format: String, reason: String },
+    SubjectRightsSubscriberRegistered { subscriber_id: String },
+    SubjectRightsSubscriberRemoved { subscriber_id: String },
+    SubjectRightsEventPublished { event_type: String },
+    RetentionPolicyEvaluated { policy_id: String, decision: String },
+    RetentionDeletionScheduled { record_id: String },
+    RetentionLegalHoldApplied { subject_ref: String, reason: String },
+    ProcessingRecordPersisted { record_id: String },
 }
 
 impl PrivacyEventType {
@@ -68,6 +93,31 @@ impl PrivacyEventType {
             Self::DataSubjectRequestCompleted { .. } => "DataSubjectRequestCompleted",
             Self::DataSubjectRequestOverdue { .. } => "DataSubjectRequestOverdue",
             Self::PiaScoreCalculated { .. } => "PiaScoreCalculated",
+            // Layer 3
+            Self::PrivacyBackendChanged => "PrivacyBackendChanged",
+            Self::PiiClassificationStored { .. } => "PiiClassificationStored",
+            Self::PiiClassifierInvoked { .. } => "PiiClassifierInvoked",
+            Self::PiiClassifierFailed { .. } => "PiiClassifierFailed",
+            Self::DataSubjectRecordPersisted { .. } => "DataSubjectRecordPersisted",
+            Self::DataSubjectRequestReceived { .. } => "DataSubjectRequestReceived",
+            Self::DataSubjectRequestFulfilled { .. } => "DataSubjectRequestFulfilled",
+            Self::DataSubjectRequestRefused { .. } => "DataSubjectRequestRefused",
+            Self::ConsentStoreChanged => "ConsentStoreChanged",
+            Self::ConsentRecordStored { .. } => "ConsentRecordStored",
+            Self::L3ConsentWithdrawn { .. } => "L3ConsentWithdrawn",
+            Self::L3ConsentExpired { .. } => "L3ConsentExpired",
+            Self::ConsentSuperseded { .. } => "ConsentSuperseded",
+            Self::RedactionApplied { .. } => "RedactionApplied",
+            Self::RedactionFailed { .. } => "RedactionFailed",
+            Self::DsarExported { .. } => "DsarExported",
+            Self::DsarExportFailed { .. } => "DsarExportFailed",
+            Self::SubjectRightsSubscriberRegistered { .. } => "SubjectRightsSubscriberRegistered",
+            Self::SubjectRightsSubscriberRemoved { .. } => "SubjectRightsSubscriberRemoved",
+            Self::SubjectRightsEventPublished { .. } => "SubjectRightsEventPublished",
+            Self::RetentionPolicyEvaluated { .. } => "RetentionPolicyEvaluated",
+            Self::RetentionDeletionScheduled { .. } => "RetentionDeletionScheduled",
+            Self::RetentionLegalHoldApplied { .. } => "RetentionLegalHoldApplied",
+            Self::ProcessingRecordPersisted { .. } => "ProcessingRecordPersisted",
         }
     }
 
@@ -89,6 +139,60 @@ impl PrivacyEventType {
                 | Self::ConsentVersionCreated { .. }
                 | Self::ConsentWithdrawnCascade { .. }
                 | Self::ConsentProofGenerated { .. }
+                | Self::ConsentStoreChanged
+                | Self::ConsentRecordStored { .. }
+                | Self::L3ConsentWithdrawn { .. }
+                | Self::L3ConsentExpired { .. }
+                | Self::ConsentSuperseded { .. }
+        )
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PrivacyBackendChanged
+                | Self::DataSubjectRecordPersisted { .. }
+                | Self::ProcessingRecordPersisted { .. }
+        )
+    }
+
+    pub fn is_subject_rights_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DataSubjectRequestReceived { .. }
+                | Self::DataSubjectRequestFulfilled { .. }
+                | Self::DataSubjectRequestRefused { .. }
+                | Self::SubjectRightsSubscriberRegistered { .. }
+                | Self::SubjectRightsSubscriberRemoved { .. }
+                | Self::SubjectRightsEventPublished { .. }
+                | Self::DsarExported { .. }
+                | Self::DsarExportFailed { .. }
+        )
+    }
+
+    pub fn is_redaction_event(&self) -> bool {
+        matches!(
+            self,
+            Self::RedactionApplied { .. }
+                | Self::RedactionFailed { .. }
+        )
+    }
+
+    pub fn is_retention_event(&self) -> bool {
+        matches!(
+            self,
+            Self::RetentionPolicyEvaluated { .. }
+                | Self::RetentionDeletionScheduled { .. }
+                | Self::RetentionLegalHoldApplied { .. }
+        )
+    }
+
+    pub fn is_classification_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PiiClassificationStored { .. }
+                | Self::PiiClassifierInvoked { .. }
+                | Self::PiiClassifierFailed { .. }
         )
     }
 }
@@ -384,6 +488,89 @@ mod tests {
         assert!(PrivacyEventType::ConsentWithdrawnCascade { consent_id: "c1".into(), dependent_purposes: 2 }.is_consent_event());
         assert!(PrivacyEventType::ConsentProofGenerated { consent_id: "c1".into() }.is_consent_event());
         assert!(!PrivacyEventType::PiaScoreCalculated { score: 0.5, risk_level: "Medium".into() }.is_consent_event());
+    }
+
+    // ── Layer 3 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer3_event_types_kind_and_display() {
+        let events = vec![
+            PrivacyEventType::PrivacyBackendChanged,
+            PrivacyEventType::PiiClassificationStored { classification_id: "c1".into() },
+            PrivacyEventType::PiiClassifierInvoked { classifier_id: "r1".into() },
+            PrivacyEventType::PiiClassifierFailed { classifier_id: "r1".into(), reason: "timeout".into() },
+            PrivacyEventType::DataSubjectRecordPersisted { subject_ref: "alice".into() },
+            PrivacyEventType::DataSubjectRequestReceived { request_id: "r1".into(), request_type: "Access".into() },
+            PrivacyEventType::DataSubjectRequestFulfilled { request_id: "r1".into() },
+            PrivacyEventType::DataSubjectRequestRefused { request_id: "r1".into(), reason: "unverified".into() },
+            PrivacyEventType::ConsentStoreChanged,
+            PrivacyEventType::ConsentRecordStored { consent_id: "c1".into() },
+            PrivacyEventType::L3ConsentWithdrawn { consent_id: "c1".into() },
+            PrivacyEventType::L3ConsentExpired { consent_id: "c1".into() },
+            PrivacyEventType::ConsentSuperseded { old_consent_id: "c1".into(), new_consent_id: "c2".into() },
+            PrivacyEventType::RedactionApplied { strategy_id: "mask-1".into(), category: "Email".into() },
+            PrivacyEventType::RedactionFailed { strategy_id: "mask-1".into(), reason: "no mapping".into() },
+            PrivacyEventType::DsarExported { format: "JSON".into(), subject_ref: "alice".into() },
+            PrivacyEventType::DsarExportFailed { format: "XML".into(), reason: "missing data".into() },
+            PrivacyEventType::SubjectRightsSubscriberRegistered { subscriber_id: "s1".into() },
+            PrivacyEventType::SubjectRightsSubscriberRemoved { subscriber_id: "s1".into() },
+            PrivacyEventType::SubjectRightsEventPublished { event_type: "AccessRequestReceived".into() },
+            PrivacyEventType::RetentionPolicyEvaluated { policy_id: "rp1".into(), decision: "Retain".into() },
+            PrivacyEventType::RetentionDeletionScheduled { record_id: "r1".into() },
+            PrivacyEventType::RetentionLegalHoldApplied { subject_ref: "alice".into(), reason: "litigation".into() },
+            PrivacyEventType::ProcessingRecordPersisted { record_id: "pr1".into() },
+        ];
+        for evt in &events {
+            assert!(!evt.kind().is_empty());
+            assert!(!evt.to_string().is_empty());
+        }
+        assert_eq!(events.len(), 24);
+    }
+
+    #[test]
+    fn test_layer3_consent_events() {
+        assert!(PrivacyEventType::ConsentStoreChanged.is_consent_event());
+        assert!(PrivacyEventType::ConsentRecordStored { consent_id: "c1".into() }.is_consent_event());
+        assert!(PrivacyEventType::L3ConsentWithdrawn { consent_id: "c1".into() }.is_consent_event());
+        assert!(PrivacyEventType::L3ConsentExpired { consent_id: "c1".into() }.is_consent_event());
+        assert!(PrivacyEventType::ConsentSuperseded { old_consent_id: "c1".into(), new_consent_id: "c2".into() }.is_consent_event());
+    }
+
+    #[test]
+    fn test_layer3_backend_events() {
+        assert!(PrivacyEventType::PrivacyBackendChanged.is_backend_event());
+        assert!(PrivacyEventType::DataSubjectRecordPersisted { subject_ref: "alice".into() }.is_backend_event());
+        assert!(PrivacyEventType::ProcessingRecordPersisted { record_id: "pr1".into() }.is_backend_event());
+        assert!(!PrivacyEventType::RedactionApplied { strategy_id: "m1".into(), category: "Email".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_layer3_subject_rights_events() {
+        assert!(PrivacyEventType::DataSubjectRequestReceived { request_id: "r1".into(), request_type: "Access".into() }.is_subject_rights_event());
+        assert!(PrivacyEventType::DsarExported { format: "JSON".into(), subject_ref: "alice".into() }.is_subject_rights_event());
+        assert!(!PrivacyEventType::PrivacyBackendChanged.is_subject_rights_event());
+    }
+
+    #[test]
+    fn test_layer3_redaction_events() {
+        assert!(PrivacyEventType::RedactionApplied { strategy_id: "m1".into(), category: "Email".into() }.is_redaction_event());
+        assert!(PrivacyEventType::RedactionFailed { strategy_id: "m1".into(), reason: "err".into() }.is_redaction_event());
+        assert!(!PrivacyEventType::PrivacyBackendChanged.is_redaction_event());
+    }
+
+    #[test]
+    fn test_layer3_retention_events() {
+        assert!(PrivacyEventType::RetentionPolicyEvaluated { policy_id: "rp1".into(), decision: "Retain".into() }.is_retention_event());
+        assert!(PrivacyEventType::RetentionLegalHoldApplied { subject_ref: "alice".into(), reason: "lit".into() }.is_retention_event());
+        assert!(!PrivacyEventType::ConsentStoreChanged.is_retention_event());
+    }
+
+    #[test]
+    fn test_layer3_classification_events() {
+        assert!(PrivacyEventType::PiiClassificationStored { classification_id: "c1".into() }.is_classification_event());
+        assert!(PrivacyEventType::PiiClassifierInvoked { classifier_id: "r1".into() }.is_classification_event());
+        assert!(PrivacyEventType::PiiClassifierFailed { classifier_id: "r1".into(), reason: "err".into() }.is_classification_event());
+        assert!(!PrivacyEventType::DsarExported { format: "JSON".into(), subject_ref: "alice".into() }.is_classification_event());
     }
 
     #[test]

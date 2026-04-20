@@ -1715,6 +1715,7 @@ name = "rune-privacy"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "hmac",
  "regex",
  "rune-identity",
  "rune-lang",

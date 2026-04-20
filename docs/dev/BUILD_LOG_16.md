@@ -264,3 +264,59 @@ New classification methods: `is_credential_event()`, `is_authentication_event()`
 | Assumed Breach | DecisionSubscriber enables real-time authorization decision streaming; ExternalPolicyEvaluator integrates external engines; RecordingExternalEvaluator provides complete audit trail of all external calls |
 | No Single Points of Failure | All 7 traits decouple from implementations; 5 policy export formats prevent vendor lock-in; CachedRoleProvider prevents external directory failures from blocking authorization |
 | Zero Trust Throughout | HMAC-SHA3-256 capability token signing with constant-time comparison; NullExternalEvaluator returns Indeterminate not Deny; CapabilityVerifier requires explicit token verification at runtime |
+
+---
+
+## rune-privacy Layer 3 — External Integration Trait Boundaries
+
+**Test count**: 276 (178→276, +98 new tests)
+
+**Clippy**: Zero new warnings in Layer 3 files
+
+### New Modules (7)
+
+| Module | Tests | Purpose |
+|--------|-------|---------|
+| `backend.rs` | 15 | PrivacyBackend trait (18 methods), SubjectRef newtype, StoredPiiClassification, StoredDataSubjectRecord, StoredDataSubjectRequest with RequestType (6 GDPR/CCPA rights), StoredProcessingRecord, StoredRetentionPolicyDefinition, InMemoryPrivacyBackend |
+| `consent_store.rs` | 16 | ConsentRecordStore trait (10 methods), ConsentRecord with SHA3-256 consent_text_hash, ConsentLegalBasis (6 GDPR Article 6 bases), StoredConsentStatus, InMemoryConsentRecordStore |
+| `redaction_engine.rs` | 15 | RedactionStrategy trait, 6 implementations (Mask/Truncate/SHA3Hash/Tokenize/Pseudonymize/Remove), RedactionEngine composing strategies by PiiCategory, HMAC-SHA3-256 tokenization |
+| `privacy_export.rs` | 8 | DsarExporter trait + 5 formats (JSON/GDPR-Article-15/CCPA-1798.130/XML/HTML), SubjectDossier, all redaction-aware |
+| `subject_rights_stream.rs` | 11 | SubjectRightsSubscriber trait, registry, collector, FilteredSubjectRightsSubscriber (request_type/jurisdiction/SLA filters), 20 SubjectRightsEventType variants |
+| `retention_engine.rs` | 13 | RetentionPolicyEngine trait with LegalHold first-class outcome, TimeBasedRetentionEngine, EventBasedRetentionEngine, PurposeBasedRetentionEngine, LegalHoldAwareRetentionEngine |
+| `pii_classifier.rs` | 17 | PiiClassifier trait, RegexPiiClassifier (email/phone/SSN/IPv4/IPv6/Luhn CC), HeuristicPiiClassifier (digit run detection), NullPiiClassifier, ClassifiedPiiCategory (12 variants) |
+
+### Naming Collisions Resolved
+
+- **ConsentStore** → Layer 3 trait: `ConsentRecordStore` (existing `ConsentStore` is L1 concrete struct)
+- **ConsentStatus** → Layer 3: `StoredConsentStatus` (existing has `Superseded { by: ConsentId }` variant)
+- **ConsentWithdrawn/ConsentExpired** audit variants → `L3ConsentWithdrawn`/`L3ConsentExpired` (existing L1 variants)
+- **RetentionPolicy** → Layer 3: `StoredRetentionPolicyDefinition` (existing is L1 struct)
+- **LegalBasis** → Layer 3: `ConsentLegalBasis` (existing in purpose.rs)
+- **PiiDetector** → Layer 3 trait: `PiiClassifier` (different contract — PiiDetector is L1 concrete)
+
+### Audit Enhancement
+
+24 new PrivacyEventType variants: PrivacyBackendChanged, PiiClassificationStored, PiiClassifierInvoked, PiiClassifierFailed, DataSubjectRecordPersisted, DataSubjectRequestReceived, DataSubjectRequestFulfilled, DataSubjectRequestRefused, ConsentStoreChanged, ConsentRecordStored, L3ConsentWithdrawn, L3ConsentExpired, ConsentSuperseded, RedactionApplied, RedactionFailed, DsarExported, DsarExportFailed, SubjectRightsSubscriberRegistered, SubjectRightsSubscriberRemoved, SubjectRightsEventPublished, RetentionPolicyEvaluated, RetentionDeletionScheduled, RetentionLegalHoldApplied, ProcessingRecordPersisted. New classification methods: is_backend_event, is_consent_event (updated), is_subject_rights_event, is_redaction_event, is_retention_event, is_classification_event.
+
+### Design Decisions
+
+- **ConsentRecordStore is separate from PrivacyBackend**: Consent has a distinct lifecycle (granted → active → expired/withdrawn/superseded) and distinct access patterns (high-frequency reads on the hot path, infrequent writes). Matches CredentialMaterialStore/IdentityBackend and BaselineStore/DetectionBackend separations.
+- **RetentionDecision includes LegalHold as first-class outcome**: A retention engine that cannot model legal hold produces incorrect deletion decisions when records are under litigation hold, regulatory investigation, or statutory preservation. LegalHoldAwareRetentionEngine wraps another engine and short-circuits to LegalHold.
+- **DsarExporter implementations respect active redaction policies inside the trait contract**: Defense-in-depth matching the Authorization header redaction pattern from rune-web and credential material exclusion from rune-identity. Redaction happens inside the exporter, not at the caller.
+- **ConsentLegalBasis encodes GDPR Article 6 bases as an enum**: So that consent legitimacy can be reasoned about structurally (Consent, Contract, LegalObligation, VitalInterests, PublicTask, LegitimateInterest).
+- **consent_text_hash records the actual language the subject saw**: SHA3-256 of the full consent text. Regulator audit of consent validity requires proving what the subject was shown, not merely that consent was recorded.
+- **PiiClassifier does not ship ML model integration**: ML integration (spaCy, Presidio, AWS Macie) is a substantial dependency surface that belongs in adapter crates, not the trait boundary layer. Only regex and heuristic reference implementations provided.
+- **SubjectRef newtype decouples from rune-identity**: Following the IdentityRef pattern from rune-permissions. From<IdentityId> conversion provided.
+
+### Dependencies Added
+
+- `hmac = "0.12"` — HMAC-SHA3-256 tokenization in redaction engine
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | GDPR Article 6 legal bases encoded structurally; consent_text_hash proves what subject saw; DsarExporter enforces redaction inside trait contract; 5 DSAR formats cover GDPR Article 15 and CCPA §1798.130 |
+| Assumed Breach | SubjectRightsSubscriber enables real-time DSAR streaming; FilteredSubjectRightsSubscriber isolates SLA-critical events; PiiClassifier provides pluggable detection boundary |
+| No Single Points of Failure | All 7 traits decouple from implementations; 5 DSAR export formats prevent vendor lock-in; ConsentRecordStore separates consent lifecycle from general privacy storage |
+| Zero Trust Throughout | HMAC-SHA3-256 tokenization with deterministic tokens; SHA3-256 consent text hashing; Luhn check on credit card detection; LegalHold prevents retention-driven deletion under investigation |

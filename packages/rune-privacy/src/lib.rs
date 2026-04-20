@@ -16,6 +16,13 @@ pub mod pii;
 pub mod purpose;
 pub mod retention;
 pub mod rights;
+pub mod backend;
+pub mod consent_store;
+pub mod redaction_engine;
+pub mod privacy_export;
+pub mod subject_rights_stream;
+pub mod retention_engine;
+pub mod pii_classifier;
 
 pub use anonymize::{
     AnonymizationMethod, AnonymizationPipeline, AnonymizationStep, KAnonymityChecker,
@@ -60,4 +67,40 @@ pub use rights::{
     RequestStatus, ResponseType, RightsManager, RightsRequest, RightsResponse, SubjectRight,
     // Layer 2
     DataInventory, DataInventoryEntry, DataSubjectRequest, DataSubjectRequestTracker,
+};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use backend::{
+    DeletionStrategy, InMemoryPrivacyBackend, PrivacyBackend, PrivacyBackendInfo,
+    RequestType, StoredDataSubjectRecord, StoredDataSubjectRequest,
+    StoredPiiClassification, StoredProcessingRecord, StoredRetentionPolicyDefinition,
+    SubjectRef,
+};
+pub use consent_store::{
+    ConsentLegalBasis, ConsentRecord, ConsentRecordStore, ConsentStoreInfo,
+    InMemoryConsentRecordStore, StoredConsentStatus,
+};
+pub use redaction_engine::{
+    MaskRedactionStrategy, PseudonymizeRedactionStrategy, RedactionContext,
+    RedactionEngine, RedactionStrategy, RemoveRedactionStrategy,
+    Sha3HashRedactionStrategy, StrategyType, TokenizeRedactionStrategy,
+    TruncateRedactionStrategy,
+};
+pub use privacy_export::{
+    CcpaDsarExporter, DsarExporter, GdprArticle15Exporter, HtmlDsarExporter,
+    JsonDsarExporter, SubjectDossier, XmlDsarExporter,
+};
+pub use subject_rights_stream::{
+    FilteredSubjectRightsSubscriber, SubjectRightsCollector, SubjectRightsEvent,
+    SubjectRightsEventType, SubjectRightsSubscriber, SubjectRightsSubscriberRegistry,
+};
+pub use retention_engine::{
+    EventBasedRetentionEngine, LegalHoldAwareRetentionEngine, PurposeBasedRetentionEngine,
+    RetentionDecision, RetentionPolicyDef, RetentionPolicyEngine, RetentionRecord,
+    TimeBasedRetentionEngine,
+};
+pub use pii_classifier::{
+    ClassifiedPiiCategory, ClassifierType, HeuristicPiiClassifier, NullPiiClassifier,
+    PiiClassificationResult, PiiClassifier, RegexPiiClassifier,
 };
