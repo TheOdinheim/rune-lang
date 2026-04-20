@@ -42,6 +42,14 @@ pub mod transit;
 pub mod audit;
 pub mod error;
 
+// Layer 3 modules
+pub mod backend;
+pub mod event_stream;
+pub mod export_import;
+pub mod hsm;
+pub mod kms;
+pub mod rotation_policy;
+
 pub use secret::{
     SecretEntry, SecretId, SecretMetadata, SecretState, SecretType, SecretValue,
     SensitiveBytes, VersionedSecret,
@@ -67,3 +75,22 @@ pub use classification::{
 pub use transit::{TransitPackage, package_for_transit, unpackage_transit, TRANSIT_EXPIRY_SECS};
 pub use audit::{SecretAuditLog, SecretEvent, SecretEventType};
 pub use error::SecretError;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────
+
+pub use backend::{BackendInfo, InMemorySecretBackend, SecretBackend};
+pub use event_stream::{
+    SecretEventCollector, SecretEventRegistry, SecretEventSubscriber,
+    SecretLifecycleEvent, SecretLifecycleEventType,
+};
+pub use export_import::{
+    EnvelopeExporter, EnvelopeFormat, JsonSecretExporter, JsonSecretImporter,
+    SecretExporter, SecretImporter,
+};
+pub use hsm::{HsmInfo, HsmKeyRef, HsmProvider, SoftwareHsm};
+pub use kms::{InMemoryKms, KeyHandle, KeyManagementService, KeyStatus, KmsInfo};
+pub use rotation_policy::{
+    AccessCountRotation, ComplianceRotation, ComplianceRotationStatus,
+    RotationPolicyEngine, RotationRecommendation, RotationRecord,
+    RotationStrategy, RotationUrgency, TimeBasedRotation,
+};

@@ -30,11 +30,74 @@ pub enum SecretEventType {
     KeyDerived,
     DecryptionFailed,
     ShamirReconstructed,
+    // Layer 3 event types
+    SecretBackendChanged { backend_type: String },
+    SecretExported { format: String, count: String },
+    SecretImported { format: String, count: String },
+    SecretEventSubscriberRegistered { subscriber_id: String },
+    SecretEventPublished { event_type: String, secret_id: String },
+    KmsKeyGenerated { key_id: String, algorithm: String },
+    KmsKeyRotated { key_id: String, version: String },
+    KmsEncryptionPerformed { key_id: String },
+    KmsDecryptionPerformed { key_id: String },
+    HsmKeyGenerated { key_id: String, provider: String },
+    HsmSignatureCreated { key_id: String },
+    HsmSignatureVerified { key_id: String, valid: bool },
+    RotationPolicyChecked { secrets_checked: String, recommendations: String },
+    RotationCompleted { secret_id: String, strategy: String },
+    ComplianceRotationChecked { framework: String, compliant: bool },
 }
 
 impl fmt::Display for SecretEventType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:?}")
+        match self {
+            Self::SecretBackendChanged { backend_type } => {
+                write!(f, "SecretBackendChanged({backend_type})")
+            }
+            Self::SecretExported { format, count } => {
+                write!(f, "SecretExported({format}, {count})")
+            }
+            Self::SecretImported { format, count } => {
+                write!(f, "SecretImported({format}, {count})")
+            }
+            Self::SecretEventSubscriberRegistered { subscriber_id } => {
+                write!(f, "SecretEventSubscriberRegistered({subscriber_id})")
+            }
+            Self::SecretEventPublished { event_type, secret_id } => {
+                write!(f, "SecretEventPublished({event_type}, {secret_id})")
+            }
+            Self::KmsKeyGenerated { key_id, algorithm } => {
+                write!(f, "KmsKeyGenerated({key_id}, {algorithm})")
+            }
+            Self::KmsKeyRotated { key_id, version } => {
+                write!(f, "KmsKeyRotated({key_id}, v{version})")
+            }
+            Self::KmsEncryptionPerformed { key_id } => {
+                write!(f, "KmsEncryptionPerformed({key_id})")
+            }
+            Self::KmsDecryptionPerformed { key_id } => {
+                write!(f, "KmsDecryptionPerformed({key_id})")
+            }
+            Self::HsmKeyGenerated { key_id, provider } => {
+                write!(f, "HsmKeyGenerated({key_id}, {provider})")
+            }
+            Self::HsmSignatureCreated { key_id } => {
+                write!(f, "HsmSignatureCreated({key_id})")
+            }
+            Self::HsmSignatureVerified { key_id, valid } => {
+                write!(f, "HsmSignatureVerified({key_id}, valid={valid})")
+            }
+            Self::RotationPolicyChecked { secrets_checked, recommendations } => {
+                write!(f, "RotationPolicyChecked({secrets_checked} checked, {recommendations} recommendations)")
+            }
+            Self::RotationCompleted { secret_id, strategy } => {
+                write!(f, "RotationCompleted({secret_id}, {strategy})")
+            }
+            Self::ComplianceRotationChecked { framework, compliant } => {
+                write!(f, "ComplianceRotationChecked({framework}, compliant={compliant})")
+            }
+            other => write!(f, "{other:?}"),
+        }
     }
 }
 
@@ -262,5 +325,31 @@ mod tests {
         let mut log = SecretAuditLog::new();
         log.record(make_event(SecretEventType::Created, "k1", 1, "admin"));
         assert_eq!(log.all().len(), 1);
+    }
+
+    #[test]
+    fn test_l3_event_types_display() {
+        let l3_types: Vec<SecretEventType> = vec![
+            SecretEventType::SecretBackendChanged { backend_type: "sqlite".to_string() },
+            SecretEventType::SecretExported { format: "json".to_string(), count: "5".to_string() },
+            SecretEventType::SecretImported { format: "json".to_string(), count: "3".to_string() },
+            SecretEventType::SecretEventSubscriberRegistered { subscriber_id: "sub1".to_string() },
+            SecretEventType::SecretEventPublished { event_type: "Created".to_string(), secret_id: "s1".to_string() },
+            SecretEventType::KmsKeyGenerated { key_id: "k1".to_string(), algorithm: "AES-256".to_string() },
+            SecretEventType::KmsKeyRotated { key_id: "k1".to_string(), version: "2".to_string() },
+            SecretEventType::KmsEncryptionPerformed { key_id: "k1".to_string() },
+            SecretEventType::KmsDecryptionPerformed { key_id: "k1".to_string() },
+            SecretEventType::HsmKeyGenerated { key_id: "k1".to_string(), provider: "software".to_string() },
+            SecretEventType::HsmSignatureCreated { key_id: "k1".to_string() },
+            SecretEventType::HsmSignatureVerified { key_id: "k1".to_string(), valid: true },
+            SecretEventType::RotationPolicyChecked { secrets_checked: "10".to_string(), recommendations: "3".to_string() },
+            SecretEventType::RotationCompleted { secret_id: "s1".to_string(), strategy: "time-based".to_string() },
+            SecretEventType::ComplianceRotationChecked { framework: "NIST".to_string(), compliant: true },
+        ];
+        for et in &l3_types {
+            let display = et.to_string();
+            assert!(!display.is_empty());
+        }
+        assert_eq!(l3_types.len(), 15);
     }
 }

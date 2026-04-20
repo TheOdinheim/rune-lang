@@ -325,3 +325,52 @@ Layer 3 adds trait boundaries that define contracts for pluggable audit system c
 | Assumed Breach | Streaming subscribers enable real-time breach detection; batch export with backpressure ensures audit data survives export target overload |
 | No Single Points of Failure | `AuditBackend` trait decouples audit storage from implementation; multiple export format implementations (CEF/OCSF/JSON) prevent vendor lock-in |
 | Zero Trust Throughout | Chain integrity verification built into backend trait; structured query interface enables forensic investigation against any backend |
+
+---
+
+## rune-secrets Layer 3 — Storage Backend Trait, Export/Import Formats, Event Streaming, KMS Trait, HSM Trait, Rotation Policy Engine
+
+**Date:** 2026-04-19
+**Tests:** 221 (166→221, +55 new)
+**Commit:** `feat(rune-secrets): Layer 3 — storage backend trait, export/import formats, event streaming, KMS trait, HSM trait, rotation policy engine`
+
+### What Changed
+
+Layer 3 adds trait boundaries for pluggable secret storage, key management, HSM integration, export/import serialization, lifecycle event streaming, and policy-driven rotation. Six new modules, fifteen new audit event types.
+
+### New Modules
+
+1. **backend.rs** — `SecretBackend` trait (store_secret/retrieve_secret/delete_secret/list_secrets/secret_count/secret_exists/rotate_secret/secrets_expiring_within/flush/backend_info), `InMemorySecretBackend` reference implementation, `BackendInfo` metadata struct. 11 tests.
+
+2. **export_import.rs** — `SecretExporter` trait (export_secret→Vec<u8>/export_batch/format_name/content_type), `SecretImporter` trait (import_secret/import_batch/format_name), `JsonSecretExporter` with opt-in value inclusion (with_include_values), `JsonSecretImporter` for roundtrip, `EnvelopeExporter` producing transfer envelopes with SHA3-256 integrity hash and algorithm/key_id placeholders, `EnvelopeFormat` struct. 7 tests.
+
+3. **event_stream.rs** — `SecretEventSubscriber` trait (on_event/subscriber_id/is_active), `SecretEventRegistry` (register/notify/active_count/remove_inactive), `SecretEventCollector` reference implementation (events/events_for_secret/event_count/drain/deactivate), `SecretLifecycleEvent` with 10-variant `SecretLifecycleEventType`. 8 tests.
+
+4. **kms.rs** — `KeyManagementService` trait (generate_key/get_key/rotate_key/delete_key/list_keys/key_status/encrypt_with_key/decrypt_with_key/service_info), `InMemoryKms` reference implementation with SHA3-256 XOR placeholder encryption, `KeyHandle`/`KeyStatus`/`KmsInfo` types. 8 tests.
+
+5. **hsm.rs** — `HsmProvider` trait (is_available/provider_name/supported_algorithms/generate_key_in_hsm/sign_in_hsm/verify_in_hsm/delete_key_from_hsm/hsm_info), `SoftwareHsm` reference implementation with HMAC-SHA3-256 signing and constant-time verification, `HsmKeyRef`/`HsmInfo` types. 7 tests.
+
+6. **rotation_policy.rs** — `RotationStrategy` trait (should_rotate/rotation_urgency/strategy_name), `TimeBasedRotation` (interval-based), `AccessCountRotation` (usage-count-based), `ComplianceRotation` (framework-aware: NIST 90-day, CJIS 90-day, PCI-DSS 90-day, HIPAA 180-day), `RotationPolicyEngine` (check_all/record_rotation/rotation_history_for/compliance_status), `RotationUrgency` (5 levels: None→Critical with Ord), `RotationRecommendation`/`RotationRecord`/`ComplianceRotationStatus`. 9 tests.
+
+### Modified Files
+
+- **audit.rs** — 15 new `SecretEventType` variants for Layer 3 operations (SecretBackendChanged, SecretExported, SecretImported, SecretEventSubscriberRegistered, SecretEventPublished, KmsKeyGenerated, KmsKeyRotated, KmsEncryptionPerformed, KmsDecryptionPerformed, HsmKeyGenerated, HsmSignatureCreated, HsmSignatureVerified, RotationPolicyChecked, RotationCompleted, ComplianceRotationChecked). Updated Display impl. Variant count 16→31.
+- **lib.rs** — 6 new module declarations and Layer 3 re-exports.
+
+### Design Decisions
+
+- **JsonSecretExporter excludes values by default:** Secret bytes are never included in exports unless explicitly opted in via `with_include_values(true)`. This prevents accidental secret leakage in backup exports.
+- **EnvelopeExporter produces structure, not encryption:** The envelope contains a `payload_placeholder` (raw bytes) and metadata (key_id, algorithm, integrity_hash). The customer performs actual encryption — RUNE provides the governed envelope structure.
+- **InMemoryKms uses XOR placeholder:** Explicitly not secure — the reference implementation exists for testing the trait interface, not for production encryption.
+- **SoftwareHsm uses HMAC-SHA3-256:** The software HSM emulates signing with HMAC, reports `is_hardware: false` in HsmInfo. Real HSM implementations would use hardware-backed keys.
+- **ComplianceRotation has built-in framework knowledge:** NIST/CJIS/PCI-DSS map to 90-day intervals, HIPAA to 180 days. These are the compliance requirements the rotation engine evaluates against.
+- **RotationUrgency derives Ord:** Enables comparison (None < Low < Medium < High < Critical) for priority-based rotation scheduling.
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Serves It |
+|--------|----------------------|
+| Security/Privacy/Governance Baked In | SecretBackend trait ensures all secret storage satisfies governance contracts; export formats exclude secret values by default; compliance rotation engine tracks framework requirements |
+| Assumed Breach | Event streaming enables real-time monitoring of secret lifecycle; HSM trait enables hardware-backed key isolation; rotation policy engine detects overdue rotations |
+| No Single Points of Failure | SecretBackend/KMS/HSM traits decouple from implementations; multiple export formats prevent vendor lock-in; envelope format enables cross-system transfer |
+| Zero Trust Throughout | Bell-LaPadula clearance checks preserved; SHA3-256 integrity hashes on envelope exports; constant-time comparison in HSM signature verification |
