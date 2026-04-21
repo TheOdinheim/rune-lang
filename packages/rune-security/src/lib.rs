@@ -18,6 +18,15 @@ pub mod severity;
 pub mod threat;
 pub mod vulnerability;
 
+// Layer 3 modules
+pub mod backend;
+pub mod control_framework_mapper;
+pub mod incident_response;
+pub mod posture_aggregator;
+pub mod security_export;
+pub mod security_stream;
+pub mod vulnerability_tracker;
+
 pub use audit::{SecurityAuditEvent, SecurityAuditLog, SecurityEventType};
 pub use context::{ContextStack, SecurityContext};
 pub use error::SecurityError;
@@ -69,4 +78,37 @@ pub use posture::{
 };
 pub use metrics::{
     SecurityMetricsTracker, SecuritySla, SlaComplianceResult, aggregate_metrics,
+};
+
+// Layer 3 re-exports
+pub use backend::{
+    ControlImplementationStatus, CvssSeverity, IncidentRecordStatus, PostureClass,
+    SecurityPostureBackend, SecurityPostureBackendInfo, StoredIncidentRecord,
+    StoredPostureSnapshot, StoredSecurityControlRecord, StoredThreatModelRecord,
+    StoredVulnerabilityRecord, VulnerabilityStatus,
+};
+pub use vulnerability_tracker::{
+    InMemoryVulnerabilityLifecycleTracker, SlaEnforcingVulnerabilityLifecycleTracker,
+    SlaThresholds, TriageDecision, TriagePriority, VulnerabilityLifecycleTracker,
+};
+pub use control_framework_mapper::{
+    ControlEquivalence, ControlFrameworkMapper, InMemoryControlFrameworkMapper,
+    MappingConfidence, TableLookupControlFrameworkMapper,
+};
+pub use incident_response::{
+    IncidentDeclaration, IncidentResponseAction, IncidentResponseWorkflow, IncidentState,
+    InMemoryIncidentResponseWorkflow, ManagedIncident, NistSp80061IncidentResponseWorkflow,
+    ResponseActionType,
+};
+pub use security_export::{
+    CsafAdvisoryExporter, JsonSecurityExporter, OcsfSecurityFindingExporter,
+    SecurityDataExporter, StixCourseOfActionExporter, VexStatementExporter,
+};
+pub use security_stream::{
+    FilteredSecurityEventSubscriber, SecurityEventCollector, SecurityEventSubscriber,
+    SecurityEventSubscriberRegistry, SecurityLifecycleEvent, SecurityLifecycleEventType,
+};
+pub use posture_aggregator::{
+    InMemorySecurityPostureAggregator, PostureChangeDirection, PostureDelta,
+    PostureWeights, SecurityPostureAggregator, WeightedAverageSecurityPostureAggregator,
 };

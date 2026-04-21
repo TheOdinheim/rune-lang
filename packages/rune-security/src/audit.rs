@@ -36,6 +36,31 @@ pub enum SecurityEventType {
     MttdComputed { mttd_ms: f64 },
     MttrComputed { mttr_ms: f64 },
     SlaComplianceChecked { compliant: bool, violations: usize },
+    // Layer 3 event types
+    SecurityPostureBackendChanged { operation: String },
+    VulnerabilityRecorded { vulnerability_id: String },
+    VulnerabilityTriaged { vulnerability_id: String, decision: String },
+    VulnerabilityRemediatedL3 { vulnerability_id: String },
+    VulnerabilityReopened { vulnerability_id: String, reason: String },
+    VulnerabilitySlaViolatedEvent { vulnerability_id: String, hours_open: u64, threshold_hours: u64 },
+    VulnerabilityStaleDetected { vulnerability_id: String, seconds_stale: i64 },
+    SecurityControlStored { control_id: String, framework: String },
+    SecurityControlStatusUpdated { control_id: String, new_status: String },
+    ControlFrameworkMappingQueried { source_framework: String, control_id: String },
+    IncidentDeclaredL3 { incident_id: String, severity: String },
+    IncidentStateTransitioned { incident_id: String, from_state: String, to_state: String },
+    IncidentResponseActionRecorded { incident_id: String, action_type: String },
+    IncidentClosedL3 { incident_id: String },
+    ThreatModelRecorded { threat_model_id: String },
+    ThreatModelReviewed { threat_model_id: String },
+    SecurityDataExported { format_name: String, record_type: String },
+    SecurityDataExportFailed { format_name: String, error: String },
+    SecuritySubscriberRegistered { subscriber_id: String },
+    SecuritySubscriberRemoved { subscriber_id: String },
+    SecurityEventPublishedEvent { event_type: String },
+    PostureSnapshotCaptured { snapshot_id: String, overall_score: String },
+    PostureDeltaComputed { system_id: String, direction: String },
+    PostureDegradationDetectedEvent { system_id: String, from_score: String, to_score: String },
 }
 
 impl SecurityEventType {
@@ -66,7 +91,84 @@ impl SecurityEventType {
             Self::MttdComputed { .. } => "MttdComputed",
             Self::MttrComputed { .. } => "MttrComputed",
             Self::SlaComplianceChecked { .. } => "SlaComplianceChecked",
+            Self::SecurityPostureBackendChanged { .. } => "SecurityPostureBackendChanged",
+            Self::VulnerabilityRecorded { .. } => "VulnerabilityRecorded",
+            Self::VulnerabilityTriaged { .. } => "VulnerabilityTriaged",
+            Self::VulnerabilityRemediatedL3 { .. } => "VulnerabilityRemediatedL3",
+            Self::VulnerabilityReopened { .. } => "VulnerabilityReopened",
+            Self::VulnerabilitySlaViolatedEvent { .. } => "VulnerabilitySlaViolatedEvent",
+            Self::VulnerabilityStaleDetected { .. } => "VulnerabilityStaleDetected",
+            Self::SecurityControlStored { .. } => "SecurityControlStored",
+            Self::SecurityControlStatusUpdated { .. } => "SecurityControlStatusUpdated",
+            Self::ControlFrameworkMappingQueried { .. } => "ControlFrameworkMappingQueried",
+            Self::IncidentDeclaredL3 { .. } => "IncidentDeclaredL3",
+            Self::IncidentStateTransitioned { .. } => "IncidentStateTransitioned",
+            Self::IncidentResponseActionRecorded { .. } => "IncidentResponseActionRecorded",
+            Self::IncidentClosedL3 { .. } => "IncidentClosedL3",
+            Self::ThreatModelRecorded { .. } => "ThreatModelRecorded",
+            Self::ThreatModelReviewed { .. } => "ThreatModelReviewed",
+            Self::SecurityDataExported { .. } => "SecurityDataExported",
+            Self::SecurityDataExportFailed { .. } => "SecurityDataExportFailed",
+            Self::SecuritySubscriberRegistered { .. } => "SecuritySubscriberRegistered",
+            Self::SecuritySubscriberRemoved { .. } => "SecuritySubscriberRemoved",
+            Self::SecurityEventPublishedEvent { .. } => "SecurityEventPublishedEvent",
+            Self::PostureSnapshotCaptured { .. } => "PostureSnapshotCaptured",
+            Self::PostureDeltaComputed { .. } => "PostureDeltaComputed",
+            Self::PostureDegradationDetectedEvent { .. } => "PostureDegradationDetectedEvent",
         }
+    }
+
+    // ── Layer 3 classification methods ───────────────────────────
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(self, Self::SecurityPostureBackendChanged { .. })
+    }
+
+    pub fn is_vulnerability_event(&self) -> bool {
+        matches!(
+            self,
+            Self::VulnerabilityRecorded { .. }
+                | Self::VulnerabilityTriaged { .. }
+                | Self::VulnerabilityRemediatedL3 { .. }
+                | Self::VulnerabilityReopened { .. }
+                | Self::VulnerabilitySlaViolatedEvent { .. }
+                | Self::VulnerabilityStaleDetected { .. }
+        )
+    }
+
+    pub fn is_control_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SecurityControlStored { .. }
+                | Self::SecurityControlStatusUpdated { .. }
+                | Self::ControlFrameworkMappingQueried { .. }
+        )
+    }
+
+    pub fn is_incident_event(&self) -> bool {
+        matches!(
+            self,
+            Self::IncidentDeclaredL3 { .. }
+                | Self::IncidentStateTransitioned { .. }
+                | Self::IncidentResponseActionRecorded { .. }
+                | Self::IncidentClosedL3 { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SecurityDataExported { .. } | Self::SecurityDataExportFailed { .. }
+        )
+    }
+
+    pub fn is_posture_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PostureSnapshotCaptured { .. }
+                | Self::PostureDeltaComputed { .. }
+                | Self::PostureDegradationDetectedEvent { .. }
+        )
     }
 }
 
@@ -139,6 +241,78 @@ impl fmt::Display for SecurityEventType {
             }
             Self::SlaComplianceChecked { compliant, violations } => {
                 write!(f, "SlaComplianceChecked(compliant={compliant}, violations={violations})")
+            }
+            Self::SecurityPostureBackendChanged { operation } => {
+                write!(f, "SecurityPostureBackendChanged({operation})")
+            }
+            Self::VulnerabilityRecorded { vulnerability_id } => {
+                write!(f, "VulnerabilityRecorded({vulnerability_id})")
+            }
+            Self::VulnerabilityTriaged { vulnerability_id, decision } => {
+                write!(f, "VulnerabilityTriaged({vulnerability_id}, {decision})")
+            }
+            Self::VulnerabilityRemediatedL3 { vulnerability_id } => {
+                write!(f, "VulnerabilityRemediatedL3({vulnerability_id})")
+            }
+            Self::VulnerabilityReopened { vulnerability_id, reason } => {
+                write!(f, "VulnerabilityReopened({vulnerability_id}, {reason})")
+            }
+            Self::VulnerabilitySlaViolatedEvent { vulnerability_id, hours_open, threshold_hours } => {
+                write!(f, "VulnerabilitySlaViolatedEvent({vulnerability_id}, {hours_open}h/{threshold_hours}h)")
+            }
+            Self::VulnerabilityStaleDetected { vulnerability_id, seconds_stale } => {
+                write!(f, "VulnerabilityStaleDetected({vulnerability_id}, {seconds_stale}s)")
+            }
+            Self::SecurityControlStored { control_id, framework } => {
+                write!(f, "SecurityControlStored({control_id}, {framework})")
+            }
+            Self::SecurityControlStatusUpdated { control_id, new_status } => {
+                write!(f, "SecurityControlStatusUpdated({control_id}, {new_status})")
+            }
+            Self::ControlFrameworkMappingQueried { source_framework, control_id } => {
+                write!(f, "ControlFrameworkMappingQueried({source_framework}/{control_id})")
+            }
+            Self::IncidentDeclaredL3 { incident_id, severity } => {
+                write!(f, "IncidentDeclaredL3({incident_id}, {severity})")
+            }
+            Self::IncidentStateTransitioned { incident_id, from_state, to_state } => {
+                write!(f, "IncidentStateTransitioned({incident_id}, {from_state} -> {to_state})")
+            }
+            Self::IncidentResponseActionRecorded { incident_id, action_type } => {
+                write!(f, "IncidentResponseActionRecorded({incident_id}, {action_type})")
+            }
+            Self::IncidentClosedL3 { incident_id } => {
+                write!(f, "IncidentClosedL3({incident_id})")
+            }
+            Self::ThreatModelRecorded { threat_model_id } => {
+                write!(f, "ThreatModelRecorded({threat_model_id})")
+            }
+            Self::ThreatModelReviewed { threat_model_id } => {
+                write!(f, "ThreatModelReviewed({threat_model_id})")
+            }
+            Self::SecurityDataExported { format_name, record_type } => {
+                write!(f, "SecurityDataExported({format_name}, {record_type})")
+            }
+            Self::SecurityDataExportFailed { format_name, error } => {
+                write!(f, "SecurityDataExportFailed({format_name}, {error})")
+            }
+            Self::SecuritySubscriberRegistered { subscriber_id } => {
+                write!(f, "SecuritySubscriberRegistered({subscriber_id})")
+            }
+            Self::SecuritySubscriberRemoved { subscriber_id } => {
+                write!(f, "SecuritySubscriberRemoved({subscriber_id})")
+            }
+            Self::SecurityEventPublishedEvent { event_type } => {
+                write!(f, "SecurityEventPublishedEvent({event_type})")
+            }
+            Self::PostureSnapshotCaptured { snapshot_id, overall_score } => {
+                write!(f, "PostureSnapshotCaptured({snapshot_id}, {overall_score})")
+            }
+            Self::PostureDeltaComputed { system_id, direction } => {
+                write!(f, "PostureDeltaComputed({system_id}, {direction})")
+            }
+            Self::PostureDegradationDetectedEvent { system_id, from_score, to_score } => {
+                write!(f, "PostureDegradationDetectedEvent({system_id}, {from_score} -> {to_score})")
             }
         }
     }
@@ -476,5 +650,80 @@ mod tests {
         ));
         assert_eq!(log.events_by_type("AttackTreeAnalyzed").len(), 1);
         assert_eq!(log.events_by_type("MttdComputed").len(), 1);
+    }
+
+    // ── Layer 3 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer3_event_type_display_all() {
+        let l3_events = [
+            SecurityEventType::SecurityPostureBackendChanged { operation: "store".into() },
+            SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v1".into() },
+            SecurityEventType::VulnerabilityTriaged { vulnerability_id: "v1".into(), decision: "confirm".into() },
+            SecurityEventType::VulnerabilityRemediatedL3 { vulnerability_id: "v1".into() },
+            SecurityEventType::VulnerabilityReopened { vulnerability_id: "v1".into(), reason: "regression".into() },
+            SecurityEventType::VulnerabilitySlaViolatedEvent { vulnerability_id: "v1".into(), hours_open: 30, threshold_hours: 24 },
+            SecurityEventType::VulnerabilityStaleDetected { vulnerability_id: "v1".into(), seconds_stale: 86400 },
+            SecurityEventType::SecurityControlStored { control_id: "c1".into(), framework: "NIST".into() },
+            SecurityEventType::SecurityControlStatusUpdated { control_id: "c1".into(), new_status: "Implemented".into() },
+            SecurityEventType::ControlFrameworkMappingQueried { source_framework: "NIST".into(), control_id: "c1".into() },
+            SecurityEventType::IncidentDeclaredL3 { incident_id: "inc-1".into(), severity: "High".into() },
+            SecurityEventType::IncidentStateTransitioned { incident_id: "inc-1".into(), from_state: "Declared".into(), to_state: "Triaging".into() },
+            SecurityEventType::IncidentResponseActionRecorded { incident_id: "inc-1".into(), action_type: "Isolate".into() },
+            SecurityEventType::IncidentClosedL3 { incident_id: "inc-1".into() },
+            SecurityEventType::ThreatModelRecorded { threat_model_id: "tm-1".into() },
+            SecurityEventType::ThreatModelReviewed { threat_model_id: "tm-1".into() },
+            SecurityEventType::SecurityDataExported { format_name: "json".into(), record_type: "vulnerability".into() },
+            SecurityEventType::SecurityDataExportFailed { format_name: "stix".into(), error: "timeout".into() },
+            SecurityEventType::SecuritySubscriberRegistered { subscriber_id: "sub-1".into() },
+            SecurityEventType::SecuritySubscriberRemoved { subscriber_id: "sub-1".into() },
+            SecurityEventType::SecurityEventPublishedEvent { event_type: "vuln_discovered".into() },
+            SecurityEventType::PostureSnapshotCaptured { snapshot_id: "snap-1".into(), overall_score: "85.0".into() },
+            SecurityEventType::PostureDeltaComputed { system_id: "sys-1".into(), direction: "Improved".into() },
+            SecurityEventType::PostureDegradationDetectedEvent { system_id: "sys-1".into(), from_score: "90.0".into(), to_score: "60.0".into() },
+        ];
+        for e in &l3_events {
+            assert!(!e.to_string().is_empty());
+            assert!(!e.kind().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_layer3_classification_methods() {
+        assert!(SecurityEventType::SecurityPostureBackendChanged { operation: "x".into() }.is_backend_event());
+        assert!(!SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v".into() }.is_backend_event());
+
+        assert!(SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v".into() }.is_vulnerability_event());
+        assert!(SecurityEventType::VulnerabilitySlaViolatedEvent { vulnerability_id: "v".into(), hours_open: 1, threshold_hours: 1 }.is_vulnerability_event());
+        assert!(!SecurityEventType::IncidentDeclaredL3 { incident_id: "i".into(), severity: "H".into() }.is_vulnerability_event());
+
+        assert!(SecurityEventType::SecurityControlStored { control_id: "c".into(), framework: "N".into() }.is_control_event());
+        assert!(SecurityEventType::ControlFrameworkMappingQueried { source_framework: "N".into(), control_id: "c".into() }.is_control_event());
+
+        assert!(SecurityEventType::IncidentDeclaredL3 { incident_id: "i".into(), severity: "H".into() }.is_incident_event());
+        assert!(SecurityEventType::IncidentClosedL3 { incident_id: "i".into() }.is_incident_event());
+
+        assert!(SecurityEventType::SecurityDataExported { format_name: "json".into(), record_type: "v".into() }.is_export_event());
+        assert!(SecurityEventType::SecurityDataExportFailed { format_name: "json".into(), error: "e".into() }.is_export_event());
+
+        assert!(SecurityEventType::PostureSnapshotCaptured { snapshot_id: "s".into(), overall_score: "80".into() }.is_posture_event());
+        assert!(SecurityEventType::PostureDegradationDetectedEvent { system_id: "s".into(), from_score: "90".into(), to_score: "60".into() }.is_posture_event());
+    }
+
+    #[test]
+    fn test_layer3_events_by_type() {
+        let mut log = SecurityAuditLog::new();
+        log.record(event(
+            SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v1".into() },
+            SecuritySeverity::Info,
+            1000,
+        ));
+        log.record(event(
+            SecurityEventType::PostureSnapshotCaptured { snapshot_id: "s1".into(), overall_score: "80".into() },
+            SecuritySeverity::Info,
+            2000,
+        ));
+        assert_eq!(log.events_by_type("VulnerabilityRecorded").len(), 1);
+        assert_eq!(log.events_by_type("PostureSnapshotCaptured").len(), 1);
     }
 }
