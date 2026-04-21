@@ -6,6 +6,7 @@
 // sensitivity classification, RAG retrieval, and conversation history.
 // ═══════════════════════════════════════════════════════════════════════
 
+// ── Layer 1 modules ───────────────────────────────────────────────
 pub mod audit;
 pub mod error;
 pub mod isolation;
@@ -13,7 +14,16 @@ pub mod memory;
 pub mod retention;
 pub mod retrieval;
 
-// ── Re-exports ───────────────────────────────────────────────────────
+// ── Layer 2 modules ───────────────────────────────────────────────
+pub mod access_evaluator;
+pub mod content_hash;
+pub mod isolation_checker;
+pub mod metrics;
+pub mod redaction_engine;
+pub mod retention_engine;
+pub mod window_manager;
+
+// ── Layer 1 re-exports ────────────────────────────────────────────
 
 pub use audit::{MemoryAuditEvent, MemoryAuditLog, MemoryEventType};
 pub use error::MemoryError;
@@ -32,3 +42,15 @@ pub use retention::{
 pub use retrieval::{
     RetrievalDecision, RetrievalGovernancePolicy, RetrievalRequest, RetrievalResult,
 };
+
+// ── Layer 2 re-exports ────────────────────────────────────────────
+
+pub use access_evaluator::{MemoryAccessEvaluator, SensitivityClearance};
+pub use content_hash::{HashChainLink, MemoryHashChain};
+pub use isolation_checker::{IsolationCheckOutcome, IsolationCheckResult, IsolationChecker};
+pub use metrics::{MemoryMetricSnapshot, MemoryMetrics};
+pub use redaction_engine::{
+    MemoryRedactionEngine, RedactedContent, RedactionAction, RedactionReport,
+};
+pub use retention_engine::{MemoryRetentionEngine, RetentionEvaluation, RetentionOutcome};
+pub use window_manager::{ConversationWindowManager, PinnedEntryManager, WindowTrimResult};

@@ -32,6 +32,21 @@ pub enum MemoryEventType {
     RedactionApplied { entry_id: String, policy_id: String },
     ConversationWindowTrimmed { scope_id: String, entries_removed: String },
     MemoryAccessEscalated { request_id: String, reason: String },
+    // ── Layer 2 variants ──────────────────────────────────────────
+    MemoryContentHashed { entry_id: String, hash: String },
+    MemoryHashChainAppended { chain_length: String, chain_hash: String },
+    MemoryHashChainVerified { chain_length: String, valid: String },
+    RetentionEvaluated { entry_id: String, outcome: String, policy_id: String },
+    RetentionScanCompleted { policy_id: String, expired_count: String },
+    ContentRedacted { entry_id: String, policy_id: String, action_count: String },
+    RedactionPolicyApplied { policy_id: String, entries_processed: String },
+    ConversationWindowTrimExecuted { scope_id: String, removed_count: String, strategy: String },
+    TokenEstimateComputed { scope_id: String, token_count: String },
+    IsolationCheckPerformed { requester_scope: String, target_scope: String, outcome: String },
+    AccessEvaluated { request_id: String, decision: String },
+    RetrievalEvaluated { request_id: String, decision: String },
+    SensitivityClearanceChecked { requester_id: String, required_level: String, result: String },
+    MemoryMetricsComputed { metric_name: String, value: String },
 }
 
 impl fmt::Display for MemoryEventType {
@@ -97,6 +112,48 @@ impl fmt::Display for MemoryEventType {
             Self::MemoryAccessEscalated { request_id, reason } => {
                 write!(f, "MemoryAccessEscalated({request_id}): {reason}")
             }
+            Self::MemoryContentHashed { entry_id, hash } => {
+                write!(f, "MemoryContentHashed({entry_id}, hash={hash})")
+            }
+            Self::MemoryHashChainAppended { chain_length, chain_hash } => {
+                write!(f, "MemoryHashChainAppended(len={chain_length}, hash={chain_hash})")
+            }
+            Self::MemoryHashChainVerified { chain_length, valid } => {
+                write!(f, "MemoryHashChainVerified(len={chain_length}, valid={valid})")
+            }
+            Self::RetentionEvaluated { entry_id, outcome, policy_id } => {
+                write!(f, "RetentionEvaluated({entry_id}, outcome={outcome}, policy={policy_id})")
+            }
+            Self::RetentionScanCompleted { policy_id, expired_count } => {
+                write!(f, "RetentionScanCompleted({policy_id}, expired={expired_count})")
+            }
+            Self::ContentRedacted { entry_id, policy_id, action_count } => {
+                write!(f, "ContentRedacted({entry_id}, policy={policy_id}, actions={action_count})")
+            }
+            Self::RedactionPolicyApplied { policy_id, entries_processed } => {
+                write!(f, "RedactionPolicyApplied({policy_id}, processed={entries_processed})")
+            }
+            Self::ConversationWindowTrimExecuted { scope_id, removed_count, strategy } => {
+                write!(f, "ConversationWindowTrimExecuted({scope_id}, removed={removed_count}, strategy={strategy})")
+            }
+            Self::TokenEstimateComputed { scope_id, token_count } => {
+                write!(f, "TokenEstimateComputed({scope_id}, tokens={token_count})")
+            }
+            Self::IsolationCheckPerformed { requester_scope, target_scope, outcome } => {
+                write!(f, "IsolationCheckPerformed({requester_scope}→{target_scope}, outcome={outcome})")
+            }
+            Self::AccessEvaluated { request_id, decision } => {
+                write!(f, "AccessEvaluated({request_id}, decision={decision})")
+            }
+            Self::RetrievalEvaluated { request_id, decision } => {
+                write!(f, "RetrievalEvaluated({request_id}, decision={decision})")
+            }
+            Self::SensitivityClearanceChecked { requester_id, required_level, result } => {
+                write!(f, "SensitivityClearanceChecked({requester_id}, required={required_level}, result={result})")
+            }
+            Self::MemoryMetricsComputed { metric_name, value } => {
+                write!(f, "MemoryMetricsComputed({metric_name}={value})")
+            }
         }
     }
 }
@@ -124,6 +181,20 @@ impl MemoryEventType {
             Self::RedactionApplied { .. } => "RedactionApplied",
             Self::ConversationWindowTrimmed { .. } => "ConversationWindowTrimmed",
             Self::MemoryAccessEscalated { .. } => "MemoryAccessEscalated",
+            Self::MemoryContentHashed { .. } => "MemoryContentHashed",
+            Self::MemoryHashChainAppended { .. } => "MemoryHashChainAppended",
+            Self::MemoryHashChainVerified { .. } => "MemoryHashChainVerified",
+            Self::RetentionEvaluated { .. } => "RetentionEvaluated",
+            Self::RetentionScanCompleted { .. } => "RetentionScanCompleted",
+            Self::ContentRedacted { .. } => "ContentRedacted",
+            Self::RedactionPolicyApplied { .. } => "RedactionPolicyApplied",
+            Self::ConversationWindowTrimExecuted { .. } => "ConversationWindowTrimExecuted",
+            Self::TokenEstimateComputed { .. } => "TokenEstimateComputed",
+            Self::IsolationCheckPerformed { .. } => "IsolationCheckPerformed",
+            Self::AccessEvaluated { .. } => "AccessEvaluated",
+            Self::RetrievalEvaluated { .. } => "RetrievalEvaluated",
+            Self::SensitivityClearanceChecked { .. } => "SensitivityClearanceChecked",
+            Self::MemoryMetricsComputed { .. } => "MemoryMetricsComputed",
         }
     }
 
@@ -149,6 +220,21 @@ impl MemoryEventType {
             | Self::RetentionPolicyExpired { .. }
             | Self::RedactionApplied { .. }
             | Self::ConversationWindowTrimmed { .. } => "retention",
+            // Layer 2 kinds
+            Self::MemoryContentHashed { .. }
+            | Self::MemoryHashChainAppended { .. }
+            | Self::MemoryHashChainVerified { .. } => "content_hash",
+            Self::RetentionEvaluated { .. }
+            | Self::RetentionScanCompleted { .. } => "retention_engine",
+            Self::ContentRedacted { .. }
+            | Self::RedactionPolicyApplied { .. } => "redaction",
+            Self::ConversationWindowTrimExecuted { .. }
+            | Self::TokenEstimateComputed { .. } => "window_manager",
+            Self::IsolationCheckPerformed { .. } => "isolation_checker",
+            Self::AccessEvaluated { .. }
+            | Self::RetrievalEvaluated { .. }
+            | Self::SensitivityClearanceChecked { .. } => "access_evaluator",
+            Self::MemoryMetricsComputed { .. } => "metrics",
         }
     }
 }
@@ -258,11 +344,25 @@ mod tests {
             MemoryEventType::RedactionApplied { entry_id: "e1".into(), policy_id: "rdp-1".into() },
             MemoryEventType::ConversationWindowTrimmed { scope_id: "s1".into(), entries_removed: "5".into() },
             MemoryEventType::MemoryAccessEscalated { request_id: "r1".into(), reason: "restricted scope".into() },
+            MemoryEventType::MemoryContentHashed { entry_id: "e1".into(), hash: "abc".into() },
+            MemoryEventType::MemoryHashChainAppended { chain_length: "5".into(), chain_hash: "def".into() },
+            MemoryEventType::MemoryHashChainVerified { chain_length: "5".into(), valid: "true".into() },
+            MemoryEventType::RetentionEvaluated { entry_id: "e1".into(), outcome: "Retain".into(), policy_id: "rp-1".into() },
+            MemoryEventType::RetentionScanCompleted { policy_id: "rp-1".into(), expired_count: "3".into() },
+            MemoryEventType::ContentRedacted { entry_id: "e1".into(), policy_id: "rdp-1".into(), action_count: "2".into() },
+            MemoryEventType::RedactionPolicyApplied { policy_id: "rdp-1".into(), entries_processed: "10".into() },
+            MemoryEventType::ConversationWindowTrimExecuted { scope_id: "s1".into(), removed_count: "5".into(), strategy: "TruncateOldest".into() },
+            MemoryEventType::TokenEstimateComputed { scope_id: "s1".into(), token_count: "1024".into() },
+            MemoryEventType::IsolationCheckPerformed { requester_scope: "sa".into(), target_scope: "sb".into(), outcome: "Allowed".into() },
+            MemoryEventType::AccessEvaluated { request_id: "r1".into(), decision: "Granted".into() },
+            MemoryEventType::RetrievalEvaluated { request_id: "rr-1".into(), decision: "Permitted".into() },
+            MemoryEventType::SensitivityClearanceChecked { requester_id: "a1".into(), required_level: "Sensitive".into(), result: "Cleared".into() },
+            MemoryEventType::MemoryMetricsComputed { metric_name: "entry_count".into(), value: "42".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 20);
+        assert_eq!(types.len(), 34);
     }
 
     #[test]
@@ -413,10 +513,88 @@ mod tests {
             MemoryEventType::RedactionApplied { entry_id: "e".into(), policy_id: "p".into() },
             MemoryEventType::ConversationWindowTrimmed { scope_id: "s".into(), entries_removed: "1".into() },
             MemoryEventType::MemoryAccessEscalated { request_id: "r".into(), reason: "x".into() },
+            MemoryEventType::MemoryContentHashed { entry_id: "e".into(), hash: "h".into() },
+            MemoryEventType::MemoryHashChainAppended { chain_length: "1".into(), chain_hash: "h".into() },
+            MemoryEventType::MemoryHashChainVerified { chain_length: "1".into(), valid: "true".into() },
+            MemoryEventType::RetentionEvaluated { entry_id: "e".into(), outcome: "Retain".into(), policy_id: "p".into() },
+            MemoryEventType::RetentionScanCompleted { policy_id: "p".into(), expired_count: "0".into() },
+            MemoryEventType::ContentRedacted { entry_id: "e".into(), policy_id: "p".into(), action_count: "1".into() },
+            MemoryEventType::RedactionPolicyApplied { policy_id: "p".into(), entries_processed: "1".into() },
+            MemoryEventType::ConversationWindowTrimExecuted { scope_id: "s".into(), removed_count: "1".into(), strategy: "T".into() },
+            MemoryEventType::TokenEstimateComputed { scope_id: "s".into(), token_count: "10".into() },
+            MemoryEventType::IsolationCheckPerformed { requester_scope: "a".into(), target_scope: "b".into(), outcome: "ok".into() },
+            MemoryEventType::AccessEvaluated { request_id: "r".into(), decision: "G".into() },
+            MemoryEventType::RetrievalEvaluated { request_id: "r".into(), decision: "P".into() },
+            MemoryEventType::SensitivityClearanceChecked { requester_id: "a".into(), required_level: "S".into(), result: "C".into() },
+            MemoryEventType::MemoryMetricsComputed { metric_name: "m".into(), value: "1".into() },
         ];
         for event in &events {
             assert!(!event.type_name().is_empty());
         }
-        assert_eq!(events.len(), 20);
+        assert_eq!(events.len(), 34);
+    }
+
+    #[test]
+    fn test_l2_kind_content_hash() {
+        assert_eq!(
+            MemoryEventType::MemoryContentHashed { entry_id: "e".into(), hash: "h".into() }.kind(),
+            "content_hash"
+        );
+        assert_eq!(
+            MemoryEventType::MemoryHashChainAppended { chain_length: "1".into(), chain_hash: "h".into() }.kind(),
+            "content_hash"
+        );
+    }
+
+    #[test]
+    fn test_l2_kind_retention_engine() {
+        assert_eq!(
+            MemoryEventType::RetentionEvaluated { entry_id: "e".into(), outcome: "R".into(), policy_id: "p".into() }.kind(),
+            "retention_engine"
+        );
+        assert_eq!(
+            MemoryEventType::RetentionScanCompleted { policy_id: "p".into(), expired_count: "0".into() }.kind(),
+            "retention_engine"
+        );
+    }
+
+    #[test]
+    fn test_l2_kind_redaction() {
+        assert_eq!(
+            MemoryEventType::ContentRedacted { entry_id: "e".into(), policy_id: "p".into(), action_count: "1".into() }.kind(),
+            "redaction"
+        );
+    }
+
+    #[test]
+    fn test_l2_kind_window_manager() {
+        assert_eq!(
+            MemoryEventType::ConversationWindowTrimExecuted { scope_id: "s".into(), removed_count: "1".into(), strategy: "T".into() }.kind(),
+            "window_manager"
+        );
+        assert_eq!(
+            MemoryEventType::TokenEstimateComputed { scope_id: "s".into(), token_count: "10".into() }.kind(),
+            "window_manager"
+        );
+    }
+
+    #[test]
+    fn test_l2_kind_access_evaluator() {
+        assert_eq!(
+            MemoryEventType::AccessEvaluated { request_id: "r".into(), decision: "G".into() }.kind(),
+            "access_evaluator"
+        );
+        assert_eq!(
+            MemoryEventType::RetrievalEvaluated { request_id: "r".into(), decision: "P".into() }.kind(),
+            "access_evaluator"
+        );
+    }
+
+    #[test]
+    fn test_l2_kind_metrics() {
+        assert_eq!(
+            MemoryEventType::MemoryMetricsComputed { metric_name: "m".into(), value: "1".into() }.kind(),
+            "metrics"
+        );
     }
 }

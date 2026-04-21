@@ -296,3 +296,46 @@ New workspace crate `rune-memory` added to the RUNE governance ecosystem. rune-m
 - **Tests**: 80 passed across 6 modules
 - **Clippy**: Zero warnings on rune-memory code
 - **Workspace**: `cargo check --workspace` and `cargo test --workspace` both clean
+
+---
+
+## rune-memory Layer 2 — Memory Governance Algorithms
+
+### Scope & Approach
+
+Layer 2 adds real algorithms to the rune-memory L1 type foundation. Seven new modules implement content hashing, retention evaluation, redaction, conversation window management, isolation checking, access evaluation, and governance metrics computation. All modules consume L1 types as inputs and produce domain-specific result types as outputs.
+
+### Modules Added
+
+1. **content_hash.rs** — SHA3-256 content hashing with constant-time verification, entry fingerprinting (content:scope_id:content_type:sensitivity_level:created_by), retrieval result hashing, and MemoryHashChain append-only tamper detection (genesis link uses 64-zero previous_hash, each link hashes content_hash:previous_hash)
+
+2. **retention_engine.rs** — MemoryRetentionEngine evaluates MemoryRetentionPolicy against MemoryEntry instances. evaluate_entry checks explicit expiry, max_age, and sensitivity threshold returning RetentionEvaluation with RetentionOutcome (Retain/Expire/Redact/Archive/Summarize) and remaining_seconds. scan_for_expired scans entry slices for age/count violations. apply_count_limit identifies entries exceeding max_entries (sorted by created_at). evaluate_sensitivity_threshold uses MemorySensitivity Ord for threshold comparison. outcome_from_expiry_action maps ExpiryAction→RetentionOutcome.
+
+3. **redaction_engine.rs** — MemoryRedactionEngine applies RedactionPattern instances to content. KeywordList patterns use case-insensitive matching with multiple occurrence support. SensitivityBased patterns replace entire content. Regex patterns return MemoryError::InvalidOperation (no regex dependency — requires adapter crate). Custom patterns also return error. redact_content applies all patterns in a policy sequentially. redact_entry adds content-type filtering and produces RedactionReport with action_count/was_modified/fully_redacted. should_redact_by_sensitivity uses MemorySensitivity Ord.
+
+4. **window_manager.rs** — ConversationWindowManager trims conversation history per ConversationWindowPolicy. estimate_tokens uses whitespace heuristic (real tokenization in adapters). should_trim checks max_turns and max_tokens_estimate thresholds. trim_window dispatches to TruncateOldest (remove oldest unpinned, respecting token budget), SlidingWindow (keep last N entries), or SummarizeAndCompact/Custom (placeholder falls back to TruncateOldest). PinnedEntryManager tracks pinned entry IDs that survive trimming. WindowTrimResult reports retained/removed IDs and token estimates.
+
+5. **isolation_checker.rs** — IsolationChecker evaluates cross-scope memory access against IsolationBoundary and CrossScopePolicy. Same-scope always allowed. No boundaries means default-allow. HardIsolation boundaries deny unconditionally. SoftIsolation boundaries check CrossScopePolicy for access type override with audit/approval conditions. Active Temporal boundaries act as time-limited permits (continue checking). Expired temporal boundaries deny with TemporalBoundaryExpired. IsolationCheckResult with IsolationCheckOutcome (Allowed/Denied/AllowedWithAudit/AllowedWithApproval).
+
+6. **access_evaluator.rs** — MemoryAccessEvaluator evaluates MemoryAccessRequest against entry sensitivity and requester clearance. SensitivityClearance (Cleared/InsufficientClearance) using MemorySensitivity Ord (clearance ≥ sensitivity). evaluate_retrieval checks RetrievalGovernancePolicy collection access, provenance requirements, and max_results capping.
+
+7. **metrics.rs** — MemoryMetrics computes aggregate statistics as MemoryMetricSnapshot (all String values for Eq). compute_entry_count_by_scope/by_type with labels. compute_sensitivity_distribution. compute_average_entry_age. compute_retention_compliance (fraction compliant with policy age limit and explicit expiry). compute_isolation_violation_rate (violations per total access count).
+
+### Audit Updates
+
+14 new L2 MemoryEventType variants: MemoryContentHashed, MemoryHashChainAppended, MemoryHashChainVerified, RetentionEvaluated, RetentionScanCompleted, ContentRedacted, RedactionPolicyApplied, ConversationWindowTrimExecuted, TokenEstimateComputed, IsolationCheckPerformed, AccessEvaluated, RetrievalEvaluated, SensitivityClearanceChecked, MemoryMetricsComputed. New kind() categories: content_hash, retention_engine, redaction, window_manager, isolation_checker, access_evaluator, metrics.
+
+### Design Decisions
+
+- **No regex dependency**: Keyword-based redaction only. Regex patterns in RedactionPatternType::Regex are stored but applying them returns MemoryError::InvalidOperation. Real regex support deferred to adapter crate.
+- **Approximate token estimation**: Whitespace-split heuristic. Real tokenization (tiktoken, sentencepiece) requires adapter crate.
+- **SummarizeAndCompact placeholder**: Falls back to TruncateOldest. Actual summarization requires LLM access, which is an adapter concern.
+- **All metric values as String**: MemoryMetricSnapshot stores values as String so the struct can derive Eq for deterministic testing.
+- **Unit structs for stateless engines**: MemoryRetentionEngine, MemoryRedactionEngine, IsolationChecker, MemoryAccessEvaluator, MemoryMetrics are unit structs — stateless evaluators that take inputs and return results. ConversationWindowManager holds PinnedEntryManager state.
+- **Temporal boundary semantics**: An active temporal boundary is a time-limited permit (continue checking). An expired one is a violation. This matches the intuition that temporal boundaries grant temporary cross-scope access.
+
+### Validation
+
+- **Tests**: 209 passed across 13 modules (80 L1 + 129 L2)
+- **Clippy**: Zero warnings on rune-memory code
+- **Workspace**: `cargo test --workspace` clean
