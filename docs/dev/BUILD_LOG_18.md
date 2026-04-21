@@ -257,3 +257,42 @@ Added `type_name()`, `kind()`, and classification methods (`is_backend_event`, `
 - **Tests**: 253 passed (87 L3 tests across 7 modules + 8 audit tests + updated error test)
 - **Clippy**: Zero warnings in all L3 files
 - **Compilation**: Clean build with no errors
+
+---
+
+## rune-memory — Layer 1 (Core Types / Enums / Error Types / Audit Events / Foundational API)
+
+**Date**: 2026-04-21
+**Tests**: 0 → 80
+**Commit**: `feat(rune-memory): Layer 1 — core memory governance types, retention policies, retrieval governance, isolation boundaries, audit events, error types`
+
+### What Changed
+
+New workspace crate `rune-memory` added to the RUNE governance ecosystem. rune-memory governs the memory substrate that AI agents and systems use — lifecycle, isolation, retention, access control, sensitivity classification, RAG retrieval governance, and conversation history management. It does NOT implement memory storage (no vector database client, no embedding engine, no LLM context window manager). Layer 1 establishes the core type system, enums, error types, audit events, and foundational API surface that Layers 2 and 3 will build on.
+
+### New Modules
+
+| Module | Key Types | Tests | Purpose |
+|---|---|---|---|
+| `memory.rs` | `MemoryEntry`, `MemoryScope`, `MemoryAccessRequest`, `MemoryAccessDecision`, `MemoryContentType` (7 variants), `MemorySensitivity` (4 variants with Ord), `MemoryScopeType` (5 variants), `MemoryIsolationLevel` (4 variants), `MemoryAccessType` (5 variants) | 24 | Core memory entry types, scope management, access request/decision model |
+| `retention.rs` | `MemoryRetentionPolicy`, `MemoryRedactionPolicy`, `ConversationWindowPolicy`, `RedactionPattern`, `RedactionPatternType` (4 variants), `ExpiryAction` (4 variants), `SummarizationStrategy` (4 variants) | 15 | Memory retention lifecycle, redaction policies, conversation window management |
+| `retrieval.rs` | `RetrievalGovernancePolicy`, `RetrievalRequest`, `RetrievalResult`, `RetrievalDecision` (4 variants) | 14 | RAG retrieval governance: collection access control, provenance requirements, sensitivity ceilings |
+| `isolation.rs` | `IsolationBoundary`, `IsolationViolation`, `CrossScopePolicy`, `IsolationBoundaryType` (3 variants), `IsolationViolationType` (4 variants) | 15 | Memory isolation enforcement between agents, sessions, and tenants |
+| `audit.rs` | `MemoryEventType` (20 variants), `MemoryAuditEvent`, `MemoryAuditLog` with `events_by_kind()`/`since()` filtering, `type_name()`, `kind()` | 10 | Memory governance audit trail covering entry lifecycle, scope access, retrieval, isolation, retention |
+| `error.rs` | `MemoryError` (7 variants) | 2 | Memory governance error types |
+| `lib.rs` | Module declarations and re-exports | — | Public API surface |
+
+### Design Decisions
+
+- **rune-memory vs rune-privacy**: rune-privacy handles personal data consent and retention policy (GDPR/CCPA). rune-memory handles operational memory substrate governance regardless of whether content is personal data. When memory content contains PII, rune-privacy's consent rules apply; rune-memory provides the governance surface that enforces those rules at the memory layer.
+- **rune-memory vs rune-agents**: rune-agents governs agent behavior, autonomy, and tool use. rune-memory governs what agents can remember, retrieve, and forget. rune-agents says "this agent may take these actions"; rune-memory says "this agent may access these memory scopes."
+- **rune-memory vs rune-document**: rune-document handles structured document management with versioning, retention, and format conversion. rune-memory handles ephemeral and semi-structured memory entries (conversation turns, retrieval results, working context) that are not documents in the traditional sense.
+- **MemorySensitivity with Ord**: Derives Ord so sensitivity levels can be compared for threshold-based access control (e.g., "agent may only access entries at or below Internal sensitivity").
+- **Retrieval governance as first-class**: RAG (Retrieval-Augmented Generation) is the dominant AI memory access pattern. First-class retrieval governance ensures collection-level access control, provenance requirements, and sensitivity ceilings are enforced before any retrieval reaches an agent.
+- **Conversation window management as first-class**: Context window limits are the primary memory constraint in LLM-based systems. ConversationWindowPolicy with max_turns, max_tokens_estimate, and summarization strategies enables governance-aware context management.
+
+### Validation
+
+- **Tests**: 80 passed across 6 modules
+- **Clippy**: Zero warnings on rune-memory code
+- **Workspace**: `cargo check --workspace` and `cargo test --workspace` both clean

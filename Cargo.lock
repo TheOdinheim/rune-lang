@@ -1665,6 +1665,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-memory"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "rune-lang",
+ "serde",
+ "serde_json",
+ "sha3",
+]
+
+[[package]]
 name = "rune-monitoring"
 version = "0.1.0"
 dependencies = [
