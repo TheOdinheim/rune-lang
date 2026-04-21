@@ -1564,6 +1564,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-ai"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha3",
+]
+
+[[package]]
 name = "rune-audit-ext"
 version = "0.1.0"
 dependencies = [
