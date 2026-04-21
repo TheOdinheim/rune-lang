@@ -21,6 +21,11 @@ pub enum NetworkError {
     InvalidCidr(String),
     InvalidConfiguration(String),
     InvalidOperation(String),
+    // Layer 3
+    SerializationFailed(String),
+    TlsPolicyNotFound(String),
+    SegmentationPolicyNotFound(String),
+    DnsPolicyNotFound(String),
 }
 
 impl fmt::Display for NetworkError {
@@ -59,6 +64,14 @@ impl fmt::Display for NetworkError {
                 write!(f, "Invalid configuration: {detail}")
             }
             Self::InvalidOperation(detail) => write!(f, "Invalid operation: {detail}"),
+            Self::SerializationFailed(detail) => {
+                write!(f, "Serialization failed: {detail}")
+            }
+            Self::TlsPolicyNotFound(id) => write!(f, "TLS policy not found: {id}"),
+            Self::SegmentationPolicyNotFound(id) => {
+                write!(f, "Segmentation policy not found: {id}")
+            }
+            Self::DnsPolicyNotFound(id) => write!(f, "DNS policy not found: {id}"),
         }
     }
 }
@@ -91,10 +104,15 @@ mod tests {
             NetworkError::InvalidCidr("bad/cidr".into()),
             NetworkError::InvalidConfiguration("bad config".into()),
             NetworkError::InvalidOperation("bad op".into()),
+            // Layer 3
+            NetworkError::SerializationFailed("json error".into()),
+            NetworkError::TlsPolicyNotFound("tls-1".into()),
+            NetworkError::SegmentationPolicyNotFound("seg-1".into()),
+            NetworkError::DnsPolicyNotFound("dns-1".into()),
         ];
         for e in &errors {
             assert!(!e.to_string().is_empty());
         }
-        assert_eq!(errors.len(), 15);
+        assert_eq!(errors.len(), 19);
     }
 }

@@ -24,6 +24,15 @@ pub mod l2_pool;
 pub mod l2_segmentation;
 pub mod l2_traffic_chain;
 
+// Layer 3 modules
+pub mod backend;
+pub mod dns_security;
+pub mod network_export;
+pub mod network_metrics;
+pub mod network_stream;
+pub mod segmentation_verifier;
+pub mod tls_policy_enforcer;
+
 // ── Re-exports ───────────────────────────────────────────────────────
 
 pub use audit::{NetworkAuditEvent, NetworkAuditLog, NetworkEventType};
@@ -73,3 +82,42 @@ pub use l2_segmentation::{
     InterZoneRule, L2NetworkZone, L2SegmentationPolicy, SegmentationViolation, ZoneTrustLevel,
 };
 pub use l2_traffic_chain::{TrafficAuditChain, TrafficChainVerification, TrafficRecord};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+
+pub use backend::{
+    InMemoryNetworkGovernanceBackend, NetworkGovernanceBackend, StoredCertificateRecord,
+    StoredCertificateRecordStatus, StoredConnectionRecord, StoredConnectionStatus,
+    StoredDnsPolicy, StoredEnforcementMode, StoredMinTlsVersion,
+    StoredNetworkGovernanceSnapshot, StoredSegmentationDefaultAction, StoredSegmentationPolicy,
+    StoredTlsPolicy, TlsPolicyScope,
+};
+pub use dns_security::{
+    BlocklistDnsSecurityGovernor, DnsQueryDecision, DnsQueryEvaluation, DnsSecurityGovernor,
+    DnssecStatus, InMemoryDnsSecurityGovernor, NullDnsSecurityGovernor,
+    ResolverComplianceResult,
+};
+pub use network_export::{
+    CjisNetworkSecurityExporter, JsonNetworkGovernanceExporter, NetworkGovernanceExporter,
+    PciDssNetworkComplianceExporter, TlsCertificateInventoryExporter,
+    ZeroTrustAssessmentExporter,
+};
+pub use network_metrics::{
+    CertificateHealthRecord, DnsQueryRecord, InMemoryNetworkGovernanceMetricsCollector,
+    NetworkGovernanceMetricSnapshot, NetworkGovernanceMetricsCollector,
+    NullNetworkGovernanceMetricsCollector, SegmentationFlowRecord, TlsConnectionRecord,
+};
+pub use network_stream::{
+    FilteredNetworkGovernanceEventSubscriber, NetworkGovernanceEventCollector,
+    NetworkGovernanceEventSubscriber, NetworkGovernanceEventSubscriberRegistry,
+    NetworkGovernanceLifecycleEvent, NetworkGovernanceLifecycleEventType,
+};
+pub use segmentation_verifier::{
+    DenyByDefaultSegmentationVerifier, InMemoryNetworkSegmentationVerifier,
+    NetworkSegmentationVerifier, NullNetworkSegmentationVerifier, SegmentationImprovement,
+    SegmentationVerification, SegmentationVerificationDecision,
+};
+pub use tls_policy_enforcer::{
+    CertificateExpirationStatus, InMemoryTlsPolicyEnforcer, NullTlsPolicyEnforcer,
+    StrictTlsPolicyEnforcer, TlsCertificateIssue, TlsPolicyDecision, TlsPolicyEnforcer,
+};

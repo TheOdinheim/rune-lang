@@ -164,3 +164,96 @@ Layer 3 adds the agent governance infrastructure layer: pluggable backend storag
 - **rune-detection**: Detection alerts may trigger autonomy level changes; rune-agents defines the autonomy governance while rune-detection defines the detection signal
 - **rune-provenance**: Delegation chains are provenance-relevant; rune-agents tracks the governance policy while rune-provenance tracks the lineage
 - **rune-framework**: Framework requirements reference rune-agents capabilities via opaque strings (e.g. referenced_library: "rune-agents", referenced_capability: "AutonomyLevelController") for EU AI Act/NIST AI RMF compliance
+
+---
+
+## rune-networking-ext — Layer 3 (Trait Boundaries / Serialization Formats / Abstraction Interfaces)
+
+**Date**: 2026-04-21
+**Commit**: `feat(rune-networking-ext): Layer 3 — network governance backend, TLS policy enforcer, network segmentation verifier, DNS security governor, network governance exporters, network event streaming, network governance metrics collector`
+
+### Scope
+
+7 new modules, 22 audit variants, 4 error variants, lib.rs re-exports. Layer 3 delivers trait boundaries, serialization formats, and abstraction interfaces for network governance — NOT concrete connectors or adapters.
+
+### New Modules
+
+| Module | Key Types | Purpose |
+|---|---|---|
+| `backend.rs` | `NetworkGovernanceBackend` trait, `StoredTlsPolicy`, `StoredConnectionRecord`, `StoredSegmentationPolicy`, `StoredDnsPolicy`, `StoredCertificateRecord`, `StoredNetworkGovernanceSnapshot`, `InMemoryNetworkGovernanceBackend` | Persistence abstraction for network governance data |
+| `tls_policy_enforcer.rs` | `TlsPolicyEnforcer` trait, `TlsPolicyDecision`, `TlsCertificateIssue`, `CertificateExpirationStatus`, `InMemoryTlsPolicyEnforcer`, `StrictTlsPolicyEnforcer<E>`, `NullTlsPolicyEnforcer` | TLS connection/certificate evaluation against governance policies |
+| `segmentation_verifier.rs` | `NetworkSegmentationVerifier` trait, `SegmentationVerificationDecision`, `SegmentationVerification`, `SegmentationImprovement`, `InMemoryNetworkSegmentationVerifier`, `DenyByDefaultSegmentationVerifier<V>`, `NullNetworkSegmentationVerifier` | Network segmentation policy verification |
+| `dns_security.rs` | `DnsSecurityGovernor` trait, `DnsQueryDecision`, `DnsQueryEvaluation`, `DnssecStatus`, `ResolverComplianceResult`, `InMemoryDnsSecurityGovernor`, `BlocklistDnsSecurityGovernor<G>`, `NullDnsSecurityGovernor` | DNS security governance with DNSSEC and DoH/DoT compliance |
+| `network_export.rs` | `NetworkGovernanceExporter` trait, `JsonNetworkGovernanceExporter`, `PciDssNetworkComplianceExporter`, `CjisNetworkSecurityExporter`, `ZeroTrustAssessmentExporter`, `TlsCertificateInventoryExporter` | Export network governance data to compliance formats |
+| `network_stream.rs` | `NetworkGovernanceEventSubscriber` trait, `NetworkGovernanceLifecycleEventType` (20 variants), `NetworkGovernanceEventSubscriberRegistry`, `NetworkGovernanceEventCollector`, `FilteredNetworkGovernanceEventSubscriber<S>` | Network governance lifecycle event streaming |
+| `network_metrics.rs` | `NetworkGovernanceMetricsCollector` trait, `NetworkGovernanceMetricSnapshot`, `InMemoryNetworkGovernanceMetricsCollector`, `NullNetworkGovernanceMetricsCollector` | Compute network governance metrics (TLS compliance, mTLS adoption, certificate health, segmentation compliance, DNS block rate) |
+
+### Audit Variants (22 new → 52 total)
+
+Backend: `StoredTlsPolicyCreated`, `StoredConnectionRecordCreated`, `StoredSegmentationPolicyCreated`, `StoredDnsPolicyCreated`, `StoredCertificateRecordCreated`, `StoredNetworkGovernanceSnapshotCaptured`, `NetworkGovernanceFlushed`, `NetworkGovernanceBackendInfo`
+
+TLS governance: `TlsPolicyConnectionEvaluated`, `TlsPolicyNonCompliant`, `TlsCertificateGovernanceEvaluated`, `TlsCertificateIssueDetected`
+
+Segmentation governance: `SegmentationFlowVerified`, `SegmentationFlowDeniedByVerifier`, `SegmentationComplianceAssessed`
+
+DNS governance: `DnsQueryEvaluatedByGovernor`, `DnsQueryBlockedByGovernor`, `DnsResolverComplianceChecked`
+
+Export: `NetworkGovernanceExported`, `NetworkGovernanceExportFailed`
+
+Metrics: `NetworkGovernanceMetricsComputed`
+
+Stream: `NetworkGovernanceEventPublished`
+
+Added `type_name()`, `kind()`, and classification methods (`is_backend_event`, `is_tls_governance_event`, `is_segmentation_governance_event`, `is_dns_governance_event`, `is_governance_export_event`, `is_governance_metrics_event`).
+
+### Error Variants (4 new → 19 total)
+
+`SerializationFailed`, `TlsPolicyNotFound`, `SegmentationPolicyNotFound`, `DnsPolicyNotFound`
+
+### Naming Collision Resolution
+
+| L1 Name | L3 Name | Reason |
+|---|---|---|
+| `DnsGovernor` (struct) | `DnsSecurityGovernor` (trait) | Avoid collision; documented in file header |
+| `SegmentationDecision` (struct) | `SegmentationVerificationDecision` (enum) | Different semantics: L1 is `{allowed: bool}`, L3 is 5-variant enum |
+| `TlsPolicy` (struct) | `StoredTlsPolicy` (serializable) | L3 is for backend persistence |
+| `TlsVersion` (4 variants) | `StoredMinTlsVersion` (Tls12/Tls13) | Reduced set for policy minimum |
+| `CertificateStatus` | `StoredCertificateRecordStatus` | Different variant set |
+| `SegmentationAction` (Allow/Deny/Audit) | `StoredSegmentationDefaultAction` (Allow/Deny/LogOnly) | Different semantics |
+| `DnsDecision` (struct) | `DnsQueryDecision` (enum) + `DnsQueryEvaluation` | Richer governance model |
+| L1 `DnsQueryBlocked` (audit) | L3 `DnsQueryBlockedByGovernor` | Differentiated by "ByGovernor" suffix |
+| L2 `SegmentationViolationDetected` (audit) | L3 `SegmentationFlowDeniedByVerifier` | Differentiated by "ByVerifier" suffix |
+
+### Industry Standards
+
+- **TLS 1.3** (RFC 8446): `StrictTlsPolicyEnforcer` enforces minimum TLS 1.3
+- **Certificate Transparency** (RFC 6962): `StrictTlsPolicyEnforcer` requires CT logging; `TlsCertificateIssue::NoCertificateTransparency`
+- **DNSSEC** (RFC 4033-4035): `DnssecStatus` enum, `require_dnssec` config, resolver compliance checks
+- **DoH/DoT** (RFC 8484/7858): `ResolverComplianceResult` tracks `supports_doh`/`supports_dot`
+- **PCI DSS v4.0 Requirement 1**: `PciDssNetworkComplianceExporter`
+- **CJIS Security Policy v6.0 Policy Area 6**: `CjisNetworkSecurityExporter`
+- **NIST SP 800-207 Zero Trust**: `ZeroTrustAssessmentExporter`
+- **mTLS**: `InMemoryTlsPolicyEnforcer` `require_client_cert`, mTLS adoption rate metric
+
+### Composable Wrappers
+
+| Wrapper | Wraps | Behavior |
+|---|---|---|
+| `StrictTlsPolicyEnforcer<E>` | `TlsPolicyEnforcer` | Enforces TLS 1.3 minimum + Certificate Transparency |
+| `DenyByDefaultSegmentationVerifier<V>` | `NetworkSegmentationVerifier` | Overrides non-Allowed decisions to Denied |
+| `BlocklistDnsSecurityGovernor<G>` | `DnsSecurityGovernor` | Adds additional domain blocklist layer |
+
+### Four-Pillar Alignment
+
+| Pillar | Evidence |
+|---|---|
+| **Transparency** | All exporters produce human-readable output. `type_name()` and `kind()` enable programmatic event filtering. 20-variant lifecycle event type provides fine-grained observability. |
+| **Accountability** | Backend stores complete TLS policies, connection records, segmentation policies, DNS policies, certificate records with timestamps and metadata. Governance snapshots capture point-in-time state. |
+| **Fairness** | TLS enforcement applies consistently — `InMemoryTlsPolicyEnforcer` evaluates all connections against same version/cipher/cert rules. Segmentation verification uses same allowed/denied flow lists for all zones. DNS governance applies blocklist/allowlist uniformly. |
+| **Safety** | `StrictTlsPolicyEnforcer` prevents TLS downgrade below 1.3. `DenyByDefaultSegmentationVerifier` prevents unintended cross-zone access. `BlocklistDnsSecurityGovernor` adds defense-in-depth DNS blocking. Certificate expiration monitoring enables proactive renewal. |
+
+### Validation
+
+- **Tests**: 253 passed (87 L3 tests across 7 modules + 8 audit tests + updated error test)
+- **Clippy**: Zero warnings in all L3 files
+- **Compilation**: Clean build with no errors

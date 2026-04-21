@@ -45,6 +45,29 @@ pub enum NetworkEventType {
     DnsCacheMiss { hostname: String },
     ZoneCommunicationChecked { from_zone: String, to_zone: String, allowed: bool },
     SegmentationViolationDetected { from_zone: String, to_zone: String },
+    // Layer 3
+    StoredTlsPolicyCreated { policy_id: String, service_ref: String },
+    StoredConnectionRecordCreated { record_id: String, connection_id: String },
+    StoredSegmentationPolicyCreated { policy_id: String, policy_name: String },
+    StoredDnsPolicyCreated { policy_id: String, policy_name: String },
+    StoredCertificateRecordCreated { record_id: String, subject: String },
+    StoredNetworkGovernanceSnapshotCaptured { snapshot_id: String },
+    TlsPolicyConnectionEvaluated { enforcer_id: String, connection_id: String, decision: String },
+    TlsPolicyNonCompliant { enforcer_id: String, connection_id: String, reason: String },
+    TlsCertificateGovernanceEvaluated { enforcer_id: String, subject: String, decision: String },
+    TlsCertificateIssueDetected { enforcer_id: String, subject: String, issue: String },
+    SegmentationFlowVerified { verifier_id: String, source_zone: String, dest_zone: String, decision: String },
+    SegmentationFlowDeniedByVerifier { verifier_id: String, source_zone: String, dest_zone: String },
+    SegmentationComplianceAssessed { verifier_id: String, improvement_count: String },
+    DnsQueryEvaluatedByGovernor { governor_id: String, domain: String, decision: String },
+    DnsQueryBlockedByGovernor { governor_id: String, domain: String },
+    DnsResolverComplianceChecked { governor_id: String, resolver_addr: String, compliant: bool },
+    NetworkGovernanceExported { format: String, content_type: String },
+    NetworkGovernanceExportFailed { format: String, reason: String },
+    NetworkGovernanceMetricsComputed { collector_id: String, metric_type: String },
+    NetworkGovernanceEventPublished { event_type: String, source_id: String },
+    NetworkGovernanceFlushed { record_count: String },
+    NetworkGovernanceBackendInfo { backend_id: String, backend_type: String },
 }
 
 impl fmt::Display for NetworkEventType {
@@ -132,7 +155,246 @@ impl fmt::Display for NetworkEventType {
             Self::SegmentationViolationDetected { from_zone, to_zone } => {
                 write!(f, "SegmentationViolationDetected({from_zone}→{to_zone})")
             }
+            // Layer 3
+            Self::StoredTlsPolicyCreated { policy_id, service_ref } => {
+                write!(f, "StoredTlsPolicyCreated({policy_id}, service={service_ref})")
+            }
+            Self::StoredConnectionRecordCreated { record_id, connection_id } => {
+                write!(f, "StoredConnectionRecordCreated({record_id}, conn={connection_id})")
+            }
+            Self::StoredSegmentationPolicyCreated { policy_id, policy_name } => {
+                write!(f, "StoredSegmentationPolicyCreated({policy_id}, {policy_name})")
+            }
+            Self::StoredDnsPolicyCreated { policy_id, policy_name } => {
+                write!(f, "StoredDnsPolicyCreated({policy_id}, {policy_name})")
+            }
+            Self::StoredCertificateRecordCreated { record_id, subject } => {
+                write!(f, "StoredCertificateRecordCreated({record_id}, {subject})")
+            }
+            Self::StoredNetworkGovernanceSnapshotCaptured { snapshot_id } => {
+                write!(f, "StoredNetworkGovernanceSnapshotCaptured({snapshot_id})")
+            }
+            Self::TlsPolicyConnectionEvaluated { enforcer_id, connection_id, decision } => {
+                write!(f, "TlsPolicyConnectionEvaluated({enforcer_id}, {connection_id}, {decision})")
+            }
+            Self::TlsPolicyNonCompliant { enforcer_id, connection_id, reason } => {
+                write!(f, "TlsPolicyNonCompliant({enforcer_id}, {connection_id}): {reason}")
+            }
+            Self::TlsCertificateGovernanceEvaluated { enforcer_id, subject, decision } => {
+                write!(f, "TlsCertificateGovernanceEvaluated({enforcer_id}, {subject}, {decision})")
+            }
+            Self::TlsCertificateIssueDetected { enforcer_id, subject, issue } => {
+                write!(f, "TlsCertificateIssueDetected({enforcer_id}, {subject}): {issue}")
+            }
+            Self::SegmentationFlowVerified { verifier_id, source_zone, dest_zone, decision } => {
+                write!(f, "SegmentationFlowVerified({verifier_id}, {source_zone}→{dest_zone}, {decision})")
+            }
+            Self::SegmentationFlowDeniedByVerifier { verifier_id, source_zone, dest_zone } => {
+                write!(f, "SegmentationFlowDeniedByVerifier({verifier_id}, {source_zone}→{dest_zone})")
+            }
+            Self::SegmentationComplianceAssessed { verifier_id, improvement_count } => {
+                write!(f, "SegmentationComplianceAssessed({verifier_id}, improvements={improvement_count})")
+            }
+            Self::DnsQueryEvaluatedByGovernor { governor_id, domain, decision } => {
+                write!(f, "DnsQueryEvaluatedByGovernor({governor_id}, {domain}, {decision})")
+            }
+            Self::DnsQueryBlockedByGovernor { governor_id, domain } => {
+                write!(f, "DnsQueryBlockedByGovernor({governor_id}, {domain})")
+            }
+            Self::DnsResolverComplianceChecked { governor_id, resolver_addr, compliant } => {
+                write!(f, "DnsResolverComplianceChecked({governor_id}, {resolver_addr}, compliant={compliant})")
+            }
+            Self::NetworkGovernanceExported { format, content_type } => {
+                write!(f, "NetworkGovernanceExported({format}, {content_type})")
+            }
+            Self::NetworkGovernanceExportFailed { format, reason } => {
+                write!(f, "NetworkGovernanceExportFailed({format}): {reason}")
+            }
+            Self::NetworkGovernanceMetricsComputed { collector_id, metric_type } => {
+                write!(f, "NetworkGovernanceMetricsComputed({collector_id}, {metric_type})")
+            }
+            Self::NetworkGovernanceEventPublished { event_type, source_id } => {
+                write!(f, "NetworkGovernanceEventPublished({event_type}, {source_id})")
+            }
+            Self::NetworkGovernanceFlushed { record_count } => {
+                write!(f, "NetworkGovernanceFlushed(records={record_count})")
+            }
+            Self::NetworkGovernanceBackendInfo { backend_id, backend_type } => {
+                write!(f, "NetworkGovernanceBackendInfo({backend_id}, {backend_type})")
+            }
         }
+    }
+}
+
+impl NetworkEventType {
+    pub fn type_name(&self) -> &str {
+        match self {
+            Self::ConnectionOpened { .. } => "ConnectionOpened",
+            Self::ConnectionAuthenticated { .. } => "ConnectionAuthenticated",
+            Self::ConnectionEstablished { .. } => "ConnectionEstablished",
+            Self::ConnectionClosed { .. } => "ConnectionClosed",
+            Self::ConnectionRejected { .. } => "ConnectionRejected",
+            Self::ProtocolViolation { .. } => "ProtocolViolation",
+            Self::CipherSuiteRejected { .. } => "CipherSuiteRejected",
+            Self::TrafficClassified { .. } => "TrafficClassified",
+            Self::SegmentationViolation { .. } => "SegmentationViolation",
+            Self::CertificateValidated { .. } => "CertificateValidated",
+            Self::CertificateExpiring { .. } => "CertificateExpiring",
+            Self::DnsQueryBlocked { .. } => "DnsQueryBlocked",
+            Self::DnsQueryAllowed { .. } => "DnsQueryAllowed",
+            Self::RateLimitExceeded { .. } => "RateLimitExceeded",
+            Self::FirewallRuleMatched { .. } => "FirewallRuleMatched",
+            Self::CertificateAdded { .. } => "CertificateAdded",
+            Self::CertificateExpiringL2 { .. } => "CertificateExpiringL2",
+            Self::CertificateValidatedL2 { .. } => "CertificateValidatedL2",
+            Self::NetworkPolicyEvaluated { .. } => "NetworkPolicyEvaluated",
+            Self::NetworkPolicyAdded { .. } => "NetworkPolicyAdded",
+            Self::ConnectionAcquired { .. } => "ConnectionAcquired",
+            Self::ConnectionReleased { .. } => "ConnectionReleased",
+            Self::ConnectionPoolEvicted { .. } => "ConnectionPoolEvicted",
+            Self::TrafficRecorded { .. } => "TrafficRecorded",
+            Self::TrafficChainVerified { .. } => "TrafficChainVerified",
+            Self::DnsDomainChecked { .. } => "DnsDomainChecked",
+            Self::DnsCacheHit { .. } => "DnsCacheHit",
+            Self::DnsCacheMiss { .. } => "DnsCacheMiss",
+            Self::ZoneCommunicationChecked { .. } => "ZoneCommunicationChecked",
+            Self::SegmentationViolationDetected { .. } => "SegmentationViolationDetected",
+            Self::StoredTlsPolicyCreated { .. } => "StoredTlsPolicyCreated",
+            Self::StoredConnectionRecordCreated { .. } => "StoredConnectionRecordCreated",
+            Self::StoredSegmentationPolicyCreated { .. } => "StoredSegmentationPolicyCreated",
+            Self::StoredDnsPolicyCreated { .. } => "StoredDnsPolicyCreated",
+            Self::StoredCertificateRecordCreated { .. } => "StoredCertificateRecordCreated",
+            Self::StoredNetworkGovernanceSnapshotCaptured { .. } => "StoredNetworkGovernanceSnapshotCaptured",
+            Self::TlsPolicyConnectionEvaluated { .. } => "TlsPolicyConnectionEvaluated",
+            Self::TlsPolicyNonCompliant { .. } => "TlsPolicyNonCompliant",
+            Self::TlsCertificateGovernanceEvaluated { .. } => "TlsCertificateGovernanceEvaluated",
+            Self::TlsCertificateIssueDetected { .. } => "TlsCertificateIssueDetected",
+            Self::SegmentationFlowVerified { .. } => "SegmentationFlowVerified",
+            Self::SegmentationFlowDeniedByVerifier { .. } => "SegmentationFlowDeniedByVerifier",
+            Self::SegmentationComplianceAssessed { .. } => "SegmentationComplianceAssessed",
+            Self::DnsQueryEvaluatedByGovernor { .. } => "DnsQueryEvaluatedByGovernor",
+            Self::DnsQueryBlockedByGovernor { .. } => "DnsQueryBlockedByGovernor",
+            Self::DnsResolverComplianceChecked { .. } => "DnsResolverComplianceChecked",
+            Self::NetworkGovernanceExported { .. } => "NetworkGovernanceExported",
+            Self::NetworkGovernanceExportFailed { .. } => "NetworkGovernanceExportFailed",
+            Self::NetworkGovernanceMetricsComputed { .. } => "NetworkGovernanceMetricsComputed",
+            Self::NetworkGovernanceEventPublished { .. } => "NetworkGovernanceEventPublished",
+            Self::NetworkGovernanceFlushed { .. } => "NetworkGovernanceFlushed",
+            Self::NetworkGovernanceBackendInfo { .. } => "NetworkGovernanceBackendInfo",
+        }
+    }
+
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::ConnectionOpened { .. }
+            | Self::ConnectionAuthenticated { .. }
+            | Self::ConnectionEstablished { .. }
+            | Self::ConnectionClosed { .. }
+            | Self::ConnectionRejected { .. } => "connection",
+            Self::ProtocolViolation { .. }
+            | Self::CipherSuiteRejected { .. } => "protocol",
+            Self::TrafficClassified { .. } => "traffic",
+            Self::SegmentationViolation { .. } => "segmentation",
+            Self::CertificateValidated { .. }
+            | Self::CertificateExpiring { .. } => "certificate",
+            Self::DnsQueryBlocked { .. }
+            | Self::DnsQueryAllowed { .. } => "dns",
+            Self::RateLimitExceeded { .. } => "rate_limit",
+            Self::FirewallRuleMatched { .. } => "firewall",
+            // Layer 2
+            Self::CertificateAdded { .. }
+            | Self::CertificateExpiringL2 { .. }
+            | Self::CertificateValidatedL2 { .. } => "l2_certificate",
+            Self::NetworkPolicyEvaluated { .. }
+            | Self::NetworkPolicyAdded { .. } => "l2_policy",
+            Self::ConnectionAcquired { .. }
+            | Self::ConnectionReleased { .. }
+            | Self::ConnectionPoolEvicted { .. } => "l2_pool",
+            Self::TrafficRecorded { .. }
+            | Self::TrafficChainVerified { .. } => "l2_traffic_chain",
+            Self::DnsDomainChecked { .. }
+            | Self::DnsCacheHit { .. }
+            | Self::DnsCacheMiss { .. } => "l2_dns",
+            Self::ZoneCommunicationChecked { .. }
+            | Self::SegmentationViolationDetected { .. } => "l2_segmentation",
+            // Layer 3
+            Self::StoredTlsPolicyCreated { .. }
+            | Self::StoredConnectionRecordCreated { .. }
+            | Self::StoredSegmentationPolicyCreated { .. }
+            | Self::StoredDnsPolicyCreated { .. }
+            | Self::StoredCertificateRecordCreated { .. }
+            | Self::StoredNetworkGovernanceSnapshotCaptured { .. }
+            | Self::NetworkGovernanceFlushed { .. }
+            | Self::NetworkGovernanceBackendInfo { .. } => "governance_backend",
+            Self::TlsPolicyConnectionEvaluated { .. }
+            | Self::TlsPolicyNonCompliant { .. }
+            | Self::TlsCertificateGovernanceEvaluated { .. }
+            | Self::TlsCertificateIssueDetected { .. } => "tls_governance",
+            Self::SegmentationFlowVerified { .. }
+            | Self::SegmentationFlowDeniedByVerifier { .. }
+            | Self::SegmentationComplianceAssessed { .. } => "segmentation_governance",
+            Self::DnsQueryEvaluatedByGovernor { .. }
+            | Self::DnsQueryBlockedByGovernor { .. }
+            | Self::DnsResolverComplianceChecked { .. } => "dns_governance",
+            Self::NetworkGovernanceExported { .. }
+            | Self::NetworkGovernanceExportFailed { .. } => "governance_export",
+            Self::NetworkGovernanceMetricsComputed { .. } => "governance_metrics",
+            Self::NetworkGovernanceEventPublished { .. } => "governance_stream",
+        }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::StoredTlsPolicyCreated { .. }
+                | Self::StoredConnectionRecordCreated { .. }
+                | Self::StoredSegmentationPolicyCreated { .. }
+                | Self::StoredDnsPolicyCreated { .. }
+                | Self::StoredCertificateRecordCreated { .. }
+                | Self::StoredNetworkGovernanceSnapshotCaptured { .. }
+                | Self::NetworkGovernanceFlushed { .. }
+                | Self::NetworkGovernanceBackendInfo { .. }
+        )
+    }
+
+    pub fn is_tls_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::TlsPolicyConnectionEvaluated { .. }
+                | Self::TlsPolicyNonCompliant { .. }
+                | Self::TlsCertificateGovernanceEvaluated { .. }
+                | Self::TlsCertificateIssueDetected { .. }
+        )
+    }
+
+    pub fn is_segmentation_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SegmentationFlowVerified { .. }
+                | Self::SegmentationFlowDeniedByVerifier { .. }
+                | Self::SegmentationComplianceAssessed { .. }
+        )
+    }
+
+    pub fn is_dns_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DnsQueryEvaluatedByGovernor { .. }
+                | Self::DnsQueryBlockedByGovernor { .. }
+                | Self::DnsResolverComplianceChecked { .. }
+        )
+    }
+
+    pub fn is_governance_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::NetworkGovernanceExported { .. }
+                | Self::NetworkGovernanceExportFailed { .. }
+        )
+    }
+
+    pub fn is_governance_metrics_event(&self) -> bool {
+        matches!(self, Self::NetworkGovernanceMetricsComputed { .. })
     }
 }
 
@@ -419,10 +681,115 @@ mod tests {
             NetworkEventType::DnsCacheMiss { hostname: "new.com".into() },
             NetworkEventType::ZoneCommunicationChecked { from_zone: "dmz".into(), to_zone: "internal".into(), allowed: true },
             NetworkEventType::SegmentationViolationDetected { from_zone: "untrusted".into(), to_zone: "secure".into() },
+            // Layer 3
+            NetworkEventType::StoredTlsPolicyCreated { policy_id: "tp1".into(), service_ref: "svc-a".into() },
+            NetworkEventType::StoredConnectionRecordCreated { record_id: "cr1".into(), connection_id: "c1".into() },
+            NetworkEventType::StoredSegmentationPolicyCreated { policy_id: "sp1".into(), policy_name: "default".into() },
+            NetworkEventType::StoredDnsPolicyCreated { policy_id: "dp1".into(), policy_name: "corp".into() },
+            NetworkEventType::StoredCertificateRecordCreated { record_id: "cert1".into(), subject: "CN=test".into() },
+            NetworkEventType::StoredNetworkGovernanceSnapshotCaptured { snapshot_id: "snap1".into() },
+            NetworkEventType::TlsPolicyConnectionEvaluated { enforcer_id: "e1".into(), connection_id: "c1".into(), decision: "Compliant".into() },
+            NetworkEventType::TlsPolicyNonCompliant { enforcer_id: "e1".into(), connection_id: "c1".into(), reason: "TLS 1.0".into() },
+            NetworkEventType::TlsCertificateGovernanceEvaluated { enforcer_id: "e1".into(), subject: "CN=test".into(), decision: "Compliant".into() },
+            NetworkEventType::TlsCertificateIssueDetected { enforcer_id: "e1".into(), subject: "CN=test".into(), issue: "Expired".into() },
+            NetworkEventType::SegmentationFlowVerified { verifier_id: "v1".into(), source_zone: "dmz".into(), dest_zone: "internal".into(), decision: "Allowed".into() },
+            NetworkEventType::SegmentationFlowDeniedByVerifier { verifier_id: "v1".into(), source_zone: "dmz".into(), dest_zone: "restricted".into() },
+            NetworkEventType::SegmentationComplianceAssessed { verifier_id: "v1".into(), improvement_count: "3".into() },
+            NetworkEventType::DnsQueryEvaluatedByGovernor { governor_id: "g1".into(), domain: "example.com".into(), decision: "Allow".into() },
+            NetworkEventType::DnsQueryBlockedByGovernor { governor_id: "g1".into(), domain: "evil.com".into() },
+            NetworkEventType::DnsResolverComplianceChecked { governor_id: "g1".into(), resolver_addr: "8.8.8.8".into(), compliant: true },
+            NetworkEventType::NetworkGovernanceExported { format: "json".into(), content_type: "application/json".into() },
+            NetworkEventType::NetworkGovernanceExportFailed { format: "json".into(), reason: "serialization error".into() },
+            NetworkEventType::NetworkGovernanceMetricsComputed { collector_id: "m1".into(), metric_type: "tls_compliance".into() },
+            NetworkEventType::NetworkGovernanceEventPublished { event_type: "TlsPolicyCreated".into(), source_id: "enforcer-1".into() },
+            NetworkEventType::NetworkGovernanceFlushed { record_count: "42".into() },
+            NetworkEventType::NetworkGovernanceBackendInfo { backend_id: "b1".into(), backend_type: "in-memory".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 30);
+        assert_eq!(types.len(), 52);
+    }
+
+    #[test]
+    fn test_type_name() {
+        let e = NetworkEventType::ConnectionOpened { protocol: "TCP".into() };
+        assert_eq!(e.type_name(), "ConnectionOpened");
+        let e2 = NetworkEventType::StoredTlsPolicyCreated { policy_id: "tp1".into(), service_ref: "svc".into() };
+        assert_eq!(e2.type_name(), "StoredTlsPolicyCreated");
+    }
+
+    #[test]
+    fn test_kind() {
+        let e = NetworkEventType::ConnectionOpened { protocol: "TCP".into() };
+        assert_eq!(e.kind(), "connection");
+        let e2 = NetworkEventType::TlsPolicyConnectionEvaluated {
+            enforcer_id: "e1".into(),
+            connection_id: "c1".into(),
+            decision: "Compliant".into(),
+        };
+        assert_eq!(e2.kind(), "tls_governance");
+        let e3 = NetworkEventType::DnsQueryBlockedByGovernor {
+            governor_id: "g1".into(),
+            domain: "evil.com".into(),
+        };
+        assert_eq!(e3.kind(), "dns_governance");
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        let e = NetworkEventType::StoredTlsPolicyCreated { policy_id: "tp1".into(), service_ref: "svc".into() };
+        assert!(e.is_backend_event());
+        let e2 = NetworkEventType::ConnectionOpened { protocol: "TCP".into() };
+        assert!(!e2.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_tls_governance_event() {
+        let e = NetworkEventType::TlsPolicyNonCompliant {
+            enforcer_id: "e1".into(),
+            connection_id: "c1".into(),
+            reason: "TLS 1.0".into(),
+        };
+        assert!(e.is_tls_governance_event());
+    }
+
+    #[test]
+    fn test_is_segmentation_governance_event() {
+        let e = NetworkEventType::SegmentationFlowVerified {
+            verifier_id: "v1".into(),
+            source_zone: "dmz".into(),
+            dest_zone: "internal".into(),
+            decision: "Allowed".into(),
+        };
+        assert!(e.is_segmentation_governance_event());
+    }
+
+    #[test]
+    fn test_is_dns_governance_event() {
+        let e = NetworkEventType::DnsQueryEvaluatedByGovernor {
+            governor_id: "g1".into(),
+            domain: "example.com".into(),
+            decision: "Allow".into(),
+        };
+        assert!(e.is_dns_governance_event());
+    }
+
+    #[test]
+    fn test_is_governance_export_event() {
+        let e = NetworkEventType::NetworkGovernanceExported {
+            format: "json".into(),
+            content_type: "application/json".into(),
+        };
+        assert!(e.is_governance_export_event());
+    }
+
+    #[test]
+    fn test_is_governance_metrics_event() {
+        let e = NetworkEventType::NetworkGovernanceMetricsComputed {
+            collector_id: "m1".into(),
+            metric_type: "tls_compliance".into(),
+        };
+        assert!(e.is_governance_metrics_event());
     }
 }
