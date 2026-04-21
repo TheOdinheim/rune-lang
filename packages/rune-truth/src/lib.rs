@@ -15,6 +15,15 @@ pub mod error;
 pub mod ground_truth;
 pub mod trust_score;
 
+// Layer 3 modules
+pub mod backend;
+pub mod claim_consistency;
+pub mod contradiction_detector;
+pub mod evidence_linker;
+pub mod source_reliability;
+pub mod truth_export;
+pub mod truth_stream;
+
 pub use attribution::{
     Attribution, AttributionEngine, AttributionMethod, InfluenceType, SourceInfluence,
 };
@@ -57,4 +66,41 @@ pub use trust_score::{
     TruthTrustLevel, TruthWeights,
     // Layer 2
     MerkleTree, MerkleProof, Side, compute_parent,
+};
+
+// Layer 3 re-exports
+pub use backend::{
+    ClaimRef, SubjectOfClaimRef, StoredClaim, StoredContradictionRecord,
+    StoredCorroborationRecord, StoredRetractionRecord, TruthBackend,
+    TruthBackendInfo, InMemoryTruthBackend,
+};
+pub use claim_consistency::{
+    ClaimConsistencyChecker, ClaimConsistencyResult,
+    StructuralConsistencyChecker, TemporalClaimConsistencyChecker,
+    NullClaimConsistencyChecker,
+};
+pub use contradiction_detector::{
+    RelationalContradictionDetector, ContradictionResult,
+    NegationContradictionDetector, TemporalContradictionDetector,
+    ValueContradictionDetector, NullRelationalContradictionDetector,
+};
+pub use evidence_linker::{
+    EvidenceLinker, EvidenceLink, EvidenceAdequacyPolicy, AdequacyAssessment,
+    InMemoryEvidenceLinker, CountBasedEvidenceLinker,
+    DiversityAwareEvidenceLinker, NullEvidenceLinker,
+};
+pub use truth_export::{
+    ClaimExporter, ExportFormat, JsonClaimExporter,
+    W3cVerifiableCredentialExporter, SchemaOrgClaimReviewExporter,
+    Stix21ObservationExporter, PlainTextClaimExporter,
+};
+pub use truth_stream::{
+    TruthEventSubscriber, TruthEventSubscriberRegistry,
+    TruthEventCollector, FilteredTruthEventSubscriber,
+    TruthLifecycleEvent, TruthLifecycleEventType,
+};
+pub use source_reliability::{
+    SourceReliabilityScorer, ReliabilityScore, ReliabilityClass,
+    ClaimOutcome, SimpleRatioReliabilityScorer,
+    TimeDecayReliabilityScorer, NullReliabilityScorer,
 };

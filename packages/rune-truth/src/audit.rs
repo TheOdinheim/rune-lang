@@ -41,6 +41,27 @@ pub enum TruthEventType {
     ConsensusReached { agreement: f64, sources: usize },
     ConsensusNotReached { sources: usize, threshold: f64 },
     MerkleRootComputed { leaf_count: usize, root_prefix: String },
+    // Layer 3 event types
+    TruthBackendChanged { backend_id: String },
+    ClaimPersisted { claim_id: String },
+    ClaimRetrieved { claim_id: String },
+    ClaimRetracted { claim_id: String },
+    ClaimConsistencyCheckPassed { claim_id: String, checker_id: String },
+    ClaimConsistencyCheckFailed { claim_id: String, checker_id: String, reason: String },
+    ContradictionDetectedEvent { claim_a: String, claim_b: String, explanation: String },
+    ContradictionResolvedEvent { claim_a: String, claim_b: String },
+    CorroborationRecordedEvent { claim_a: String, claim_b: String },
+    EvidenceLinkCreated { claim_id: String, attestation_ref: String },
+    EvidenceLinkRemoved { claim_id: String, attestation_ref: String },
+    EvidenceAdequacyAssessed { claim_id: String, adequate: bool },
+    ClaimExported { claim_id: String, format: String },
+    ClaimExportFailed { claim_id: String, reason: String },
+    TruthSubscriberRegistered { subscriber_id: String },
+    TruthSubscriberRemoved { subscriber_id: String },
+    TruthEventPublished { event_type_name: String },
+    SourceReliabilityUpdated { source_id: String, class: String },
+    SourceReliabilityQueried { source_id: String },
+    SourceReliabilityReset { source_id: String },
 }
 
 impl fmt::Display for TruthEventType {
@@ -93,6 +114,26 @@ impl fmt::Display for TruthEventType {
             Self::ConsensusReached { agreement, sources } => write!(f, "consensus-reached:{agreement:.2} ({sources} sources)"),
             Self::ConsensusNotReached { sources, threshold } => write!(f, "consensus-not-reached:{sources} sources, threshold={threshold:.2}"),
             Self::MerkleRootComputed { leaf_count, root_prefix } => write!(f, "merkle-root-computed:{leaf_count} leaves, root={root_prefix}"),
+            Self::TruthBackendChanged { backend_id } => write!(f, "truth-backend-changed:{backend_id}"),
+            Self::ClaimPersisted { claim_id } => write!(f, "claim-persisted:{claim_id}"),
+            Self::ClaimRetrieved { claim_id } => write!(f, "claim-retrieved:{claim_id}"),
+            Self::ClaimRetracted { claim_id } => write!(f, "claim-retracted:{claim_id}"),
+            Self::ClaimConsistencyCheckPassed { claim_id, checker_id } => write!(f, "claim-consistency-check-passed:{claim_id} [{checker_id}]"),
+            Self::ClaimConsistencyCheckFailed { claim_id, checker_id, reason } => write!(f, "claim-consistency-check-failed:{claim_id} [{checker_id}] {reason}"),
+            Self::ContradictionDetectedEvent { claim_a, claim_b, explanation } => write!(f, "contradiction-detected-event:{claim_a}/{claim_b} {explanation}"),
+            Self::ContradictionResolvedEvent { claim_a, claim_b } => write!(f, "contradiction-resolved-event:{claim_a}/{claim_b}"),
+            Self::CorroborationRecordedEvent { claim_a, claim_b } => write!(f, "corroboration-recorded-event:{claim_a}/{claim_b}"),
+            Self::EvidenceLinkCreated { claim_id, attestation_ref } => write!(f, "evidence-link-created:{claim_id}->{attestation_ref}"),
+            Self::EvidenceLinkRemoved { claim_id, attestation_ref } => write!(f, "evidence-link-removed:{claim_id}->{attestation_ref}"),
+            Self::EvidenceAdequacyAssessed { claim_id, adequate } => write!(f, "evidence-adequacy-assessed:{claim_id} adequate={adequate}"),
+            Self::ClaimExported { claim_id, format } => write!(f, "claim-exported:{claim_id} [{format}]"),
+            Self::ClaimExportFailed { claim_id, reason } => write!(f, "claim-export-failed:{claim_id} {reason}"),
+            Self::TruthSubscriberRegistered { subscriber_id } => write!(f, "truth-subscriber-registered:{subscriber_id}"),
+            Self::TruthSubscriberRemoved { subscriber_id } => write!(f, "truth-subscriber-removed:{subscriber_id}"),
+            Self::TruthEventPublished { event_type_name } => write!(f, "truth-event-published:{event_type_name}"),
+            Self::SourceReliabilityUpdated { source_id, class } => write!(f, "source-reliability-updated:{source_id} [{class}]"),
+            Self::SourceReliabilityQueried { source_id } => write!(f, "source-reliability-queried:{source_id}"),
+            Self::SourceReliabilityReset { source_id } => write!(f, "source-reliability-reset:{source_id}"),
         }
     }
 }
@@ -125,7 +166,73 @@ impl TruthEventType {
             Self::ConsensusReached { .. } => "consensus-reached",
             Self::ConsensusNotReached { .. } => "consensus-not-reached",
             Self::MerkleRootComputed { .. } => "merkle-root-computed",
+            Self::TruthBackendChanged { .. } => "truth-backend-changed",
+            Self::ClaimPersisted { .. } => "claim-persisted",
+            Self::ClaimRetrieved { .. } => "claim-retrieved",
+            Self::ClaimRetracted { .. } => "claim-retracted",
+            Self::ClaimConsistencyCheckPassed { .. } => "claim-consistency-check-passed",
+            Self::ClaimConsistencyCheckFailed { .. } => "claim-consistency-check-failed",
+            Self::ContradictionDetectedEvent { .. } => "contradiction-detected-event",
+            Self::ContradictionResolvedEvent { .. } => "contradiction-resolved-event",
+            Self::CorroborationRecordedEvent { .. } => "corroboration-recorded-event",
+            Self::EvidenceLinkCreated { .. } => "evidence-link-created",
+            Self::EvidenceLinkRemoved { .. } => "evidence-link-removed",
+            Self::EvidenceAdequacyAssessed { .. } => "evidence-adequacy-assessed",
+            Self::ClaimExported { .. } => "claim-exported",
+            Self::ClaimExportFailed { .. } => "claim-export-failed",
+            Self::TruthSubscriberRegistered { .. } => "truth-subscriber-registered",
+            Self::TruthSubscriberRemoved { .. } => "truth-subscriber-removed",
+            Self::TruthEventPublished { .. } => "truth-event-published",
+            Self::SourceReliabilityUpdated { .. } => "source-reliability-updated",
+            Self::SourceReliabilityQueried { .. } => "source-reliability-queried",
+            Self::SourceReliabilityReset { .. } => "source-reliability-reset",
         }
+    }
+}
+
+impl TruthEventType {
+    pub fn is_backend_event(&self) -> bool {
+        matches!(self, Self::TruthBackendChanged { .. })
+    }
+
+    pub fn is_l3_claim_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ClaimPersisted { .. }
+                | Self::ClaimRetrieved { .. }
+                | Self::ClaimRetracted { .. }
+                | Self::ClaimConsistencyCheckPassed { .. }
+                | Self::ClaimConsistencyCheckFailed { .. }
+                | Self::ClaimExported { .. }
+                | Self::ClaimExportFailed { .. }
+        )
+    }
+
+    pub fn is_l3_contradiction_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ContradictionDetectedEvent { .. }
+                | Self::ContradictionResolvedEvent { .. }
+                | Self::CorroborationRecordedEvent { .. }
+        )
+    }
+
+    pub fn is_evidence_event(&self) -> bool {
+        matches!(
+            self,
+            Self::EvidenceLinkCreated { .. }
+                | Self::EvidenceLinkRemoved { .. }
+                | Self::EvidenceAdequacyAssessed { .. }
+        )
+    }
+
+    pub fn is_reliability_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SourceReliabilityUpdated { .. }
+                | Self::SourceReliabilityQueried { .. }
+                | Self::SourceReliabilityReset { .. }
+        )
     }
 }
 
@@ -410,6 +517,77 @@ mod tests {
         ));
         assert_eq!(log.events_by_type("drift-detected").len(), 1);
         assert_eq!(log.events_by_type("consensus-reached").len(), 1);
+    }
+
+    // ── Layer 3 tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_layer3_event_type_display() {
+        let events = vec![
+            TruthEventType::TruthBackendChanged { backend_id: "mem-1".into() },
+            TruthEventType::ClaimPersisted { claim_id: "c1".into() },
+            TruthEventType::ClaimRetrieved { claim_id: "c1".into() },
+            TruthEventType::ClaimRetracted { claim_id: "c1".into() },
+            TruthEventType::ClaimConsistencyCheckPassed { claim_id: "c1".into(), checker_id: "sc-1".into() },
+            TruthEventType::ClaimConsistencyCheckFailed { claim_id: "c1".into(), checker_id: "sc-1".into(), reason: "bad".into() },
+            TruthEventType::ContradictionDetectedEvent { claim_a: "c1".into(), claim_b: "c2".into(), explanation: "conflict".into() },
+            TruthEventType::ContradictionResolvedEvent { claim_a: "c1".into(), claim_b: "c2".into() },
+            TruthEventType::CorroborationRecordedEvent { claim_a: "c1".into(), claim_b: "c2".into() },
+            TruthEventType::EvidenceLinkCreated { claim_id: "c1".into(), attestation_ref: "att-1".into() },
+            TruthEventType::EvidenceLinkRemoved { claim_id: "c1".into(), attestation_ref: "att-1".into() },
+            TruthEventType::EvidenceAdequacyAssessed { claim_id: "c1".into(), adequate: true },
+            TruthEventType::ClaimExported { claim_id: "c1".into(), format: "json".into() },
+            TruthEventType::ClaimExportFailed { claim_id: "c1".into(), reason: "err".into() },
+            TruthEventType::TruthSubscriberRegistered { subscriber_id: "s1".into() },
+            TruthEventType::TruthSubscriberRemoved { subscriber_id: "s1".into() },
+            TruthEventType::TruthEventPublished { event_type_name: "claim_persisted".into() },
+            TruthEventType::SourceReliabilityUpdated { source_id: "alice".into(), class: "High".into() },
+            TruthEventType::SourceReliabilityQueried { source_id: "alice".into() },
+            TruthEventType::SourceReliabilityReset { source_id: "alice".into() },
+        ];
+        for event in &events {
+            assert!(!event.to_string().is_empty());
+            assert!(!event.type_name().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_layer3_classification_methods() {
+        assert!(TruthEventType::TruthBackendChanged { backend_id: "b".into() }.is_backend_event());
+        assert!(!TruthEventType::ClaimPersisted { claim_id: "c".into() }.is_backend_event());
+
+        assert!(TruthEventType::ClaimPersisted { claim_id: "c".into() }.is_l3_claim_event());
+        assert!(TruthEventType::ClaimRetracted { claim_id: "c".into() }.is_l3_claim_event());
+        assert!(TruthEventType::ClaimExported { claim_id: "c".into(), format: "json".into() }.is_l3_claim_event());
+
+        assert!(TruthEventType::ContradictionDetectedEvent { claim_a: "a".into(), claim_b: "b".into(), explanation: "x".into() }.is_l3_contradiction_event());
+        assert!(TruthEventType::ContradictionResolvedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_l3_contradiction_event());
+        assert!(TruthEventType::CorroborationRecordedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_l3_contradiction_event());
+
+        assert!(TruthEventType::EvidenceLinkCreated { claim_id: "c".into(), attestation_ref: "a".into() }.is_evidence_event());
+        assert!(TruthEventType::EvidenceAdequacyAssessed { claim_id: "c".into(), adequate: true }.is_evidence_event());
+
+        assert!(TruthEventType::SourceReliabilityUpdated { source_id: "s".into(), class: "H".into() }.is_reliability_event());
+        assert!(TruthEventType::SourceReliabilityReset { source_id: "s".into() }.is_reliability_event());
+    }
+
+    #[test]
+    fn test_layer3_events_by_type() {
+        let mut log = TruthAuditLog::new();
+        log.record(TruthAuditEvent::new(
+            TruthEventType::ClaimPersisted { claim_id: "c1".into() },
+            "system",
+            1000,
+            "stored",
+        ));
+        log.record(TruthAuditEvent::new(
+            TruthEventType::EvidenceLinkCreated { claim_id: "c1".into(), attestation_ref: "att-1".into() },
+            "system",
+            2000,
+            "linked",
+        ));
+        assert_eq!(log.events_by_type("claim-persisted").len(), 1);
+        assert_eq!(log.events_by_type("evidence-link-created").len(), 1);
     }
 
     #[test]

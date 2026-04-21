@@ -367,3 +367,51 @@ Classification methods: `backend_events`, `attestation_events`, `lineage_events`
 | Assumed Breach | ProvenanceEventSubscriber enables real-time attestation streaming; FilteredProvenanceEventSubscriber isolates critical events; CustodyChainRecorder tracks possession changes; verify_chain_integrity detects attestation chain tampering |
 | No Single Points of Failure | All 8 traits decouple from implementations; 5 export formats prevent vendor lock-in; PredicateType Custom{uri} extensible beyond known schemas; ContinuityEnforcingCustodyChainRecorder composable over any recorder |
 | Zero Trust Throughout | HMAC-SHA3-256 attestation signing with constant-time comparison; canonical attestation bytes for reproducible signatures; DFS cycle detection prevents lineage graph corruption; custody continuity enforcement prevents gap-creating transfers |
+
+---
+
+## rune-truth — Layer 3
+
+**Date**: 2026-04-20
+
+### Summary
+
+Layer 3 adds 7 new modules to rune-truth: external integration trait boundaries, serialization formats, streaming interfaces, and abstraction traits for claim verification infrastructure.
+
+### New Modules
+
+| Module | Key Types | Tests |
+|--------|-----------|-------|
+| `backend.rs` | `TruthBackend` trait, `InMemoryTruthBackend`, `StoredClaim`, `ClaimRef`/`SubjectOfClaimRef` newtypes, `StoredContradictionRecord`, `StoredCorroborationRecord`, `StoredRetractionRecord`, `TruthBackendInfo` | 15 |
+| `claim_consistency.rs` | `ClaimConsistencyChecker` trait, `ClaimConsistencyResult` (Consistent/Inconsistent/NotCheckable), `StructuralConsistencyChecker`, `TemporalClaimConsistencyChecker`, `NullClaimConsistencyChecker` | 13 |
+| `contradiction_detector.rs` | `RelationalContradictionDetector` trait, `ContradictionResult` (NoContradiction/DirectContradiction/LikelyContradiction/NotComparable), `NegationContradictionDetector`, `TemporalContradictionDetector`, `ValueContradictionDetector` | 12 |
+| `evidence_linker.rs` | `EvidenceLinker` trait, `EvidenceLink`, `EvidenceAdequacyPolicy`, `AdequacyAssessment`, `InMemoryEvidenceLinker`, `CountBasedEvidenceLinker`, `DiversityAwareEvidenceLinker`, `NullEvidenceLinker` | 14 |
+| `truth_export.rs` | `ClaimExporter` trait, `ExportFormat` enum, `JsonClaimExporter`, `W3cVerifiableCredentialExporter`, `SchemaOrgClaimReviewExporter`, `Stix21ObservationExporter`, `PlainTextClaimExporter` | 12 |
+| `truth_stream.rs` | `TruthEventSubscriber` trait, `TruthEventSubscriberRegistry`, `TruthEventCollector`, `FilteredTruthEventSubscriber`, `TruthLifecycleEvent`, `TruthLifecycleEventType` (15 variants) | 11 |
+| `source_reliability.rs` | `SourceReliabilityScorer` trait, `ReliabilityScore`, `ReliabilityClass` (5-variant enum), `ClaimOutcome`, `SimpleRatioReliabilityScorer`, `TimeDecayReliabilityScorer`, `NullReliabilityScorer` | 13 |
+
+### Audit Updates
+
+20 new `TruthEventType` variants added: `TruthBackendChanged`, `ClaimPersisted`, `ClaimRetrieved`, `ClaimRetracted`, `ClaimConsistencyCheckPassed`, `ClaimConsistencyCheckFailed`, `ContradictionDetectedEvent`, `ContradictionResolvedEvent`, `CorroborationRecordedEvent`, `EvidenceLinkCreated`, `EvidenceLinkRemoved`, `EvidenceAdequacyAssessed`, `ClaimExported`, `ClaimExportFailed`, `TruthSubscriberRegistered`, `TruthSubscriberRemoved`, `TruthEventPublished`, `SourceReliabilityUpdated`, `SourceReliabilityQueried`, `SourceReliabilityReset`.
+
+New classification methods: `is_backend_event`, `is_l3_claim_event`, `is_l3_contradiction_event`, `is_evidence_event`, `is_reliability_event`.
+
+### Design Decisions
+
+1. **NotCheckable as first-class outcome** — `ClaimConsistencyResult::NotCheckable` and `AdequacyAssessment::NotAssessable` honestly report when mechanical checking is not possible, rather than returning misleading Inconsistent/Inadequate.
+
+2. **DirectContradiction vs LikelyContradiction** — definitional disputes ("before" vs "after") are `DirectContradiction`; numerical value mismatches are `LikelyContradiction` with a similarity score. This avoids treating measurement imprecision as definitional conflict.
+
+3. **ReliabilityClass discrete enum** — 5 variants (Unknown/Low/Moderate/High/Authoritative) instead of continuous float. Avoids spurious precision; threshold decisions are explicit in `from_ratio()`.
+
+4. **Loose coupling to rune-provenance** — `EvidenceLinker` uses opaque string `attestation_ref` IDs rather than depending on `StoredAttestation` types. The truth layer can be tested independently.
+
+5. **Naming collision resolution** — Existing L1/L2 types like `ContradictionDetector`, `ConsistencyResult`, `ConsistencyChecker` kept unchanged. L3 types use descriptive prefixes: `RelationalContradictionDetector`, `ClaimConsistencyResult`, `ClaimConsistencyChecker`.
+
+6. **f64 stored as String** — `confidence_score` in `StoredClaim` is `String` to allow deriving `Eq` (required for backend lookups). Follows the same pattern used elsewhere in the codebase.
+
+### Validation
+
+- **Tests**: 236 total (89 new L3 tests), up from 147 baseline — all passing
+- **Workspace**: zero failures
+- **Clippy**: zero new warnings on L3 code (7 pre-existing warnings in L1/L2 files unchanged)
