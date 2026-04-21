@@ -195,7 +195,7 @@ impl TruthEventType {
         matches!(self, Self::TruthBackendChanged { .. })
     }
 
-    pub fn is_l3_claim_event(&self) -> bool {
+    pub fn is_backend_claim_event(&self) -> bool {
         matches!(
             self,
             Self::ClaimPersisted { .. }
@@ -208,7 +208,7 @@ impl TruthEventType {
         )
     }
 
-    pub fn is_l3_contradiction_event(&self) -> bool {
+    pub fn is_contradiction_relation_event(&self) -> bool {
         matches!(
             self,
             Self::ContradictionDetectedEvent { .. }
@@ -552,17 +552,17 @@ mod tests {
     }
 
     #[test]
-    fn test_layer3_classification_methods() {
+    fn test_classification_methods() {
         assert!(TruthEventType::TruthBackendChanged { backend_id: "b".into() }.is_backend_event());
         assert!(!TruthEventType::ClaimPersisted { claim_id: "c".into() }.is_backend_event());
 
-        assert!(TruthEventType::ClaimPersisted { claim_id: "c".into() }.is_l3_claim_event());
-        assert!(TruthEventType::ClaimRetracted { claim_id: "c".into() }.is_l3_claim_event());
-        assert!(TruthEventType::ClaimExported { claim_id: "c".into(), format: "json".into() }.is_l3_claim_event());
+        assert!(TruthEventType::ClaimPersisted { claim_id: "c".into() }.is_backend_claim_event());
+        assert!(TruthEventType::ClaimRetracted { claim_id: "c".into() }.is_backend_claim_event());
+        assert!(TruthEventType::ClaimExported { claim_id: "c".into(), format: "json".into() }.is_backend_claim_event());
 
-        assert!(TruthEventType::ContradictionDetectedEvent { claim_a: "a".into(), claim_b: "b".into(), explanation: "x".into() }.is_l3_contradiction_event());
-        assert!(TruthEventType::ContradictionResolvedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_l3_contradiction_event());
-        assert!(TruthEventType::CorroborationRecordedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_l3_contradiction_event());
+        assert!(TruthEventType::ContradictionDetectedEvent { claim_a: "a".into(), claim_b: "b".into(), explanation: "x".into() }.is_contradiction_relation_event());
+        assert!(TruthEventType::ContradictionResolvedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_contradiction_relation_event());
+        assert!(TruthEventType::CorroborationRecordedEvent { claim_a: "a".into(), claim_b: "b".into() }.is_contradiction_relation_event());
 
         assert!(TruthEventType::EvidenceLinkCreated { claim_id: "c".into(), attestation_ref: "a".into() }.is_evidence_event());
         assert!(TruthEventType::EvidenceAdequacyAssessed { claim_id: "c".into(), adequate: true }.is_evidence_event());

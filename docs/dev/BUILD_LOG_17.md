@@ -51,3 +51,22 @@ Classification methods: is_backend_event, is_vulnerability_event, is_control_eve
 - **rune-provenance**: Loose coupling via opaque `evidence_attestation_refs: Vec<String>` on vulnerability and control records, preserved through all export formats
 - **rune-framework**: PostureClass/PostureChangeDirection available for Layer 5 governance pipeline integration
 - **rune-truth**: Follows same backend/export/stream/aggregator patterns
+
+---
+
+## Naming Discipline Correction — rune-truth classifiers
+
+**Date**: 2026-04-20
+
+### Renamed Methods
+
+| Old name | New name | Rationale |
+|----------|----------|-----------|
+| `is_l3_claim_event` | `is_backend_claim_event` | House style requires descriptive qualifiers, not layer-number prefixes. The method selects events about claims flowing through the backend. |
+| `is_l3_contradiction_event` | `is_contradiction_relation_event` | Captures the relational nature of the events (relationships between claims), not the layer they were introduced in. |
+
+Test function `test_layer3_classification_methods` renamed to `test_classification_methods`.
+
+**Test count**: 236 — unchanged before and after rename.
+
+**Note**: The original rune-truth Layer 3 entry in BUILD_LOG_16.md remains in place for historical accuracy. This correction supersedes the old names; the original entry documents what shipped and this entry documents what was corrected.
