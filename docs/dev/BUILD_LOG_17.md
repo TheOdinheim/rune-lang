@@ -149,3 +149,67 @@ Classification methods on MonitoringEventType: kind(), is_backend_event, is_metr
 - **rune-detection**: MetricPoint shape (timestamp i64, value String, labels HashMap) is compatible with TimeSeriesPoint for downstream anomaly detection
 - **rune-framework**: TelemetryLifecycleEventType and MonitoringBackendInfo available for Layer 5 governance pipeline integration
 - **rune-security**: Follows same backend/export/stream patterns established in rune-security L3
+
+---
+
+## rune-explainability Layer 3
+
+**Test count**: 159 → 240 (+81 tests, zero failures)
+
+**Clippy**: Zero rune-explainability-specific warnings (pre-existing L1/L2 warnings untouched)
+
+### New Modules (7)
+
+| Module | Lines | Tests | Purpose |
+|--------|-------|-------|---------|
+| `backend.rs` | ~600 | 16 | ExplanationBackend trait + InMemoryExplanationBackend |
+| `reasoning_trace.rs` | ~340 | 9 | ReasoningTraceRecorder trait + InMemoryReasoningTraceRecorder + DepthLimitedReasoningTraceRecorder |
+| `feature_attribution.rs` | ~420 | 8 | FeatureAttributionExplainer trait + LinearCoefficientExplainer + PermutationImportanceExplainer |
+| `counterfactual_example.rs` | ~400 | 10 | CounterfactualExampleGenerator trait + NearestNeighborCounterfactualGenerator + FeaturePerturbationCounterfactualGenerator |
+| `explanation_export.rs` | ~570 | 14 | ExplanationExporter trait + 5 format implementations |
+| `explanation_stream.rs` | ~310 | 12 | ExplanationEventSubscriber trait + registry + filtering |
+| `explanation_quality.rs` | ~310 | 10 | ExplanationQualityAssessor trait + StructuralFaithfulnessAssessor + ReadabilityAssessor |
+
+### Trait Contracts
+
+- **ExplanationBackend**: 23 methods — store/retrieve/delete/list/count for explanations, reasoning traces, feature attribution sets, counterfactual examples, rule firing records, plus flush/backend_info. SubjectIdRef newtype for opaque subject references (model prediction, policy decision, claim). ExplanationType 5-variant enum (FeatureAttribution/ReasoningTrace/Counterfactual/RuleBased/Composite). InMemoryExplanationBackend reference implementation. All f64 fields stored as String for Eq derivation.
+- **ReasoningTraceRecorder**: 7 methods — begin_trace/record_step/record_conclusion/get_trace/list_active_traces/recorder_id/is_active. StepType 6-variant enum (Premise/Inference/RuleMatch/Query/Assumption/Constraint). ReasoningStep builder pattern with with_input/with_output. InMemoryReasoningTraceRecorder with auto-incrementing trace IDs. DepthLimitedReasoningTraceRecorder composable depth enforcement matching rune-provenance's DepthLimitedLineageTracker pattern.
+- **FeatureAttributionExplainer**: 5 methods — compute_attributions/supported_attribution_methods/attribution_method_used/explainer_id/is_active. ExplainerAttributionMethod 8-variant enum (Shap/Lime/IntegratedGradients/GradCam/PermutationImportance/LinearCoefficients/TreeSplit/Custom). FeatureAttributionRecord with String values for Eq. LinearCoefficientExplainer (coefficient * feature value, sorted by magnitude). PermutationImportanceExplainer (uniform distribution of output diff from baseline). NullFeatureAttributionExplainer. SHAP/LIME belong in adapter crates.
+- **CounterfactualExampleGenerator**: 4 methods — generate_counterfactuals/generator_id/supports_target_outcome/is_active. CounterfactualExample with distance_from_original as String. ActionableChange with constrained bool for immutable attributes (age, protected characteristics). ChangeDirection 3-variant enum (IncreaseRequired/DecreaseRequired/DiscreteChangeRequired). NearestNeighborCounterfactualGenerator (Euclidean distance, top-3). FeaturePerturbationCounterfactualGenerator (single-feature delta). NullCounterfactualExampleGenerator.
+- **ExplanationExporter**: 5 methods — export_explanation/export_batch/export_explanation_with_subject_context/format_name/content_type. Five implementations: JsonExplanationExporter, GdprArticle22Exporter (GDPR Article 22 right to explanation with right_to_contest/right_to_human_review), EcoaAdverseActionExporter (ECOA adverse action notices with max 4 principal_reasons), W3cProvPredicateExporter (W3C PROV with prov:qualifiedInfluence), MarkdownExplanationExporter. All include confidence_score and generator_id.
+- **ExplanationEventSubscriber**: 3 methods — on_explanation_event/subscriber_id/is_active. ExplanationEventSubscriberRegistry with register/notify/notify_batch/active_count/remove_inactive. ExplanationEventCollector reference implementation. FilteredExplanationEventSubscriber with explanation_type/generator_id/confidence threshold filters. ExplanationLifecycleEventType 16-variant enum with is_trace_event/is_attribution_event/is_counterfactual_event/is_quality_event/is_export_event/is_lifecycle_event classifiers.
+- **ExplanationQualityAssessor**: 3 methods — assess_quality/assessor_id/is_active. QualityAssessment with four-dimensional scoring (faithfulness/stability/comprehensibility/actionability all as String for Eq). OverallQualityClass 4-variant enum (Excellent/Adequate/Poor/Unknown). StructuralFaithfulnessAssessor (non-empty factors, confidence parsing, summary length, direction coverage). ReadabilityAssessor (configurable max_factor_count/max_summary_words). NullExplanationQualityAssessor.
+
+### Naming Collision Resolutions
+
+- `counterfactual.rs` (L1 module) → L3 uses `counterfactual_example.rs`
+- `CounterfactualGenerator` (L1 struct) → L3 uses `CounterfactualExampleGenerator` trait
+- `AttributionMethod` (L2 enum, 5 variants) → L3 uses `ExplainerAttributionMethod` (8 variants)
+- `FeatureAttribution` (L2 struct, f64 fields) → L3 uses `FeatureAttributionRecord` (String fields for Eq)
+- `AttributionDirection` (L2) → L3 uses `AttributionValueDirection`
+- `CounterfactualGenerated` (L1 audit variant) → L3 uses `BackendCounterfactualGenerated`
+- `FeatureAttributionComputed` (L2 audit variant) → L3 uses `BackendFeatureAttributionComputed`
+
+### Audit Events (+19 variants)
+
+ExplanationBackendChanged, ExplanationStored, ExplanationRetrieved, ExplanationExported, ExplanationExportFailed, ReasoningTraceBegun, ReasoningStepRecorded, ReasoningTraceCompleted, ReasoningTraceAbandoned, BackendFeatureAttributionComputed, FeatureAttributionFailed, BackendCounterfactualGenerated, CounterfactualGenerationFailed, RuleFiringRecorded, ExplanationQualityAssessed, ExplanationQualityBreached, ExplanationSubscriberRegistered, ExplanationSubscriberRemoved, ExplanationEventPublished
+
+Classification methods on ExplainabilityEventType: kind(), is_backend_event, is_trace_event, is_attribution_event, is_counterfactual_event, is_quality_event, is_export_event
+
+### Design Decisions
+
+- **No general-purpose model interpretability**: SHAP/LIME/integrated-gradients require optimization solvers and sampling infrastructure that belong in adapter crates, not the trait boundary. Only LinearCoefficientExplainer and PermutationImportanceExplainer are shipped as reference implementations.
+- **Four-dimensional quality assessment**: Faithfulness, stability, comprehensibility, and actionability from the explainability literature. StructuralFaithfulnessAssessor and ReadabilityAssessor use structural proxies; full semantic assessment requires model-specific adapters.
+- **ActionableChange.constrained**: Surfaces whether a suggested counterfactual change involves an immutable attribute (age, protected characteristics) — critical for fair lending and hiring contexts.
+- **GDPR Article 22 and ECOA adverse action formats**: Regulated contexts where automated decision explanations have specific legal requirements. ECOA limits to 4 principal reasons per regulation.
+- **DepthLimitedReasoningTraceRecorder**: Composable depth enforcement matching rune-provenance's DepthLimitedLineageTracker pattern for adversarially deep reasoning graphs.
+- **SubjectIdRef newtype**: Opaque reference to the subject of an explanation — could be a model prediction, authorization decision, or truth claim. Enables cross-library integration without trait coupling.
+- **ExplainerAttributionMethod distinct from L2 AttributionMethod**: L2's enum is for scoring/analysis (Shapley/Gradient/Perturbation/RuleBased/Manual); L3's enum names specific ML explainability techniques (Shap/Lime/IntegratedGradients/GradCam/PermutationImportance/LinearCoefficients/TreeSplit/Custom).
+
+### Integration Points
+
+- **rune-detection**: ExplanationBackend stores explanations for model predictions via SubjectIdRef
+- **rune-permissions**: Authorization decision explanations via SubjectIdRef
+- **rune-truth**: Claim justification explanations via SubjectIdRef
+- **rune-provenance**: DepthLimitedReasoningTraceRecorder follows DepthLimitedLineageTracker pattern
+- **rune-framework**: ExplanationLifecycleEventType and ExplanationBackendInfo available for Layer 5 governance pipeline integration

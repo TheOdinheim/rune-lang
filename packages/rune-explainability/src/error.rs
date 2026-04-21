@@ -16,6 +16,7 @@ pub enum ExplainabilityError {
     InvalidFactor(String),
     InvalidWeight { min: f64, max: f64, actual: f64 },
     InvalidOperation(String),
+    SerializationFailed(String),
 }
 
 impl fmt::Display for ExplainabilityError {
@@ -35,6 +36,7 @@ impl fmt::Display for ExplainabilityError {
                 write!(f, "invalid weight: {actual} not in [{min}, {max}]")
             }
             Self::InvalidOperation(s) => write!(f, "invalid operation: {s}"),
+            Self::SerializationFailed(s) => write!(f, "serialization failed: {s}"),
         }
     }
 }
@@ -62,6 +64,7 @@ mod tests {
                 actual: 1.5,
             },
             ExplainabilityError::InvalidOperation("op".into()),
+            ExplainabilityError::SerializationFailed("ser".into()),
         ];
         for e in &errors {
             assert!(!e.to_string().is_empty());

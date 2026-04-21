@@ -22,6 +22,15 @@ pub mod l2_counterfactual;
 pub mod template;
 pub mod tree;
 
+// ── Layer 3 modules ─────────────────────────────────────────────────
+pub mod backend;
+pub mod counterfactual_example;
+pub mod explanation_export;
+pub mod explanation_quality;
+pub mod explanation_stream;
+pub mod feature_attribution;
+pub mod reasoning_trace;
+
 pub use audience::{Audience, AudienceAdapter};
 pub use audit::{ExplainabilityAuditEvent, ExplainabilityAuditLog, ExplainabilityEventType};
 pub use counterfactual::{
@@ -64,4 +73,39 @@ pub use template::{
 };
 pub use tree::{
     ExplanationNode, ExplanationNodeType, ExplanationTree, ExplanationTreeBuilder,
+};
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    ExplanationBackend, ExplanationBackendInfo, ExplanationType, InMemoryExplanationBackend,
+    StoredCounterfactualExample, StoredExplanation, StoredFeatureAttributionSet,
+    StoredReasoningStep, StoredReasoningTrace, StoredRuleFiringRecord, SubjectIdRef,
+};
+pub use counterfactual_example::{
+    ActionableChange, ChangeDirection, CounterfactualExample, CounterfactualExampleGenerator,
+    FeaturePerturbationCounterfactualGenerator, NearestNeighborCounterfactualGenerator,
+    NullCounterfactualExampleGenerator,
+};
+pub use explanation_export::{
+    EcoaAdverseActionExporter, ExplanationExporter, ExportableExplanation, ExportableFactor,
+    GdprArticle22Exporter, JsonExplanationExporter, MarkdownExplanationExporter,
+    SubjectContext, W3cProvPredicateExporter,
+};
+pub use explanation_quality::{
+    ExplanationQualityAssessor, NullExplanationQualityAssessor, OverallQualityClass,
+    QualityAssessment, ReadabilityAssessor, StructuralFaithfulnessAssessor,
+};
+pub use explanation_stream::{
+    ExplanationEventCollector, ExplanationEventSubscriber, ExplanationEventSubscriberRegistry,
+    ExplanationLifecycleEvent, ExplanationLifecycleEventType,
+    FilteredExplanationEventSubscriber, NullExplanationEventSubscriber,
+};
+pub use feature_attribution::{
+    AttributionValueDirection, ExplainerAttributionMethod, ExplainerFeatureAttributionSet,
+    FeatureAttributionExplainer, FeatureAttributionRecord, LinearCoefficientExplainer,
+    NullFeatureAttributionExplainer, PermutationImportanceExplainer,
+};
+pub use reasoning_trace::{
+    DepthLimitedReasoningTraceRecorder, InMemoryReasoningTraceRecorder, ReasoningStep,
+    ReasoningTraceRecorder, RecordedReasoningTrace, StepType,
 };

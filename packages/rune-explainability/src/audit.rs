@@ -39,6 +39,26 @@ pub enum ExplainabilityEventType {
     FairnessComputed { groups: usize, parity_diff: f64 },
     ExplanationComplianceRate { rate: f64 },
     ExplanationVersionCreated { decision_id: String, version: String },
+    // ── Layer 3 event types ─────────────────────────────────────────
+    ExplanationBackendChanged { backend_id: String },
+    ExplanationStored { explanation_id: String, subject_id: String },
+    ExplanationRetrieved { explanation_id: String },
+    ExplanationExported { explanation_id: String, format: String },
+    ExplanationExportFailed { explanation_id: String, format: String },
+    ReasoningTraceBegun { trace_id: String, decision_id: String },
+    ReasoningStepRecorded { trace_id: String, step_number: usize },
+    ReasoningTraceCompleted { trace_id: String },
+    ReasoningTraceAbandoned { trace_id: String },
+    BackendFeatureAttributionComputed { prediction_id: String, method: String },
+    FeatureAttributionFailed { prediction_id: String, method: String },
+    BackendCounterfactualGenerated { prediction_id: String, examples: usize },
+    CounterfactualGenerationFailed { prediction_id: String },
+    RuleFiringRecorded { rule_id: String, decision_id: String },
+    ExplanationQualityAssessed { explanation_id: String, quality_class: String },
+    ExplanationQualityBreached { explanation_id: String, dimension: String },
+    ExplanationSubscriberRegistered { subscriber_id: String },
+    ExplanationSubscriberRemoved { subscriber_id: String },
+    ExplanationEventPublished { event_type: String },
 }
 
 impl fmt::Display for ExplainabilityEventType {
@@ -113,6 +133,63 @@ impl fmt::Display for ExplainabilityEventType {
             Self::ExplanationVersionCreated { decision_id, version } => {
                 write!(f, "explanation-version-created:{decision_id} [v{version}]")
             }
+            Self::ExplanationBackendChanged { backend_id } => {
+                write!(f, "explanation-backend-changed [{backend_id}]")
+            }
+            Self::ExplanationStored { explanation_id, subject_id } => {
+                write!(f, "explanation-stored:{explanation_id} subject:{subject_id}")
+            }
+            Self::ExplanationRetrieved { explanation_id } => {
+                write!(f, "explanation-retrieved:{explanation_id}")
+            }
+            Self::ExplanationExported { explanation_id, format } => {
+                write!(f, "explanation-exported:{explanation_id} [{format}]")
+            }
+            Self::ExplanationExportFailed { explanation_id, format } => {
+                write!(f, "explanation-export-failed:{explanation_id} [{format}]")
+            }
+            Self::ReasoningTraceBegun { trace_id, decision_id } => {
+                write!(f, "reasoning-trace-begun:{trace_id} decision:{decision_id}")
+            }
+            Self::ReasoningStepRecorded { trace_id, step_number } => {
+                write!(f, "reasoning-step-recorded:{trace_id} step:{step_number}")
+            }
+            Self::ReasoningTraceCompleted { trace_id } => {
+                write!(f, "reasoning-trace-completed:{trace_id}")
+            }
+            Self::ReasoningTraceAbandoned { trace_id } => {
+                write!(f, "reasoning-trace-abandoned:{trace_id}")
+            }
+            Self::BackendFeatureAttributionComputed { prediction_id, method } => {
+                write!(f, "backend-feature-attribution-computed:{prediction_id} [{method}]")
+            }
+            Self::FeatureAttributionFailed { prediction_id, method } => {
+                write!(f, "feature-attribution-failed:{prediction_id} [{method}]")
+            }
+            Self::BackendCounterfactualGenerated { prediction_id, examples } => {
+                write!(f, "backend-counterfactual-generated:{prediction_id} ({examples} examples)")
+            }
+            Self::CounterfactualGenerationFailed { prediction_id } => {
+                write!(f, "counterfactual-generation-failed:{prediction_id}")
+            }
+            Self::RuleFiringRecorded { rule_id, decision_id } => {
+                write!(f, "rule-firing-recorded:{rule_id} decision:{decision_id}")
+            }
+            Self::ExplanationQualityAssessed { explanation_id, quality_class } => {
+                write!(f, "explanation-quality-assessed:{explanation_id} [{quality_class}]")
+            }
+            Self::ExplanationQualityBreached { explanation_id, dimension } => {
+                write!(f, "explanation-quality-breached:{explanation_id} [{dimension}]")
+            }
+            Self::ExplanationSubscriberRegistered { subscriber_id } => {
+                write!(f, "explanation-subscriber-registered:{subscriber_id}")
+            }
+            Self::ExplanationSubscriberRemoved { subscriber_id } => {
+                write!(f, "explanation-subscriber-removed:{subscriber_id}")
+            }
+            Self::ExplanationEventPublished { event_type } => {
+                write!(f, "explanation-event-published [{event_type}]")
+            }
         }
     }
 }
@@ -143,7 +220,75 @@ impl ExplainabilityEventType {
             Self::FairnessComputed { .. } => "fairness-computed",
             Self::ExplanationComplianceRate { .. } => "explanation-compliance-rate",
             Self::ExplanationVersionCreated { .. } => "explanation-version-created",
+            Self::ExplanationBackendChanged { .. } => "explanation-backend-changed",
+            Self::ExplanationStored { .. } => "explanation-stored",
+            Self::ExplanationRetrieved { .. } => "explanation-retrieved",
+            Self::ExplanationExported { .. } => "explanation-exported",
+            Self::ExplanationExportFailed { .. } => "explanation-export-failed",
+            Self::ReasoningTraceBegun { .. } => "reasoning-trace-begun",
+            Self::ReasoningStepRecorded { .. } => "reasoning-step-recorded",
+            Self::ReasoningTraceCompleted { .. } => "reasoning-trace-completed",
+            Self::ReasoningTraceAbandoned { .. } => "reasoning-trace-abandoned",
+            Self::BackendFeatureAttributionComputed { .. } => "backend-feature-attribution-computed",
+            Self::FeatureAttributionFailed { .. } => "feature-attribution-failed",
+            Self::BackendCounterfactualGenerated { .. } => "backend-counterfactual-generated",
+            Self::CounterfactualGenerationFailed { .. } => "counterfactual-generation-failed",
+            Self::RuleFiringRecorded { .. } => "rule-firing-recorded",
+            Self::ExplanationQualityAssessed { .. } => "explanation-quality-assessed",
+            Self::ExplanationQualityBreached { .. } => "explanation-quality-breached",
+            Self::ExplanationSubscriberRegistered { .. } => "explanation-subscriber-registered",
+            Self::ExplanationSubscriberRemoved { .. } => "explanation-subscriber-removed",
+            Self::ExplanationEventPublished { .. } => "explanation-event-published",
         }
+    }
+
+    pub fn kind(&self) -> &str {
+        self.type_name()
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(self,
+            Self::ExplanationBackendChanged { .. } |
+            Self::ExplanationStored { .. } |
+            Self::ExplanationRetrieved { .. }
+        )
+    }
+
+    pub fn is_trace_event(&self) -> bool {
+        matches!(self,
+            Self::ReasoningTraceBegun { .. } |
+            Self::ReasoningStepRecorded { .. } |
+            Self::ReasoningTraceCompleted { .. } |
+            Self::ReasoningTraceAbandoned { .. }
+        )
+    }
+
+    pub fn is_attribution_event(&self) -> bool {
+        matches!(self,
+            Self::BackendFeatureAttributionComputed { .. } |
+            Self::FeatureAttributionFailed { .. }
+        )
+    }
+
+    pub fn is_counterfactual_event(&self) -> bool {
+        matches!(self,
+            Self::BackendCounterfactualGenerated { .. } |
+            Self::CounterfactualGenerationFailed { .. }
+        )
+    }
+
+    pub fn is_quality_event(&self) -> bool {
+        matches!(self,
+            Self::ExplanationQualityAssessed { .. } |
+            Self::ExplanationQualityBreached { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(self,
+            Self::ExplanationExported { .. } |
+            Self::ExplanationExportFailed { .. }
+        )
     }
 }
 
@@ -183,7 +328,9 @@ impl ExplainabilityAuditEvent {
             | ExplainabilityEventType::RegulatoryCheckPerformed { decision_id, .. }
             | ExplainabilityEventType::ExplanationApproved { decision_id, .. }
             | ExplainabilityEventType::DecisionPatternRecorded { decision_id, .. }
-            | ExplainabilityEventType::ExplanationVersionCreated { decision_id, .. } => {
+            | ExplainabilityEventType::ExplanationVersionCreated { decision_id, .. }
+            | ExplainabilityEventType::ReasoningTraceBegun { decision_id, .. }
+            | ExplainabilityEventType::RuleFiringRecorded { decision_id, .. } => {
                 Some(decision_id.clone())
             }
             _ => None,
@@ -574,5 +721,105 @@ mod tests {
         ));
         assert_eq!(log.events_by_type("explanation-tree-created").len(), 2);
         assert_eq!(log.events_by_type("fairness-computed").len(), 1);
+    }
+
+    #[test]
+    fn test_l3_event_type_display() {
+        let events = vec![
+            ExplainabilityEventType::ExplanationBackendChanged { backend_id: "b1".into() },
+            ExplainabilityEventType::ExplanationStored { explanation_id: "e1".into(), subject_id: "s1".into() },
+            ExplainabilityEventType::ExplanationRetrieved { explanation_id: "e1".into() },
+            ExplainabilityEventType::ExplanationExported { explanation_id: "e1".into(), format: "json".into() },
+            ExplainabilityEventType::ExplanationExportFailed { explanation_id: "e1".into(), format: "json".into() },
+            ExplainabilityEventType::ReasoningTraceBegun { trace_id: "t1".into(), decision_id: "d1".into() },
+            ExplainabilityEventType::ReasoningStepRecorded { trace_id: "t1".into(), step_number: 0 },
+            ExplainabilityEventType::ReasoningTraceCompleted { trace_id: "t1".into() },
+            ExplainabilityEventType::ReasoningTraceAbandoned { trace_id: "t1".into() },
+            ExplainabilityEventType::BackendFeatureAttributionComputed { prediction_id: "p1".into(), method: "SHAP".into() },
+            ExplainabilityEventType::FeatureAttributionFailed { prediction_id: "p1".into(), method: "SHAP".into() },
+            ExplainabilityEventType::BackendCounterfactualGenerated { prediction_id: "p1".into(), examples: 3 },
+            ExplainabilityEventType::CounterfactualGenerationFailed { prediction_id: "p1".into() },
+            ExplainabilityEventType::RuleFiringRecorded { rule_id: "r1".into(), decision_id: "d1".into() },
+            ExplainabilityEventType::ExplanationQualityAssessed { explanation_id: "e1".into(), quality_class: "excellent".into() },
+            ExplainabilityEventType::ExplanationQualityBreached { explanation_id: "e1".into(), dimension: "faithfulness".into() },
+            ExplainabilityEventType::ExplanationSubscriberRegistered { subscriber_id: "sub-1".into() },
+            ExplainabilityEventType::ExplanationSubscriberRemoved { subscriber_id: "sub-1".into() },
+            ExplainabilityEventType::ExplanationEventPublished { event_type: "trace-completed".into() },
+        ];
+        for event in &events {
+            assert!(!event.to_string().is_empty());
+        }
+        assert_eq!(events.len(), 19);
+    }
+
+    #[test]
+    fn test_l3_kind_method() {
+        let event = ExplainabilityEventType::ExplanationStored {
+            explanation_id: "e1".into(),
+            subject_id: "s1".into(),
+        };
+        assert_eq!(event.kind(), "explanation-stored");
+    }
+
+    #[test]
+    fn test_l3_classification_methods() {
+        assert!(ExplainabilityEventType::ExplanationBackendChanged { backend_id: "b1".into() }.is_backend_event());
+        assert!(ExplainabilityEventType::ExplanationStored { explanation_id: "e1".into(), subject_id: "s1".into() }.is_backend_event());
+        assert!(ExplainabilityEventType::ExplanationRetrieved { explanation_id: "e1".into() }.is_backend_event());
+
+        assert!(ExplainabilityEventType::ReasoningTraceBegun { trace_id: "t1".into(), decision_id: "d1".into() }.is_trace_event());
+        assert!(ExplainabilityEventType::ReasoningTraceCompleted { trace_id: "t1".into() }.is_trace_event());
+        assert!(ExplainabilityEventType::ReasoningTraceAbandoned { trace_id: "t1".into() }.is_trace_event());
+        assert!(ExplainabilityEventType::ReasoningStepRecorded { trace_id: "t1".into(), step_number: 0 }.is_trace_event());
+
+        assert!(ExplainabilityEventType::BackendFeatureAttributionComputed { prediction_id: "p1".into(), method: "SHAP".into() }.is_attribution_event());
+        assert!(ExplainabilityEventType::FeatureAttributionFailed { prediction_id: "p1".into(), method: "SHAP".into() }.is_attribution_event());
+
+        assert!(ExplainabilityEventType::BackendCounterfactualGenerated { prediction_id: "p1".into(), examples: 3 }.is_counterfactual_event());
+        assert!(ExplainabilityEventType::CounterfactualGenerationFailed { prediction_id: "p1".into() }.is_counterfactual_event());
+
+        assert!(ExplainabilityEventType::ExplanationQualityAssessed { explanation_id: "e1".into(), quality_class: "good".into() }.is_quality_event());
+        assert!(ExplainabilityEventType::ExplanationQualityBreached { explanation_id: "e1".into(), dimension: "stability".into() }.is_quality_event());
+
+        assert!(ExplainabilityEventType::ExplanationExported { explanation_id: "e1".into(), format: "json".into() }.is_export_event());
+        assert!(ExplainabilityEventType::ExplanationExportFailed { explanation_id: "e1".into(), format: "json".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_l3_event_decision_id_extraction() {
+        let event = ExplainabilityAuditEvent::new(
+            ExplainabilityEventType::ReasoningTraceBegun {
+                trace_id: "t1".into(),
+                decision_id: "d42".into(),
+            },
+            "system",
+            5000,
+            "trace begun",
+        );
+        assert_eq!(event.decision_id.as_deref(), Some("d42"));
+
+        let event = ExplainabilityAuditEvent::new(
+            ExplainabilityEventType::RuleFiringRecorded {
+                rule_id: "r1".into(),
+                decision_id: "d99".into(),
+            },
+            "system",
+            5001,
+            "rule fired",
+        );
+        assert_eq!(event.decision_id.as_deref(), Some("d99"));
+    }
+
+    #[test]
+    fn test_l3_event_no_decision_id() {
+        let event = ExplainabilityAuditEvent::new(
+            ExplainabilityEventType::ExplanationSubscriberRegistered {
+                subscriber_id: "sub-1".into(),
+            },
+            "system",
+            5000,
+            "registered",
+        );
+        assert!(event.decision_id.is_none());
     }
 }
