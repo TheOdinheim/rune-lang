@@ -49,6 +49,31 @@ pub enum AgentEventType {
     TaskRedelegated { task_id: String, new_delegatee: String },
     BehavioralPolicyEvaluated { agent_id: String, action: String, allowed: bool },
     BehavioralViolationRecorded { policy_id: String, agent_id: String },
+    // Layer 3
+    StoredGovernanceProfileCreated { profile_id: String, agent_id: String },
+    StoredGovernanceProfileUpdated { profile_id: String, agent_id: String },
+    StoredGovernanceProfileSuspended { profile_id: String, agent_id: String },
+    StoredGovernanceProfileDecommissioned { profile_id: String, agent_id: String },
+    AutonomyLevelEvaluated { agent_id: String, action: String, decision: String },
+    AutonomyLevelChanged { agent_id: String, from_level: String, to_level: String },
+    AutonomyEscalationTriggered { agent_id: String, action: String, escalation_target: String },
+    StoredAutonomyConfigurationCreated { config_id: String, agent_id: String },
+    ToolGovernancePolicyRegistered { agent_id: String, tool_ref: String, decision: String },
+    ToolGovernancePolicyRemoved { agent_id: String, tool_ref: String },
+    ToolGovernanceRequestEvaluated { agent_id: String, tool_ref: String, decision: String },
+    ToolGovernanceRequestDenied { agent_id: String, tool_ref: String, reason: String },
+    StoredDelegationChainRecorded { chain_id: String, delegator_id: String, delegatee_id: String },
+    DelegationDepthLimitEnforced { delegator_id: String, current_depth: String, max_depth: String },
+    DelegationGovernanceApproved { delegator_id: String, delegatee_id: String, task: String },
+    DelegationGovernanceDenied { delegator_id: String, delegatee_id: String, reason: String },
+    AgentGovernanceExported { format: String, agent_id: String },
+    AgentGovernanceExportFailed { format: String, reason: String },
+    StoredGovernanceSnapshotCaptured { snapshot_id: String, agent_id: String },
+    OperationalAgentMetricsComputed { agent_id: String, metric_type: String },
+    AgentGovernanceFlushed { record_count: String },
+    HumanOversightReportGenerated { agent_id: String, format: String },
+    AutonomyAssessmentExported { agent_id: String, framework: String },
+    AgentCardExported { agent_id: String },
 }
 
 impl fmt::Display for AgentEventType {
@@ -143,7 +168,190 @@ impl fmt::Display for AgentEventType {
             Self::BehavioralViolationRecorded { policy_id, agent_id } => {
                 write!(f, "BehavioralViolationRecorded({policy_id}, {agent_id})")
             }
+            // Layer 3 — delegate to type_name()
+            _ => f.write_str(self.type_name()),
         }
+    }
+}
+
+impl AgentEventType {
+    pub fn type_name(&self) -> &str {
+        match self {
+            Self::AgentRegistered { .. } => "AgentRegistered",
+            Self::AgentActivated => "AgentActivated",
+            Self::AgentSuspended { .. } => "AgentSuspended",
+            Self::AgentTerminated { .. } => "AgentTerminated",
+            Self::ActionAuthorized { .. } => "ActionAuthorized",
+            Self::ActionDenied { .. } => "ActionDenied",
+            Self::ActionCompleted { .. } => "ActionCompleted",
+            Self::ReasoningStepRecorded { .. } => "ReasoningStepRecorded",
+            Self::ToolInvoked { .. } => "ToolInvoked",
+            Self::ToolDenied { .. } => "ToolDenied",
+            Self::CheckpointTriggered { .. } => "CheckpointTriggered",
+            Self::CheckpointResolved { .. } => "CheckpointResolved",
+            Self::DelegationCreated { .. } => "DelegationCreated",
+            Self::DelegationCompleted { .. } => "DelegationCompleted",
+            Self::MessageSent { .. } => "MessageSent",
+            Self::MessageBlocked { .. } => "MessageBlocked",
+            Self::CollectiveDecisionMade { .. } => "CollectiveDecisionMade",
+            Self::AutonomyBoundaryViolation { .. } => "AutonomyBoundaryViolation",
+            Self::CoordinationProtocolRegistered { .. } => "CoordinationProtocolRegistered",
+            Self::CoordinationSessionStarted { .. } => "CoordinationSessionStarted",
+            Self::CoordinationSessionCompleted { .. } => "CoordinationSessionCompleted",
+            Self::CoordinationMessageSent { .. } => "CoordinationMessageSent",
+            Self::CapabilityGranted { .. } => "CapabilityGranted",
+            Self::CapabilityRevoked { .. } => "CapabilityRevoked",
+            Self::CommunicationChainAppended { .. } => "CommunicationChainAppended",
+            Self::CommunicationChainVerified { .. } => "CommunicationChainVerified",
+            Self::TrustScoreUpdated { .. } => "TrustScoreUpdated",
+            Self::TrustDecayApplied { .. } => "TrustDecayApplied",
+            Self::TaskDelegated { .. } => "TaskDelegated",
+            Self::TaskCompleted { .. } => "TaskCompleted",
+            Self::TaskRedelegated { .. } => "TaskRedelegated",
+            Self::BehavioralPolicyEvaluated { .. } => "BehavioralPolicyEvaluated",
+            Self::BehavioralViolationRecorded { .. } => "BehavioralViolationRecorded",
+            Self::StoredGovernanceProfileCreated { .. } => "StoredGovernanceProfileCreated",
+            Self::StoredGovernanceProfileUpdated { .. } => "StoredGovernanceProfileUpdated",
+            Self::StoredGovernanceProfileSuspended { .. } => "StoredGovernanceProfileSuspended",
+            Self::StoredGovernanceProfileDecommissioned { .. } => "StoredGovernanceProfileDecommissioned",
+            Self::AutonomyLevelEvaluated { .. } => "AutonomyLevelEvaluated",
+            Self::AutonomyLevelChanged { .. } => "AutonomyLevelChanged",
+            Self::AutonomyEscalationTriggered { .. } => "AutonomyEscalationTriggered",
+            Self::StoredAutonomyConfigurationCreated { .. } => "StoredAutonomyConfigurationCreated",
+            Self::ToolGovernancePolicyRegistered { .. } => "ToolGovernancePolicyRegistered",
+            Self::ToolGovernancePolicyRemoved { .. } => "ToolGovernancePolicyRemoved",
+            Self::ToolGovernanceRequestEvaluated { .. } => "ToolGovernanceRequestEvaluated",
+            Self::ToolGovernanceRequestDenied { .. } => "ToolGovernanceRequestDenied",
+            Self::StoredDelegationChainRecorded { .. } => "StoredDelegationChainRecorded",
+            Self::DelegationDepthLimitEnforced { .. } => "DelegationDepthLimitEnforced",
+            Self::DelegationGovernanceApproved { .. } => "DelegationGovernanceApproved",
+            Self::DelegationGovernanceDenied { .. } => "DelegationGovernanceDenied",
+            Self::AgentGovernanceExported { .. } => "AgentGovernanceExported",
+            Self::AgentGovernanceExportFailed { .. } => "AgentGovernanceExportFailed",
+            Self::StoredGovernanceSnapshotCaptured { .. } => "StoredGovernanceSnapshotCaptured",
+            Self::OperationalAgentMetricsComputed { .. } => "OperationalAgentMetricsComputed",
+            Self::AgentGovernanceFlushed { .. } => "AgentGovernanceFlushed",
+            Self::HumanOversightReportGenerated { .. } => "HumanOversightReportGenerated",
+            Self::AutonomyAssessmentExported { .. } => "AutonomyAssessmentExported",
+            Self::AgentCardExported { .. } => "AgentCardExported",
+        }
+    }
+
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::AgentRegistered { .. }
+            | Self::AgentActivated
+            | Self::AgentSuspended { .. }
+            | Self::AgentTerminated { .. } => "agent_lifecycle",
+            Self::ActionAuthorized { .. }
+            | Self::ActionDenied { .. }
+            | Self::ActionCompleted { .. } => "action",
+            Self::ReasoningStepRecorded { .. } => "reasoning",
+            Self::ToolInvoked { .. } | Self::ToolDenied { .. } => "tool",
+            Self::CheckpointTriggered { .. } | Self::CheckpointResolved { .. } => "checkpoint",
+            Self::DelegationCreated { .. } | Self::DelegationCompleted { .. } => "delegation",
+            Self::MessageSent { .. }
+            | Self::MessageBlocked { .. }
+            | Self::CollectiveDecisionMade { .. } => "coordination",
+            Self::AutonomyBoundaryViolation { .. } => "autonomy",
+            Self::CoordinationProtocolRegistered { .. }
+            | Self::CoordinationSessionStarted { .. }
+            | Self::CoordinationSessionCompleted { .. }
+            | Self::CoordinationMessageSent { .. } => "l2_coordination",
+            Self::CapabilityGranted { .. } | Self::CapabilityRevoked { .. } => "capability",
+            Self::CommunicationChainAppended { .. }
+            | Self::CommunicationChainVerified { .. } => "communication_chain",
+            Self::TrustScoreUpdated { .. } | Self::TrustDecayApplied { .. } => "trust",
+            Self::TaskDelegated { .. }
+            | Self::TaskCompleted { .. }
+            | Self::TaskRedelegated { .. } => "l2_delegation",
+            Self::BehavioralPolicyEvaluated { .. }
+            | Self::BehavioralViolationRecorded { .. } => "behavioral",
+            // Layer 3
+            Self::StoredGovernanceProfileCreated { .. }
+            | Self::StoredGovernanceProfileUpdated { .. }
+            | Self::StoredGovernanceProfileSuspended { .. }
+            | Self::StoredGovernanceProfileDecommissioned { .. }
+            | Self::AgentGovernanceFlushed { .. } => "governance_backend",
+            Self::AutonomyLevelEvaluated { .. }
+            | Self::AutonomyLevelChanged { .. }
+            | Self::AutonomyEscalationTriggered { .. }
+            | Self::StoredAutonomyConfigurationCreated { .. } => "autonomy_governance",
+            Self::ToolGovernancePolicyRegistered { .. }
+            | Self::ToolGovernancePolicyRemoved { .. }
+            | Self::ToolGovernanceRequestEvaluated { .. }
+            | Self::ToolGovernanceRequestDenied { .. } => "tool_governance",
+            Self::StoredDelegationChainRecorded { .. }
+            | Self::DelegationDepthLimitEnforced { .. }
+            | Self::DelegationGovernanceApproved { .. }
+            | Self::DelegationGovernanceDenied { .. } => "delegation_governance",
+            Self::AgentGovernanceExported { .. }
+            | Self::AgentGovernanceExportFailed { .. }
+            | Self::HumanOversightReportGenerated { .. }
+            | Self::AutonomyAssessmentExported { .. }
+            | Self::AgentCardExported { .. } => "governance_export",
+            Self::StoredGovernanceSnapshotCaptured { .. } => "governance_snapshot",
+            Self::OperationalAgentMetricsComputed { .. } => "governance_metrics",
+        }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::StoredGovernanceProfileCreated { .. }
+                | Self::StoredGovernanceProfileUpdated { .. }
+                | Self::StoredGovernanceProfileSuspended { .. }
+                | Self::StoredGovernanceProfileDecommissioned { .. }
+                | Self::StoredAutonomyConfigurationCreated { .. }
+                | Self::StoredDelegationChainRecorded { .. }
+                | Self::StoredGovernanceSnapshotCaptured { .. }
+                | Self::AgentGovernanceFlushed { .. }
+        )
+    }
+
+    pub fn is_autonomy_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AutonomyLevelEvaluated { .. }
+                | Self::AutonomyLevelChanged { .. }
+                | Self::AutonomyEscalationTriggered { .. }
+                | Self::StoredAutonomyConfigurationCreated { .. }
+        )
+    }
+
+    pub fn is_tool_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ToolGovernancePolicyRegistered { .. }
+                | Self::ToolGovernancePolicyRemoved { .. }
+                | Self::ToolGovernanceRequestEvaluated { .. }
+                | Self::ToolGovernanceRequestDenied { .. }
+        )
+    }
+
+    pub fn is_delegation_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::StoredDelegationChainRecorded { .. }
+                | Self::DelegationDepthLimitEnforced { .. }
+                | Self::DelegationGovernanceApproved { .. }
+                | Self::DelegationGovernanceDenied { .. }
+        )
+    }
+
+    pub fn is_governance_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AgentGovernanceExported { .. }
+                | Self::AgentGovernanceExportFailed { .. }
+                | Self::HumanOversightReportGenerated { .. }
+                | Self::AutonomyAssessmentExported { .. }
+                | Self::AgentCardExported { .. }
+        )
+    }
+
+    pub fn is_governance_metrics_event(&self) -> bool {
+        matches!(self, Self::OperationalAgentMetricsComputed { .. })
     }
 }
 
@@ -391,10 +599,73 @@ mod tests {
             AgentEventType::TaskRedelegated { task_id: "t1".into(), new_delegatee: "a3".into() },
             AgentEventType::BehavioralPolicyEvaluated { agent_id: "a1".into(), action: "delete".into(), allowed: false },
             AgentEventType::BehavioralViolationRecorded { policy_id: "p1".into(), agent_id: "a1".into() },
+            // Layer 3
+            AgentEventType::StoredGovernanceProfileCreated { profile_id: "p1".into(), agent_id: "a1".into() },
+            AgentEventType::StoredGovernanceProfileUpdated { profile_id: "p1".into(), agent_id: "a1".into() },
+            AgentEventType::StoredGovernanceProfileSuspended { profile_id: "p1".into(), agent_id: "a1".into() },
+            AgentEventType::StoredGovernanceProfileDecommissioned { profile_id: "p1".into(), agent_id: "a1".into() },
+            AgentEventType::AutonomyLevelEvaluated { agent_id: "a1".into(), action: "read".into(), decision: "Permit".into() },
+            AgentEventType::AutonomyLevelChanged { agent_id: "a1".into(), from_level: "Low".into(), to_level: "Medium".into() },
+            AgentEventType::AutonomyEscalationTriggered { agent_id: "a1".into(), action: "deploy".into(), escalation_target: "human".into() },
+            AgentEventType::StoredAutonomyConfigurationCreated { config_id: "c1".into(), agent_id: "a1".into() },
+            AgentEventType::ToolGovernancePolicyRegistered { agent_id: "a1".into(), tool_ref: "search".into(), decision: "Permit".into() },
+            AgentEventType::ToolGovernancePolicyRemoved { agent_id: "a1".into(), tool_ref: "search".into() },
+            AgentEventType::ToolGovernanceRequestEvaluated { agent_id: "a1".into(), tool_ref: "search".into(), decision: "Permit".into() },
+            AgentEventType::ToolGovernanceRequestDenied { agent_id: "a1".into(), tool_ref: "deploy".into(), reason: "policy".into() },
+            AgentEventType::StoredDelegationChainRecorded { chain_id: "ch1".into(), delegator_id: "a1".into(), delegatee_id: "a2".into() },
+            AgentEventType::DelegationDepthLimitEnforced { delegator_id: "a1".into(), current_depth: "3".into(), max_depth: "2".into() },
+            AgentEventType::DelegationGovernanceApproved { delegator_id: "a1".into(), delegatee_id: "a2".into(), task: "analyze".into() },
+            AgentEventType::DelegationGovernanceDenied { delegator_id: "a1".into(), delegatee_id: "a2".into(), reason: "untrusted".into() },
+            AgentEventType::AgentGovernanceExported { format: "JSON".into(), agent_id: "a1".into() },
+            AgentEventType::AgentGovernanceExportFailed { format: "JSON".into(), reason: "err".into() },
+            AgentEventType::StoredGovernanceSnapshotCaptured { snapshot_id: "s1".into(), agent_id: "a1".into() },
+            AgentEventType::OperationalAgentMetricsComputed { agent_id: "a1".into(), metric_type: "escalation_rate".into() },
+            AgentEventType::AgentGovernanceFlushed { record_count: "42".into() },
+            AgentEventType::HumanOversightReportGenerated { agent_id: "a1".into(), format: "Markdown".into() },
+            AgentEventType::AutonomyAssessmentExported { agent_id: "a1".into(), framework: "NIST AI RMF".into() },
+            AgentEventType::AgentCardExported { agent_id: "a1".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 33);
+        assert_eq!(types.len(), 57);
+    }
+
+    #[test]
+    fn test_l3_type_name_and_kind() {
+        let variants = vec![
+            AgentEventType::StoredGovernanceProfileCreated { profile_id: "p1".into(), agent_id: "a1".into() },
+            AgentEventType::AutonomyLevelEvaluated { agent_id: "a1".into(), action: "read".into(), decision: "Permit".into() },
+            AgentEventType::ToolGovernancePolicyRegistered { agent_id: "a1".into(), tool_ref: "s".into(), decision: "Permit".into() },
+            AgentEventType::StoredDelegationChainRecorded { chain_id: "c".into(), delegator_id: "a".into(), delegatee_id: "b".into() },
+            AgentEventType::AgentGovernanceExported { format: "JSON".into(), agent_id: "a1".into() },
+            AgentEventType::OperationalAgentMetricsComputed { agent_id: "a1".into(), metric_type: "x".into() },
+        ];
+        for v in &variants {
+            assert!(!v.type_name().is_empty());
+            assert!(!v.kind().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_l3_classification_methods() {
+        let backend = AgentEventType::StoredGovernanceProfileCreated { profile_id: "p".into(), agent_id: "a".into() };
+        assert!(backend.is_backend_event());
+        assert!(!backend.is_tool_governance_event());
+
+        let autonomy = AgentEventType::AutonomyEscalationTriggered { agent_id: "a".into(), action: "x".into(), escalation_target: "h".into() };
+        assert!(autonomy.is_autonomy_governance_event());
+
+        let tool = AgentEventType::ToolGovernanceRequestDenied { agent_id: "a".into(), tool_ref: "t".into(), reason: "r".into() };
+        assert!(tool.is_tool_governance_event());
+
+        let delegation = AgentEventType::DelegationDepthLimitEnforced { delegator_id: "a".into(), current_depth: "3".into(), max_depth: "2".into() };
+        assert!(delegation.is_delegation_governance_event());
+
+        let export = AgentEventType::HumanOversightReportGenerated { agent_id: "a".into(), format: "md".into() };
+        assert!(export.is_governance_export_event());
+
+        let metrics = AgentEventType::OperationalAgentMetricsComputed { agent_id: "a".into(), metric_type: "x".into() };
+        assert!(metrics.is_governance_metrics_event());
     }
 }

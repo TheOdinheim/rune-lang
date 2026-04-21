@@ -82,3 +82,85 @@ Layer 3 adds the operational AI safety infrastructure layer: pluggable backend s
 - **rune-framework**: Framework requirements reference rune-safety capabilities via opaque strings (e.g. referenced_library: "rune-safety", referenced_capability: "SafetyEnvelopeMonitor") for CJIS/IEC 61508/ISO 26262 compliance
 - **rune-agents**: Agent autonomy boundaries may reference safety constraints; rune-safety provides the constraint definitions and envelope monitoring that agent governance can invoke
 - **rune-explainability**: When rune-safety triggers an emergency shutdown, rune-explainability can explain why the shutdown was triggered via reasoning traces and feature attributions; the shutdown mechanism lives in rune-safety, the explanation in rune-explainability
+
+---
+
+## rune-agents Layer 3
+
+**Date**: 2026-04-20
+**Test count**: 153 → 239 (+86 tests, zero failures)
+**Commit**: (pending)
+
+**Clippy**: Zero rune-agents-specific warnings (pre-existing L1/L2 warnings untouched)
+
+### What Changed
+
+Layer 3 adds the agent governance infrastructure layer: pluggable backend storage for governance profiles, autonomy configurations, tool policies, delegation chain records, and governance snapshots; autonomy level evaluation with escalation detection and EU AI Act Article 14 compliance (AlwaysEscalateAutonomyController); tool-use governance with per-agent policies, invocation limits, and rate limiting; delegation chain governance with depth limit enforcement; five export formats (JSON, agent card, human oversight report, NIST AI RMF autonomy assessment, delegation chain report); lifecycle event streaming with agent_id/event_type/severity filtering; and agent governance metrics (autonomy escalation rate, tool denial rate, delegation depth average, human oversight frequency).
+
+### New Modules (7)
+
+| Module | Lines | Tests | Purpose |
+|--------|-------|-------|---------|
+| `backend.rs` | ~440 | 17 | AgentGovernanceBackend trait + InMemoryAgentGovernanceBackend |
+| `autonomy_controller.rs` | ~340 | 12 | AutonomyLevelController trait + 3 implementations |
+| `tool_governance.rs` | ~340 | 12 | ToolUseGovernor trait + 3 implementations |
+| `delegation_manager.rs` | ~330 | 12 | DelegationGovernor trait + DepthLimitedDelegationGovernor + 2 implementations |
+| `agent_export.rs` | ~430 | 11 | AgentGovernanceExporter trait + 5 format implementations |
+| `agent_stream.rs` | ~310 | 10 | AgentLifecycleEventSubscriber trait + registry + filtering |
+| `agent_metrics.rs` | ~310 | 11 | AgentGovernanceMetricsCollector trait + InMemoryAgentGovernanceMetricsCollector |
+
+### Trait Contracts
+
+- **AgentGovernanceBackend**: 20 methods — store/retrieve governance profiles, list by status, profile_count, store/retrieve autonomy configurations, list by agent, store/retrieve tool policies, list by agent, store/retrieve delegation chains, list by delegator, store/retrieve governance snapshots, list by agent, flush/backend_info. InMemoryAgentGovernanceBackend reference implementation. StoredAgentGovernanceStatus 4-variant (Active/Suspended/UnderReview/Decommissioned), StoredToolPolicyDecision 4-variant (Allow/Deny/RequireApproval/AllowWithConstraints), StoredDelegationChainStatus 4-variant (Active/Completed/Revoked/DepthLimitExceeded).
+- **AutonomyLevelController**: 7 methods — evaluate_autonomy/recommend_level_change/check_escalation_required/register_agent_level/list_active_levels/controller_id/is_active. AutonomyDecision 5-variant (Permit/Deny/Escalate/RequireHumanApproval/DegradeAutonomy). AutonomyEvaluation with escalation_target. LevelChangeRecommendation with confidence as String. InMemoryAutonomyLevelController (deny-pattern matching), AlwaysEscalateAutonomyController (EU AI Act Article 14 — every action requires human approval), NullAutonomyLevelController.
+- **ToolUseGovernor**: 6 methods — evaluate_tool_request/register_tool_policy/remove_tool_policy/list_tool_policies/governor_id/is_active. ToolGovernanceDecision 5-variant (Permit/Deny/RequireApproval/RateLimited/DeferToHuman). ToolGovernanceEvaluation with remaining_invocations. ToolPolicyEntry with max_invocations. InMemoryToolUseGovernor (invocation counting, rate limiting, policy replacement), DenyAllToolUseGovernor (agents with no tool access — rejects policy registration), NullToolUseGovernor.
+- **DelegationGovernor**: 6 methods — evaluate_delegation_request/record_delegation_chain/check_depth_limit/list_delegation_chains/governor_id/is_active. DelegationRequestDecision 5-variant (Approve/Deny/RequireApproval/DepthLimitExceeded/DeferToHuman). DelegationEvaluation with current_depth/max_depth. InMemoryDelegationGovernor (denied_delegatees list, depth enforcement), DepthLimitedDelegationGovernor<G> (composable wrapper enforcing depth limit before delegating to inner governor), NullDelegationGovernor.
+- **AgentGovernanceExporter**: 7 methods — export_agent_profile/export_autonomy_config/export_tool_policy_report/export_delegation_chain_report/export_batch/format_name/content_type. JsonAgentGovernanceExporter (full JSON), AgentCardExporter (agent directory card format), HumanOversightReportExporter (EU AI Act Article 14 Markdown compliance report), AutonomyAssessmentExporter (NIST AI RMF aligned JSON with govern/map/manage sections), DelegationChainExporter (Markdown delegation chain report).
+- **AgentLifecycleEventSubscriber**: 3 methods — on_agent_governance_event/subscriber_id/is_active. AgentLifecycleEventSubscriberRegistry with register/notify/notify_batch/active_count/remove_inactive. AgentGovernanceEventCollector reference implementation. FilteredAgentLifecycleEventSubscriber<S> with agent_id/event_type/severity filters using let-chains. AgentGovernanceLifecycleEventType 20-variant enum.
+- **AgentGovernanceMetricsCollector**: 7 methods — compute_autonomy_escalation_rate/compute_tool_denial_rate/compute_delegation_depth_average/list_most_denied_tools/compute_human_oversight_frequency/collector_id/is_active. AgentGovernanceMetricSnapshot with all computed values as String for Eq derivation. InMemoryAgentGovernanceMetricsCollector (computes from escalation/denial/delegation/oversight records), NullAgentGovernanceMetricsCollector.
+
+### Modified Files
+
+- **audit.rs**: 24 new AgentEventType L3 variants with struct fields. Display impl delegates L3 variants to type_name(). Added type_name()/kind() methods covering all 57 variants (33 L1/L2 + 24 L3). Classification methods: is_backend_event/is_autonomy_governance_event/is_tool_governance_event/is_delegation_governance_event/is_governance_export_event/is_governance_metrics_event. Test constructs every L3 variant and asserts non-empty Display and kind() output.
+- **error.rs**: 3 new AgentError variants: SerializationFailed(String), GovernanceProfileNotFound(String), DelegationChainNotFound(String). Display impl updated. Test updated to cover all 24 variants.
+- **lib.rs**: 7 new module declarations under Layer 3 section. Layer 3 re-exports grouped under `// ── Layer 3 re-exports ──` comment.
+
+### Naming Collision Resolutions
+
+| L1/L2 type | L3 type | Rationale |
+|---|---|---|
+| `AutonomyLevel` (L1 enum: 7-variant fixed taxonomy None/Observe/Suggest/ActLowRisk/ActMediumRisk/ActHighRisk/Full) | L3 stored types use opaque `String` for autonomy level | L1 defines compile-time taxonomy; L3 uses opaque strings for extensibility (ISO/IEC 22989 autonomy levels vary by domain) |
+| `DelegationManager` (L1 concrete struct: lifecycle management) | `DelegationGovernor` (L3 trait: policy governance) | L1 manages delegation lifecycle (accept/reject/complete/revoke); L3 governs delegation policy (approve/deny/depth-limit). Different semantic axis |
+| `ToolRegistry` (L1 concrete struct: tool registration/invocation) | `ToolUseGovernor` (L3 trait: tool-use policy) | L1 manages tool definitions and invocations; L3 governs per-agent tool access decisions |
+| `AgentRegistry` (L1 concrete struct: agent identity) | `AgentGovernanceBackend` (L3 trait: persistent governance storage) | L1 manages in-memory agent registration; L3 manages pluggable persistent storage of governance artifacts |
+| `DelegationCreated`/`DelegationCompleted` (L1 audit variants) | `StoredDelegationChainRecorded`/`DelegationGovernanceApproved`/`DelegationGovernanceDenied` (L3 audit variants) | L1 tracks delegation lifecycle events; L3 tracks governance policy decisions. `Stored` prefix for backend persistence, `Governance` qualifier for policy evaluation |
+| `AutonomyBoundaryViolation` (L1 audit variant) | `AutonomyLevelEvaluated`/`AutonomyEscalationTriggered` (L3 audit variants) | L1 detects boundary violations; L3 evaluates autonomy levels and triggers escalation. Different semantic scope |
+
+### Design Decisions
+
+- **rune-agents is not an agent runtime**: rune-agents provides governance infrastructure for agents — autonomy control, tool-use policy, delegation governance, metrics. It does not implement agent execution, planning, memory, or tool invocation. Those belong in runtime crates that consume rune-agents governance contracts.
+- **Autonomy level is opaque string in L3**: L1 defines a 7-level AutonomyLevel enum. L3 stored types and controller trait use opaque strings because autonomy taxonomies vary by domain (ISO/IEC 22989 defines different levels than SAE J3016 or NIST AI RMF). L3 should not force a specific taxonomy on backend storage.
+- **AlwaysEscalateAutonomyController first-class**: EU AI Act Article 14 requires human oversight for high-risk AI systems. Having a reference implementation that escalates every action to human approval directly reduces compliance burden for high-risk deployments.
+- **DenyAllToolUseGovernor first-class**: Some agents should never have tool access (observation-only, suggest-only). Having a dedicated implementation that rejects all tool requests and refuses policy registration prevents accidental tool grants.
+- **DepthLimitedDelegationGovernor composable wrapper**: Follows the composable wrapper pattern established across 9+ libraries. Wraps any DelegationGovernor and enforces depth limit before delegating to inner governor. Prevents unbounded delegation chains.
+- **DelegationGovernor not DelegationManager**: L1 already has a `DelegationManager` struct that manages delegation lifecycle. The L3 trait governs delegation policy decisions. Different name avoids both module-level and type-level collision.
+- **Agent governance metrics use String for all values**: autonomy_escalation_rate, tool_denial_rate, delegation_depth_average, human_oversight_frequency are all String fields. Enables Eq derivation for deterministic testing.
+- **Human oversight report distinct from agent card**: Agent cards describe agent capabilities for directory purposes. Human oversight reports address EU AI Act Article 14 compliance. Different audiences, different content structure.
+
+### Four-Pillar Alignment
+
+| Pillar | Alignment |
+|--------|-----------|
+| **Transparency** | All backend operations emit structured audit events. Governance profiles exportable in 5 formats including agent cards and NIST AI RMF assessments. Lifecycle event streaming enables real-time observability of autonomy evaluation, tool governance, and delegation decisions. Governance metrics provide quantified visibility into agent governance posture. |
+| **Accountability** | Every governance profile carries owner metadata. Autonomy evaluations record decision justification. Delegation chains track delegator/delegatee/depth/task. Human oversight reports document Article 14 compliance. Governance snapshots capture point-in-time governance state. |
+| **Fairness** | ToolUseGovernor applies consistent per-agent tool policies with explicit justification. DelegationGovernor enforces uniform depth limits across all delegation chains. AutonomyLevelController evaluates all agents against the same deny patterns and escalation rules. |
+| **Safety** | AlwaysEscalateAutonomyController ensures human oversight for all actions (EU AI Act Article 14). DepthLimitedDelegationGovernor prevents unbounded delegation chains. DenyAllToolUseGovernor prevents accidental tool grants. Governance metrics track escalation rates and tool denial rates for safety monitoring. |
+
+### Integration Points
+
+- **rune-safety**: Safety envelopes may reference agent autonomy constraints; rune-agents provides the autonomy evaluation while rune-safety provides envelope monitoring and emergency shutdown
+- **rune-permissions**: Permission decisions may reference agent governance profiles; rune-agents governs agent-specific autonomy while rune-permissions governs identity-based access control
+- **rune-explainability**: When rune-agents escalates a decision, rune-explainability can explain why via reasoning traces and feature attributions; the escalation mechanism lives in rune-agents, the explanation in rune-explainability
+- **rune-detection**: Detection alerts may trigger autonomy level changes; rune-agents defines the autonomy governance while rune-detection defines the detection signal
+- **rune-provenance**: Delegation chains are provenance-relevant; rune-agents tracks the governance policy while rune-provenance tracks the lineage
+- **rune-framework**: Framework requirements reference rune-agents capabilities via opaque strings (e.g. referenced_library: "rune-agents", referenced_capability: "AutonomyLevelController") for EU AI Act/NIST AI RMF compliance

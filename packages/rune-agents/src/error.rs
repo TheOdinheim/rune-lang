@@ -28,6 +28,10 @@ pub enum AgentError {
     ProtocolNotFound(String),
     SessionNotFound(String),
     L2TaskNotFound(String),
+    // Layer 3
+    SerializationFailed(String),
+    GovernanceProfileNotFound(String),
+    DelegationChainNotFound(String),
 }
 
 impl fmt::Display for AgentError {
@@ -60,6 +64,13 @@ impl fmt::Display for AgentError {
             Self::ProtocolNotFound(id) => write!(f, "Protocol not found: {id}"),
             Self::SessionNotFound(id) => write!(f, "Session not found: {id}"),
             Self::L2TaskNotFound(id) => write!(f, "L2 task not found: {id}"),
+            Self::SerializationFailed(msg) => write!(f, "Serialization failed: {msg}"),
+            Self::GovernanceProfileNotFound(id) => {
+                write!(f, "Governance profile not found: {id}")
+            }
+            Self::DelegationChainNotFound(id) => {
+                write!(f, "Delegation chain not found: {id}")
+            }
         }
     }
 }
@@ -106,12 +117,15 @@ mod tests {
             AgentError::ProtocolNotFound("proto1".into()),
             AgentError::SessionNotFound("sess1".into()),
             AgentError::L2TaskNotFound("task1".into()),
+            AgentError::SerializationFailed("json error".into()),
+            AgentError::GovernanceProfileNotFound("gp1".into()),
+            AgentError::DelegationChainNotFound("ch1".into()),
         ];
         for e in &errors {
             assert!(!e.to_string().is_empty());
             let _ = format!("{e:?}");
             let _: &dyn std::error::Error = e;
         }
-        assert_eq!(errors.len(), 21);
+        assert_eq!(errors.len(), 24);
     }
 }
