@@ -23,6 +23,15 @@ pub mod redaction_engine;
 pub mod retention_engine;
 pub mod window_manager;
 
+// ── Layer 3 modules ───────────────────────────────────────────────
+pub mod backend;
+pub mod memory_export;
+pub mod memory_governance_metrics;
+pub mod memory_stream;
+pub mod retention_governor;
+pub mod retrieval_governor;
+pub mod scope_governor;
+
 // ── Layer 1 re-exports ────────────────────────────────────────────
 
 pub use audit::{MemoryAuditEvent, MemoryAuditLog, MemoryEventType};
@@ -54,3 +63,37 @@ pub use redaction_engine::{
 };
 pub use retention_engine::{MemoryRetentionEngine, RetentionEvaluation, RetentionOutcome};
 pub use window_manager::{ConversationWindowManager, PinnedEntryManager, WindowTrimResult};
+
+// ── Layer 3 re-exports ────────────────────────────────────────────
+
+pub use backend::{
+    InMemoryMemoryGovernanceBackend, MemoryBackendInfo, MemoryGovernanceBackend,
+    StoredIsolationBoundary, StoredIsolationViolationRecord, StoredMemoryEntry,
+    StoredMemoryScope, StoredRedactionPolicy, StoredRedactionPatternRef,
+    StoredRetentionPolicy, StoredRetrievalPolicy, ViolationResolutionStatus,
+};
+pub use memory_export::{
+    GdprMemoryDeletionExporter, JsonMemoryExporter, MemoryGovernanceExporter,
+    MemoryIsolationReportExporter, MemoryRetentionComplianceExporter, RetrievalAuditExporter,
+};
+pub use memory_governance_metrics::{
+    InMemoryMemoryGovernanceMetricsCollector, MemoryGovernanceMetricSnapshot,
+    MemoryGovernanceMetricsCollector, NullMemoryGovernanceMetricsCollector,
+};
+pub use memory_stream::{
+    FilteredMemoryGovernanceEventSubscriber, MemoryGovernanceEventCollector,
+    MemoryGovernanceEventSubscriber, MemoryGovernanceEventSubscriberRegistry,
+    MemoryGovernanceLifecycleEvent, MemoryGovernanceLifecycleEventType,
+};
+pub use retention_governor::{
+    InMemoryRetentionGovernor, NullRetentionGovernor, RetentionGovernanceDecision,
+    RetentionGovernor, RetentionSweepResult,
+};
+pub use retrieval_governor::{
+    DenyAllRetrievalGovernor, InMemoryRetrievalGovernor, NullRetrievalGovernor,
+    RetrievalGovernanceDecision, RetrievalGovernanceResult, RetrievalGovernor,
+};
+pub use scope_governor::{
+    InMemoryMemoryScopeGovernor, MemoryScopeGovernor, NullMemoryScopeGovernor,
+    ScopeAccessDecision, ScopeHealthAssessment, ScopeHealthStatus,
+};

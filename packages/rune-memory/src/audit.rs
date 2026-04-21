@@ -47,6 +47,30 @@ pub enum MemoryEventType {
     RetrievalEvaluated { request_id: String, decision: String },
     SensitivityClearanceChecked { requester_id: String, required_level: String, result: String },
     MemoryMetricsComputed { metric_name: String, value: String },
+    // ── Layer 3 variants ──────────────────────────────────────────
+    MemoryGovernanceBackendChanged { backend_id: String, backend_type: String },
+    StoredMemoryEntryCreated { entry_id: String, scope_id: String, content_hash: String },
+    StoredMemoryEntryRetrieved { entry_id: String, accessor: String },
+    StoredMemoryEntryDeleted { entry_id: String, reason: String },
+    StoredMemoryScopeCreated { scope_id: String, scope_type: String },
+    StoredRetentionPolicyRegistered { policy_id: String, scope_pattern: String },
+    StoredRedactionPolicyRegistered { policy_id: String },
+    StoredRetrievalPolicyRegistered { policy_id: String, agent_pattern: String },
+    RetentionGovernanceEvaluated { entry_id: String, decision: String, policy_ref: String },
+    RetentionSweepExecuted { sweep_id: String, entries_scanned: String, entries_expired: String },
+    RetentionComplianceAssessed { policy_id: String, compliance_rate: String },
+    RetrievalGovernanceEvaluated { request_id: String, decision: String, policy_ref: String },
+    RetrievalGovernanceDenied { request_id: String, reason: String, policy_ref: String },
+    CollectionPolicyRegistered { collection_id: String, policy_id: String },
+    CollectionPolicyRemoved { collection_id: String },
+    ScopeAccessGovernanceEvaluated { scope_id: String, requester_id: String, decision: String },
+    ScopeHealthAssessed { scope_id: String, status: String },
+    MemoryGovernanceExported { format: String, record_count: String },
+    MemoryGovernanceExportFailed { format: String, reason: String },
+    MemoryGovernanceMetricsComputed { collector_id: String, metric_name: String, value: String },
+    MemoryGovernanceSubscriberRegistered { subscriber_id: String },
+    MemoryGovernanceSubscriberRemoved { subscriber_id: String },
+    MemoryGovernanceEventPublished { event_type: String, subscriber_count: String },
 }
 
 impl fmt::Display for MemoryEventType {
@@ -154,6 +178,75 @@ impl fmt::Display for MemoryEventType {
             Self::MemoryMetricsComputed { metric_name, value } => {
                 write!(f, "MemoryMetricsComputed({metric_name}={value})")
             }
+            Self::MemoryGovernanceBackendChanged { backend_id, backend_type } => {
+                write!(f, "MemoryGovernanceBackendChanged({backend_id}, type={backend_type})")
+            }
+            Self::StoredMemoryEntryCreated { entry_id, scope_id, content_hash } => {
+                write!(f, "StoredMemoryEntryCreated({entry_id}, scope={scope_id}, hash={content_hash})")
+            }
+            Self::StoredMemoryEntryRetrieved { entry_id, accessor } => {
+                write!(f, "StoredMemoryEntryRetrieved({entry_id}, by={accessor})")
+            }
+            Self::StoredMemoryEntryDeleted { entry_id, reason } => {
+                write!(f, "StoredMemoryEntryDeleted({entry_id}): {reason}")
+            }
+            Self::StoredMemoryScopeCreated { scope_id, scope_type } => {
+                write!(f, "StoredMemoryScopeCreated({scope_id}, type={scope_type})")
+            }
+            Self::StoredRetentionPolicyRegistered { policy_id, scope_pattern } => {
+                write!(f, "StoredRetentionPolicyRegistered({policy_id}, pattern={scope_pattern})")
+            }
+            Self::StoredRedactionPolicyRegistered { policy_id } => {
+                write!(f, "StoredRedactionPolicyRegistered({policy_id})")
+            }
+            Self::StoredRetrievalPolicyRegistered { policy_id, agent_pattern } => {
+                write!(f, "StoredRetrievalPolicyRegistered({policy_id}, agent={agent_pattern})")
+            }
+            Self::RetentionGovernanceEvaluated { entry_id, decision, policy_ref } => {
+                write!(f, "RetentionGovernanceEvaluated({entry_id}, decision={decision}, policy={policy_ref})")
+            }
+            Self::RetentionSweepExecuted { sweep_id, entries_scanned, entries_expired } => {
+                write!(f, "RetentionSweepExecuted({sweep_id}, scanned={entries_scanned}, expired={entries_expired})")
+            }
+            Self::RetentionComplianceAssessed { policy_id, compliance_rate } => {
+                write!(f, "RetentionComplianceAssessed({policy_id}, rate={compliance_rate})")
+            }
+            Self::RetrievalGovernanceEvaluated { request_id, decision, policy_ref } => {
+                write!(f, "RetrievalGovernanceEvaluated({request_id}, decision={decision}, policy={policy_ref})")
+            }
+            Self::RetrievalGovernanceDenied { request_id, reason, policy_ref } => {
+                write!(f, "RetrievalGovernanceDenied({request_id}, policy={policy_ref}): {reason}")
+            }
+            Self::CollectionPolicyRegistered { collection_id, policy_id } => {
+                write!(f, "CollectionPolicyRegistered({collection_id}, policy={policy_id})")
+            }
+            Self::CollectionPolicyRemoved { collection_id } => {
+                write!(f, "CollectionPolicyRemoved({collection_id})")
+            }
+            Self::ScopeAccessGovernanceEvaluated { scope_id, requester_id, decision } => {
+                write!(f, "ScopeAccessGovernanceEvaluated({scope_id}, requester={requester_id}, decision={decision})")
+            }
+            Self::ScopeHealthAssessed { scope_id, status } => {
+                write!(f, "ScopeHealthAssessed({scope_id}, status={status})")
+            }
+            Self::MemoryGovernanceExported { format, record_count } => {
+                write!(f, "MemoryGovernanceExported(format={format}, records={record_count})")
+            }
+            Self::MemoryGovernanceExportFailed { format, reason } => {
+                write!(f, "MemoryGovernanceExportFailed(format={format}): {reason}")
+            }
+            Self::MemoryGovernanceMetricsComputed { collector_id, metric_name, value } => {
+                write!(f, "MemoryGovernanceMetricsComputed({collector_id}, {metric_name}={value})")
+            }
+            Self::MemoryGovernanceSubscriberRegistered { subscriber_id } => {
+                write!(f, "MemoryGovernanceSubscriberRegistered({subscriber_id})")
+            }
+            Self::MemoryGovernanceSubscriberRemoved { subscriber_id } => {
+                write!(f, "MemoryGovernanceSubscriberRemoved({subscriber_id})")
+            }
+            Self::MemoryGovernanceEventPublished { event_type, subscriber_count } => {
+                write!(f, "MemoryGovernanceEventPublished({event_type}, subscribers={subscriber_count})")
+            }
         }
     }
 }
@@ -195,6 +288,29 @@ impl MemoryEventType {
             Self::RetrievalEvaluated { .. } => "RetrievalEvaluated",
             Self::SensitivityClearanceChecked { .. } => "SensitivityClearanceChecked",
             Self::MemoryMetricsComputed { .. } => "MemoryMetricsComputed",
+            Self::MemoryGovernanceBackendChanged { .. } => "MemoryGovernanceBackendChanged",
+            Self::StoredMemoryEntryCreated { .. } => "StoredMemoryEntryCreated",
+            Self::StoredMemoryEntryRetrieved { .. } => "StoredMemoryEntryRetrieved",
+            Self::StoredMemoryEntryDeleted { .. } => "StoredMemoryEntryDeleted",
+            Self::StoredMemoryScopeCreated { .. } => "StoredMemoryScopeCreated",
+            Self::StoredRetentionPolicyRegistered { .. } => "StoredRetentionPolicyRegistered",
+            Self::StoredRedactionPolicyRegistered { .. } => "StoredRedactionPolicyRegistered",
+            Self::StoredRetrievalPolicyRegistered { .. } => "StoredRetrievalPolicyRegistered",
+            Self::RetentionGovernanceEvaluated { .. } => "RetentionGovernanceEvaluated",
+            Self::RetentionSweepExecuted { .. } => "RetentionSweepExecuted",
+            Self::RetentionComplianceAssessed { .. } => "RetentionComplianceAssessed",
+            Self::RetrievalGovernanceEvaluated { .. } => "RetrievalGovernanceEvaluated",
+            Self::RetrievalGovernanceDenied { .. } => "RetrievalGovernanceDenied",
+            Self::CollectionPolicyRegistered { .. } => "CollectionPolicyRegistered",
+            Self::CollectionPolicyRemoved { .. } => "CollectionPolicyRemoved",
+            Self::ScopeAccessGovernanceEvaluated { .. } => "ScopeAccessGovernanceEvaluated",
+            Self::ScopeHealthAssessed { .. } => "ScopeHealthAssessed",
+            Self::MemoryGovernanceExported { .. } => "MemoryGovernanceExported",
+            Self::MemoryGovernanceExportFailed { .. } => "MemoryGovernanceExportFailed",
+            Self::MemoryGovernanceMetricsComputed { .. } => "MemoryGovernanceMetricsComputed",
+            Self::MemoryGovernanceSubscriberRegistered { .. } => "MemoryGovernanceSubscriberRegistered",
+            Self::MemoryGovernanceSubscriberRemoved { .. } => "MemoryGovernanceSubscriberRemoved",
+            Self::MemoryGovernanceEventPublished { .. } => "MemoryGovernanceEventPublished",
         }
     }
 
@@ -235,7 +351,55 @@ impl MemoryEventType {
             | Self::RetrievalEvaluated { .. }
             | Self::SensitivityClearanceChecked { .. } => "access_evaluator",
             Self::MemoryMetricsComputed { .. } => "metrics",
+            // Layer 3 kinds
+            Self::MemoryGovernanceBackendChanged { .. }
+            | Self::StoredMemoryEntryCreated { .. }
+            | Self::StoredMemoryEntryRetrieved { .. }
+            | Self::StoredMemoryEntryDeleted { .. }
+            | Self::StoredMemoryScopeCreated { .. }
+            | Self::StoredRetentionPolicyRegistered { .. }
+            | Self::StoredRedactionPolicyRegistered { .. }
+            | Self::StoredRetrievalPolicyRegistered { .. } => "backend",
+            Self::RetentionGovernanceEvaluated { .. }
+            | Self::RetentionSweepExecuted { .. }
+            | Self::RetentionComplianceAssessed { .. } => "retention_governance",
+            Self::RetrievalGovernanceEvaluated { .. }
+            | Self::RetrievalGovernanceDenied { .. }
+            | Self::CollectionPolicyRegistered { .. }
+            | Self::CollectionPolicyRemoved { .. } => "retrieval_governance",
+            Self::ScopeAccessGovernanceEvaluated { .. }
+            | Self::ScopeHealthAssessed { .. } => "scope_governance",
+            Self::MemoryGovernanceExported { .. }
+            | Self::MemoryGovernanceExportFailed { .. } => "export",
+            Self::MemoryGovernanceMetricsComputed { .. } => "governance_metrics",
+            Self::MemoryGovernanceSubscriberRegistered { .. }
+            | Self::MemoryGovernanceSubscriberRemoved { .. }
+            | Self::MemoryGovernanceEventPublished { .. } => "event_stream",
         }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        self.kind() == "backend"
+    }
+
+    pub fn is_retention_governance_event(&self) -> bool {
+        self.kind() == "retention_governance"
+    }
+
+    pub fn is_retrieval_governance_event(&self) -> bool {
+        self.kind() == "retrieval_governance"
+    }
+
+    pub fn is_scope_governance_event(&self) -> bool {
+        self.kind() == "scope_governance"
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        self.kind() == "export"
+    }
+
+    pub fn is_metrics_event(&self) -> bool {
+        self.kind() == "governance_metrics"
     }
 }
 
@@ -358,11 +522,35 @@ mod tests {
             MemoryEventType::RetrievalEvaluated { request_id: "rr-1".into(), decision: "Permitted".into() },
             MemoryEventType::SensitivityClearanceChecked { requester_id: "a1".into(), required_level: "Sensitive".into(), result: "Cleared".into() },
             MemoryEventType::MemoryMetricsComputed { metric_name: "entry_count".into(), value: "42".into() },
+            // L3
+            MemoryEventType::MemoryGovernanceBackendChanged { backend_id: "b1".into(), backend_type: "InMemory".into() },
+            MemoryEventType::StoredMemoryEntryCreated { entry_id: "e1".into(), scope_id: "s1".into(), content_hash: "h".into() },
+            MemoryEventType::StoredMemoryEntryRetrieved { entry_id: "e1".into(), accessor: "a1".into() },
+            MemoryEventType::StoredMemoryEntryDeleted { entry_id: "e1".into(), reason: "expired".into() },
+            MemoryEventType::StoredMemoryScopeCreated { scope_id: "s1".into(), scope_type: "AgentLocal".into() },
+            MemoryEventType::StoredRetentionPolicyRegistered { policy_id: "rp-1".into(), scope_pattern: "scope-*".into() },
+            MemoryEventType::StoredRedactionPolicyRegistered { policy_id: "rdp-1".into() },
+            MemoryEventType::StoredRetrievalPolicyRegistered { policy_id: "rgp-1".into(), agent_pattern: "agent-*".into() },
+            MemoryEventType::RetentionGovernanceEvaluated { entry_id: "e1".into(), decision: "Retain".into(), policy_ref: "rp-1".into() },
+            MemoryEventType::RetentionSweepExecuted { sweep_id: "sw-1".into(), entries_scanned: "100".into(), entries_expired: "5".into() },
+            MemoryEventType::RetentionComplianceAssessed { policy_id: "rp-1".into(), compliance_rate: "0.95".into() },
+            MemoryEventType::RetrievalGovernanceEvaluated { request_id: "rr-1".into(), decision: "Permit".into(), policy_ref: "rgp-1".into() },
+            MemoryEventType::RetrievalGovernanceDenied { request_id: "rr-2".into(), reason: "collection denied".into(), policy_ref: "rgp-1".into() },
+            MemoryEventType::CollectionPolicyRegistered { collection_id: "docs".into(), policy_id: "cp-1".into() },
+            MemoryEventType::CollectionPolicyRemoved { collection_id: "docs".into() },
+            MemoryEventType::ScopeAccessGovernanceEvaluated { scope_id: "s1".into(), requester_id: "a1".into(), decision: "Granted".into() },
+            MemoryEventType::ScopeHealthAssessed { scope_id: "s1".into(), status: "Healthy".into() },
+            MemoryEventType::MemoryGovernanceExported { format: "JSON".into(), record_count: "42".into() },
+            MemoryEventType::MemoryGovernanceExportFailed { format: "JSON".into(), reason: "serialization error".into() },
+            MemoryEventType::MemoryGovernanceMetricsComputed { collector_id: "m1".into(), metric_name: "retention_rate".into(), value: "0.95".into() },
+            MemoryEventType::MemoryGovernanceSubscriberRegistered { subscriber_id: "sub-1".into() },
+            MemoryEventType::MemoryGovernanceSubscriberRemoved { subscriber_id: "sub-1".into() },
+            MemoryEventType::MemoryGovernanceEventPublished { event_type: "EntryStored".into(), subscriber_count: "3".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 34);
+        assert_eq!(types.len(), 57);
     }
 
     #[test]
@@ -527,11 +715,35 @@ mod tests {
             MemoryEventType::RetrievalEvaluated { request_id: "r".into(), decision: "P".into() },
             MemoryEventType::SensitivityClearanceChecked { requester_id: "a".into(), required_level: "S".into(), result: "C".into() },
             MemoryEventType::MemoryMetricsComputed { metric_name: "m".into(), value: "1".into() },
+            // L3
+            MemoryEventType::MemoryGovernanceBackendChanged { backend_id: "b".into(), backend_type: "I".into() },
+            MemoryEventType::StoredMemoryEntryCreated { entry_id: "e".into(), scope_id: "s".into(), content_hash: "h".into() },
+            MemoryEventType::StoredMemoryEntryRetrieved { entry_id: "e".into(), accessor: "a".into() },
+            MemoryEventType::StoredMemoryEntryDeleted { entry_id: "e".into(), reason: "r".into() },
+            MemoryEventType::StoredMemoryScopeCreated { scope_id: "s".into(), scope_type: "t".into() },
+            MemoryEventType::StoredRetentionPolicyRegistered { policy_id: "p".into(), scope_pattern: "s".into() },
+            MemoryEventType::StoredRedactionPolicyRegistered { policy_id: "p".into() },
+            MemoryEventType::StoredRetrievalPolicyRegistered { policy_id: "p".into(), agent_pattern: "a".into() },
+            MemoryEventType::RetentionGovernanceEvaluated { entry_id: "e".into(), decision: "R".into(), policy_ref: "p".into() },
+            MemoryEventType::RetentionSweepExecuted { sweep_id: "sw".into(), entries_scanned: "1".into(), entries_expired: "0".into() },
+            MemoryEventType::RetentionComplianceAssessed { policy_id: "p".into(), compliance_rate: "1".into() },
+            MemoryEventType::RetrievalGovernanceEvaluated { request_id: "r".into(), decision: "P".into(), policy_ref: "p".into() },
+            MemoryEventType::RetrievalGovernanceDenied { request_id: "r".into(), reason: "n".into(), policy_ref: "p".into() },
+            MemoryEventType::CollectionPolicyRegistered { collection_id: "c".into(), policy_id: "p".into() },
+            MemoryEventType::CollectionPolicyRemoved { collection_id: "c".into() },
+            MemoryEventType::ScopeAccessGovernanceEvaluated { scope_id: "s".into(), requester_id: "r".into(), decision: "G".into() },
+            MemoryEventType::ScopeHealthAssessed { scope_id: "s".into(), status: "H".into() },
+            MemoryEventType::MemoryGovernanceExported { format: "J".into(), record_count: "1".into() },
+            MemoryEventType::MemoryGovernanceExportFailed { format: "J".into(), reason: "e".into() },
+            MemoryEventType::MemoryGovernanceMetricsComputed { collector_id: "m".into(), metric_name: "n".into(), value: "1".into() },
+            MemoryEventType::MemoryGovernanceSubscriberRegistered { subscriber_id: "s".into() },
+            MemoryEventType::MemoryGovernanceSubscriberRemoved { subscriber_id: "s".into() },
+            MemoryEventType::MemoryGovernanceEventPublished { event_type: "E".into(), subscriber_count: "1".into() },
         ];
         for event in &events {
             assert!(!event.type_name().is_empty());
         }
-        assert_eq!(events.len(), 34);
+        assert_eq!(events.len(), 57);
     }
 
     #[test]
@@ -596,5 +808,75 @@ mod tests {
             MemoryEventType::MemoryMetricsComputed { metric_name: "m".into(), value: "1".into() }.kind(),
             "metrics"
         );
+    }
+
+    #[test]
+    fn test_l3_kind_backend() {
+        assert_eq!(
+            MemoryEventType::MemoryGovernanceBackendChanged { backend_id: "b".into(), backend_type: "I".into() }.kind(),
+            "backend"
+        );
+        assert!(MemoryEventType::StoredMemoryEntryCreated { entry_id: "e".into(), scope_id: "s".into(), content_hash: "h".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_l3_kind_retention_governance() {
+        assert_eq!(
+            MemoryEventType::RetentionGovernanceEvaluated { entry_id: "e".into(), decision: "R".into(), policy_ref: "p".into() }.kind(),
+            "retention_governance"
+        );
+        assert!(MemoryEventType::RetentionSweepExecuted { sweep_id: "sw".into(), entries_scanned: "1".into(), entries_expired: "0".into() }.is_retention_governance_event());
+    }
+
+    #[test]
+    fn test_l3_kind_retrieval_governance() {
+        assert_eq!(
+            MemoryEventType::RetrievalGovernanceEvaluated { request_id: "r".into(), decision: "P".into(), policy_ref: "p".into() }.kind(),
+            "retrieval_governance"
+        );
+        assert!(MemoryEventType::CollectionPolicyRegistered { collection_id: "c".into(), policy_id: "p".into() }.is_retrieval_governance_event());
+    }
+
+    #[test]
+    fn test_l3_kind_scope_governance() {
+        assert_eq!(
+            MemoryEventType::ScopeAccessGovernanceEvaluated { scope_id: "s".into(), requester_id: "r".into(), decision: "G".into() }.kind(),
+            "scope_governance"
+        );
+        assert!(MemoryEventType::ScopeHealthAssessed { scope_id: "s".into(), status: "H".into() }.is_scope_governance_event());
+    }
+
+    #[test]
+    fn test_l3_kind_export() {
+        assert!(MemoryEventType::MemoryGovernanceExported { format: "J".into(), record_count: "1".into() }.is_export_event());
+        assert!(MemoryEventType::MemoryGovernanceExportFailed { format: "J".into(), reason: "e".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_l3_kind_governance_metrics() {
+        assert!(MemoryEventType::MemoryGovernanceMetricsComputed { collector_id: "m".into(), metric_name: "n".into(), value: "1".into() }.is_metrics_event());
+    }
+
+    #[test]
+    fn test_l3_kind_event_stream() {
+        assert_eq!(
+            MemoryEventType::MemoryGovernanceSubscriberRegistered { subscriber_id: "s".into() }.kind(),
+            "event_stream"
+        );
+        assert_eq!(
+            MemoryEventType::MemoryGovernanceEventPublished { event_type: "E".into(), subscriber_count: "1".into() }.kind(),
+            "event_stream"
+        );
+    }
+
+    #[test]
+    fn test_l3_is_classifiers_negative() {
+        let entry_event = MemoryEventType::MemoryEntryCreated { entry_id: "e".into(), scope_id: "s".into() };
+        assert!(!entry_event.is_backend_event());
+        assert!(!entry_event.is_retention_governance_event());
+        assert!(!entry_event.is_retrieval_governance_event());
+        assert!(!entry_event.is_scope_governance_event());
+        assert!(!entry_event.is_export_event());
+        assert!(!entry_event.is_metrics_event());
     }
 }
