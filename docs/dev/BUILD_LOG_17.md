@@ -1,6 +1,7 @@
 # RUNE Build Log 17
 
 > Previous file: [BUILD_LOG_16.md](BUILD_LOG_16.md)
+> Next file: [BUILD_LOG_18.md](BUILD_LOG_18.md)
 
 ---
 

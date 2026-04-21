@@ -39,6 +39,29 @@ pub enum SafetyEventType {
     ApprovalGateCreated { gate_id: String, gate_type: String },
     ApprovalRequested { gate_id: String, decision_id: String },
     ApprovalDecided { gate_id: String, decision_id: String, status: String },
+    // ── Layer 3 event types ─────────────────────────────────────
+    SafetyBackendChanged { backend_id: String },
+    SafetyConstraintStored { constraint_id: String, category: String },
+    SafetyConstraintRetrieved { constraint_id: String },
+    SafetyEnvelopeStored { envelope_id: String, system_id: String },
+    SafetyEnvelopeStatusChecked { envelope_id: String, status: String },
+    StoredSafetyCaseCreated { case_id: String, methodology: String },
+    StoredSafetyCaseFinalized { case_id: String },
+    StoredSafetyCaseChallenged { case_id: String, reason: String },
+    BoundaryViolationRecorded { violation_id: String, envelope_id: String },
+    BoundaryViolationResolved { violation_id: String },
+    EmergencyShutdownInitiated { shutdown_id: String, system_id: String },
+    EmergencyShutdownCompleted { shutdown_id: String },
+    EmergencyShutdownFailed { shutdown_id: String, reason: String },
+    ReauthorizationRequested { shutdown_id: String, by: String },
+    ReauthorizationGranted { shutdown_id: String, by: String },
+    SafetyResponseRecommended { system_id: String, response: String },
+    SafetyDataExported { format: String, system_id: String },
+    SafetyDataExportFailed { format: String, reason: String },
+    OperationalSafetyMetricsComputed { system_id: String, snapshot_id: String },
+    SafetySubscriberRegistered { subscriber_id: String },
+    SafetySubscriberRemoved { subscriber_id: String },
+    SafetyLifecycleEventPublished { event_count: String },
 }
 
 impl fmt::Display for SafetyEventType {
@@ -122,7 +145,150 @@ impl fmt::Display for SafetyEventType {
             Self::ApprovalDecided { gate_id, decision_id, status } => {
                 write!(f, "ApprovalDecided({gate_id}, {decision_id}, {status})")
             }
+            // L3 variants — delegate to type_name for consistency
+            Self::SafetyBackendChanged { .. }
+            | Self::SafetyConstraintStored { .. }
+            | Self::SafetyConstraintRetrieved { .. }
+            | Self::SafetyEnvelopeStored { .. }
+            | Self::SafetyEnvelopeStatusChecked { .. }
+            | Self::StoredSafetyCaseCreated { .. }
+            | Self::StoredSafetyCaseFinalized { .. }
+            | Self::StoredSafetyCaseChallenged { .. }
+            | Self::BoundaryViolationRecorded { .. }
+            | Self::BoundaryViolationResolved { .. }
+            | Self::EmergencyShutdownInitiated { .. }
+            | Self::EmergencyShutdownCompleted { .. }
+            | Self::EmergencyShutdownFailed { .. }
+            | Self::ReauthorizationRequested { .. }
+            | Self::ReauthorizationGranted { .. }
+            | Self::SafetyResponseRecommended { .. }
+            | Self::SafetyDataExported { .. }
+            | Self::SafetyDataExportFailed { .. }
+            | Self::OperationalSafetyMetricsComputed { .. }
+            | Self::SafetySubscriberRegistered { .. }
+            | Self::SafetySubscriberRemoved { .. }
+            | Self::SafetyLifecycleEventPublished { .. } => {
+                f.write_str(self.type_name())
+            }
         }
+    }
+}
+
+impl SafetyEventType {
+    pub fn type_name(&self) -> &str {
+        match self {
+            Self::ConstraintViolated { .. } => "constraint-violated",
+            Self::ConstraintSatisfied { .. } => "constraint-satisfied",
+            Self::MonitorTriggered { .. } => "monitor-triggered",
+            Self::MonitorReset { .. } => "monitor-reset",
+            Self::FailsafeActivated { .. } => "failsafe-activated",
+            Self::HazardIdentified { .. } => "hazard-identified",
+            Self::HazardMitigated { .. } => "hazard-mitigated",
+            Self::BoundaryBreached { .. } => "boundary-breached",
+            Self::BoundaryRestored { .. } => "boundary-restored",
+            Self::SafetyAssessed { .. } => "safety-assessed",
+            Self::SafetyCaseUpdated { .. } => "safety-case-updated",
+            Self::BoundaryDefined { .. } => "boundary-defined",
+            Self::BoundaryViolationDetected { .. } => "boundary-violation-detected",
+            Self::BoundaryCheckPassed { .. } => "boundary-check-passed",
+            Self::ConstraintVerified { .. } => "constraint-verified",
+            Self::ConstraintVerificationReport { .. } => "constraint-verification-report",
+            Self::SafetyTestRun { .. } => "safety-test-run",
+            Self::SafetyTestSuiteCompleted { .. } => "safety-test-suite-completed",
+            Self::SafetyIncidentReported { .. } => "safety-incident-reported",
+            Self::SafetyIncidentResolved { .. } => "safety-incident-resolved",
+            Self::CorrectiveActionAdded { .. } => "corrective-action-added",
+            Self::SafetyMetricsComputed { .. } => "safety-metrics-computed",
+            Self::SafetyTrendDetected { .. } => "safety-trend-detected",
+            Self::ApprovalGateCreated { .. } => "approval-gate-created",
+            Self::ApprovalRequested { .. } => "approval-requested",
+            Self::ApprovalDecided { .. } => "approval-decided",
+            // L3
+            Self::SafetyBackendChanged { .. } => "safety-backend-changed",
+            Self::SafetyConstraintStored { .. } => "safety-constraint-stored",
+            Self::SafetyConstraintRetrieved { .. } => "safety-constraint-retrieved",
+            Self::SafetyEnvelopeStored { .. } => "safety-envelope-stored",
+            Self::SafetyEnvelopeStatusChecked { .. } => "safety-envelope-status-checked",
+            Self::StoredSafetyCaseCreated { .. } => "stored-safety-case-created",
+            Self::StoredSafetyCaseFinalized { .. } => "stored-safety-case-finalized",
+            Self::StoredSafetyCaseChallenged { .. } => "stored-safety-case-challenged",
+            Self::BoundaryViolationRecorded { .. } => "boundary-violation-recorded",
+            Self::BoundaryViolationResolved { .. } => "boundary-violation-resolved",
+            Self::EmergencyShutdownInitiated { .. } => "emergency-shutdown-initiated",
+            Self::EmergencyShutdownCompleted { .. } => "emergency-shutdown-completed",
+            Self::EmergencyShutdownFailed { .. } => "emergency-shutdown-failed",
+            Self::ReauthorizationRequested { .. } => "reauthorization-requested",
+            Self::ReauthorizationGranted { .. } => "reauthorization-granted",
+            Self::SafetyResponseRecommended { .. } => "safety-response-recommended",
+            Self::SafetyDataExported { .. } => "safety-data-exported",
+            Self::SafetyDataExportFailed { .. } => "safety-data-export-failed",
+            Self::OperationalSafetyMetricsComputed { .. } => "operational-safety-metrics-computed",
+            Self::SafetySubscriberRegistered { .. } => "safety-subscriber-registered",
+            Self::SafetySubscriberRemoved { .. } => "safety-subscriber-removed",
+            Self::SafetyLifecycleEventPublished { .. } => "safety-lifecycle-event-published",
+        }
+    }
+
+    pub fn kind(&self) -> &str {
+        self.type_name()
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SafetyBackendChanged { .. }
+                | Self::SafetyConstraintStored { .. }
+                | Self::SafetyConstraintRetrieved { .. }
+                | Self::SafetyEnvelopeStored { .. }
+        )
+    }
+
+    pub fn is_envelope_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SafetyEnvelopeStatusChecked { .. }
+                | Self::SafetyResponseRecommended { .. }
+        )
+    }
+
+    pub fn is_case_event(&self) -> bool {
+        matches!(
+            self,
+            Self::StoredSafetyCaseCreated { .. }
+                | Self::StoredSafetyCaseFinalized { .. }
+                | Self::StoredSafetyCaseChallenged { .. }
+        )
+    }
+
+    pub fn is_shutdown_event(&self) -> bool {
+        matches!(
+            self,
+            Self::EmergencyShutdownInitiated { .. }
+                | Self::EmergencyShutdownCompleted { .. }
+                | Self::EmergencyShutdownFailed { .. }
+                | Self::ReauthorizationRequested { .. }
+                | Self::ReauthorizationGranted { .. }
+        )
+    }
+
+    pub fn is_violation_event(&self) -> bool {
+        matches!(
+            self,
+            Self::BoundaryViolationRecorded { .. }
+                | Self::BoundaryViolationResolved { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::SafetyDataExported { .. }
+                | Self::SafetyDataExportFailed { .. }
+        )
+    }
+
+    pub fn is_metrics_event(&self) -> bool {
+        matches!(self, Self::OperationalSafetyMetricsComputed { .. })
     }
 }
 
@@ -436,6 +602,83 @@ mod tests {
             assert!(!t.to_string().is_empty());
         }
         assert_eq!(types.len(), 26);
+    }
+
+    #[test]
+    fn test_l3_event_type_display_and_kind() {
+        let l3_types = vec![
+            SafetyEventType::SafetyBackendChanged { backend_id: "b".into() },
+            SafetyEventType::SafetyConstraintStored { constraint_id: "c".into(), category: "op".into() },
+            SafetyEventType::SafetyConstraintRetrieved { constraint_id: "c".into() },
+            SafetyEventType::SafetyEnvelopeStored { envelope_id: "e".into(), system_id: "s".into() },
+            SafetyEventType::SafetyEnvelopeStatusChecked { envelope_id: "e".into(), status: "ok".into() },
+            SafetyEventType::StoredSafetyCaseCreated { case_id: "sc".into(), methodology: "GSN".into() },
+            SafetyEventType::StoredSafetyCaseFinalized { case_id: "sc".into() },
+            SafetyEventType::StoredSafetyCaseChallenged { case_id: "sc".into(), reason: "r".into() },
+            SafetyEventType::BoundaryViolationRecorded { violation_id: "v".into(), envelope_id: "e".into() },
+            SafetyEventType::BoundaryViolationResolved { violation_id: "v".into() },
+            SafetyEventType::EmergencyShutdownInitiated { shutdown_id: "sd".into(), system_id: "s".into() },
+            SafetyEventType::EmergencyShutdownCompleted { shutdown_id: "sd".into() },
+            SafetyEventType::EmergencyShutdownFailed { shutdown_id: "sd".into(), reason: "r".into() },
+            SafetyEventType::ReauthorizationRequested { shutdown_id: "sd".into(), by: "a".into() },
+            SafetyEventType::ReauthorizationGranted { shutdown_id: "sd".into(), by: "a".into() },
+            SafetyEventType::SafetyResponseRecommended { system_id: "s".into(), response: "degrade".into() },
+            SafetyEventType::SafetyDataExported { format: "JSON".into(), system_id: "s".into() },
+            SafetyEventType::SafetyDataExportFailed { format: "JSON".into(), reason: "r".into() },
+            SafetyEventType::OperationalSafetyMetricsComputed { system_id: "s".into(), snapshot_id: "snap".into() },
+            SafetyEventType::SafetySubscriberRegistered { subscriber_id: "sub".into() },
+            SafetyEventType::SafetySubscriberRemoved { subscriber_id: "sub".into() },
+            SafetyEventType::SafetyLifecycleEventPublished { event_count: "5".into() },
+        ];
+        for t in &l3_types {
+            assert!(!t.to_string().is_empty(), "Display empty for {:?}", t);
+            assert!(!t.kind().is_empty(), "kind() empty for {:?}", t);
+            assert!(!t.type_name().is_empty());
+        }
+        assert_eq!(l3_types.len(), 22);
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        assert!(SafetyEventType::SafetyBackendChanged { backend_id: "b".into() }.is_backend_event());
+        assert!(SafetyEventType::SafetyConstraintStored { constraint_id: "c".into(), category: "o".into() }.is_backend_event());
+        assert!(!SafetyEventType::EmergencyShutdownInitiated { shutdown_id: "s".into(), system_id: "x".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_envelope_event() {
+        assert!(SafetyEventType::SafetyEnvelopeStatusChecked { envelope_id: "e".into(), status: "s".into() }.is_envelope_event());
+        assert!(!SafetyEventType::SafetyBackendChanged { backend_id: "b".into() }.is_envelope_event());
+    }
+
+    #[test]
+    fn test_is_case_event() {
+        assert!(SafetyEventType::StoredSafetyCaseCreated { case_id: "c".into(), methodology: "m".into() }.is_case_event());
+        assert!(SafetyEventType::StoredSafetyCaseFinalized { case_id: "c".into() }.is_case_event());
+        assert!(SafetyEventType::StoredSafetyCaseChallenged { case_id: "c".into(), reason: "r".into() }.is_case_event());
+    }
+
+    #[test]
+    fn test_is_shutdown_event() {
+        assert!(SafetyEventType::EmergencyShutdownInitiated { shutdown_id: "s".into(), system_id: "x".into() }.is_shutdown_event());
+        assert!(SafetyEventType::ReauthorizationGranted { shutdown_id: "s".into(), by: "a".into() }.is_shutdown_event());
+    }
+
+    #[test]
+    fn test_is_violation_event() {
+        assert!(SafetyEventType::BoundaryViolationRecorded { violation_id: "v".into(), envelope_id: "e".into() }.is_violation_event());
+        assert!(SafetyEventType::BoundaryViolationResolved { violation_id: "v".into() }.is_violation_event());
+    }
+
+    #[test]
+    fn test_is_export_event() {
+        assert!(SafetyEventType::SafetyDataExported { format: "j".into(), system_id: "s".into() }.is_export_event());
+        assert!(SafetyEventType::SafetyDataExportFailed { format: "j".into(), reason: "r".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_is_metrics_event() {
+        assert!(SafetyEventType::OperationalSafetyMetricsComputed { system_id: "s".into(), snapshot_id: "snap".into() }.is_metrics_event());
     }
 
     #[test]

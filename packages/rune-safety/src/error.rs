@@ -23,6 +23,10 @@ pub enum SafetyError {
     // ── Layer 2 ──────────────────────────────────────────────────
     GateNotFound(String),
     ApprovalNotFound(String),
+    // ── Layer 3 ──────────────────────────────────────────────────
+    SerializationFailed(String),
+    EnvelopeNotFound(String),
+    ShutdownNotFound(String),
 }
 
 impl fmt::Display for SafetyError {
@@ -46,6 +50,9 @@ impl fmt::Display for SafetyError {
             Self::InvalidOperation(reason) => write!(f, "Invalid operation: {reason}"),
             Self::GateNotFound(id) => write!(f, "Gate not found: {id}"),
             Self::ApprovalNotFound(id) => write!(f, "Approval not found: {id}"),
+            Self::SerializationFailed(reason) => write!(f, "serialization failed: {reason}"),
+            Self::EnvelopeNotFound(id) => write!(f, "envelope not found: {id}"),
+            Self::ShutdownNotFound(id) => write!(f, "shutdown not found: {id}"),
         }
     }
 }
@@ -79,10 +86,13 @@ mod tests {
             SafetyError::InvalidOperation("r".into()),
             SafetyError::GateNotFound("g1".into()),
             SafetyError::ApprovalNotFound("a1".into()),
+            SafetyError::SerializationFailed("s".into()),
+            SafetyError::EnvelopeNotFound("e".into()),
+            SafetyError::ShutdownNotFound("sd".into()),
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
         }
-        assert_eq!(variants.len(), 16);
+        assert_eq!(variants.len(), 19);
     }
 }

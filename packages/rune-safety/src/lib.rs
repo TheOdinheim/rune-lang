@@ -76,3 +76,46 @@ pub use l2_incident::{
 pub use l2_test_harness::{
     SafetyTestCase, SafetyTestCategory, SafetyTestResult, SafetyTestRunner, SafetyTestSuite,
 };
+
+// ── Layer 3 modules ─────────────────────────────────────────────────
+pub mod backend;
+pub mod emergency_shutdown;
+pub mod safety_case_builder;
+pub mod safety_envelope;
+pub mod safety_export;
+pub mod safety_metrics;
+pub mod safety_stream;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    ConstraintCategory, ConstraintSeverityLevel, InMemorySafetyBackend, SafetyBackend,
+    SafetyBackendInfo, SafetyCaseMethodology, SafetyCaseRecordStatus, ShutdownType,
+    StoredBoundaryViolationRecord, StoredEnvelopeStatus, StoredSafetyCaseRecord,
+    StoredSafetyConstraint, StoredSafetyEnvelope, StoredShutdownRecord,
+};
+pub use emergency_shutdown::{
+    AuditedEmergencyShutdownController, EmergencyShutdownController,
+    InMemoryEmergencyShutdownController, NullEmergencyShutdownController, ShutdownHandle,
+    ShutdownStatus,
+};
+pub use safety_case_builder::{
+    CompletenessAssessment, InMemorySafetyCaseBuilder, NullSafetyCaseBuilder, SafetyArgument,
+    SafetyArgumentType, SafetyCaseBuilder, SafetyClaim, SafetyClaimStatus, SafetyClaimType,
+};
+pub use safety_envelope::{
+    EnvelopeConstraintEntry, EnvelopeStatus, InMemorySafetyEnvelopeMonitor,
+    NullSafetyEnvelopeMonitor, RecommendedSafetyResponse, SafetyEnvelopeMonitor,
+    ThresholdBasedSafetyEnvelopeMonitor, ThresholdComparison,
+};
+pub use safety_export::{
+    BowTieExporter, GsnXmlExporter, IncidentReportExporter, JsonSafetyExporter,
+    SafetyCaseReportExporter, SafetyExporter,
+};
+pub use safety_metrics::{
+    InMemorySafetyMetricsCollector, NullSafetyMetricsCollector, SafetyMetricSnapshot,
+    SafetyMetricsCollector,
+};
+pub use safety_stream::{
+    FilteredSafetyEventSubscriber, SafetyEventCollector, SafetyEventSubscriber,
+    SafetyEventSubscriberRegistry, SafetyLifecycleEvent, SafetyLifecycleEventType,
+};
