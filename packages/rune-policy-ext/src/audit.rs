@@ -49,8 +49,8 @@ pub enum PolicyExtEventType {
     PackageVersionResolved { name: String, namespace: String, resolved_version: String },
     RuleSetStored { rule_set_id: String, package_id: String },
     PackageComposed { source_count: usize, strategy: String },
-    L3PolicyConflictDetected { conflict_id: String, conflict_type: String },
-    L3PolicyConflictResolved { conflict_id: String, resolution_strategy: String },
+    PackagePolicyConflictDetected { conflict_id: String, conflict_type: String },
+    PackagePolicyConflictResolved { conflict_id: String, resolution_strategy: String },
     PackagePublishedToRegistry { package_id: String, registry_id: String },
     PackageUnpublishedFromRegistry { package_id: String, registry_id: String },
     PackageSignatureVerified { package_id: String, signer: String },
@@ -160,10 +160,10 @@ impl fmt::Display for PolicyExtEventType {
             Self::PackageComposed { source_count, strategy } => {
                 write!(f, "package-composed:{source_count} packages [{strategy}]")
             }
-            Self::L3PolicyConflictDetected { conflict_id, conflict_type } => {
+            Self::PackagePolicyConflictDetected { conflict_id, conflict_type } => {
                 write!(f, "package-conflict-detected:{conflict_id} [{conflict_type}]")
             }
-            Self::L3PolicyConflictResolved { conflict_id, resolution_strategy } => {
+            Self::PackagePolicyConflictResolved { conflict_id, resolution_strategy } => {
                 write!(f, "package-conflict-resolved:{conflict_id} [{resolution_strategy}]")
             }
             Self::PackagePublishedToRegistry { package_id, registry_id } => {
@@ -257,8 +257,8 @@ impl PolicyExtEventType {
             Self::PackageVersionResolved { .. } => "package-version-resolved",
             Self::RuleSetStored { .. } => "rule-set-stored",
             Self::PackageComposed { .. } => "package-composed",
-            Self::L3PolicyConflictDetected { .. } => "package-conflict-detected",
-            Self::L3PolicyConflictResolved { .. } => "package-conflict-resolved",
+            Self::PackagePolicyConflictDetected { .. } => "package-conflict-detected",
+            Self::PackagePolicyConflictResolved { .. } => "package-conflict-resolved",
             Self::PackagePublishedToRegistry { .. } => "package-published-to-registry",
             Self::PackageUnpublishedFromRegistry { .. } => "package-unpublished-from-registry",
             Self::PackageSignatureVerified { .. } => "package-signature-verified",
@@ -312,8 +312,8 @@ impl PolicyExtEventType {
         matches!(
             self,
             Self::PackageComposed { .. }
-                | Self::L3PolicyConflictDetected { .. }
-                | Self::L3PolicyConflictResolved { .. }
+                | Self::PackagePolicyConflictDetected { .. }
+                | Self::PackagePolicyConflictResolved { .. }
         )
     }
 
@@ -587,8 +587,8 @@ mod tests {
             PolicyExtEventType::PackageVersionResolved { name: "access".into(), namespace: "org".into(), resolved_version: "1.0.0".into() },
             PolicyExtEventType::RuleSetStored { rule_set_id: "rs-1".into(), package_id: "pkg-1".into() },
             PolicyExtEventType::PackageComposed { source_count: 3, strategy: "union".into() },
-            PolicyExtEventType::L3PolicyConflictDetected { conflict_id: "c-1".into(), conflict_type: "overlapping-scope".into() },
-            PolicyExtEventType::L3PolicyConflictResolved { conflict_id: "c-1".into(), resolution_strategy: "prefer-newer".into() },
+            PolicyExtEventType::PackagePolicyConflictDetected { conflict_id: "c-1".into(), conflict_type: "overlapping-scope".into() },
+            PolicyExtEventType::PackagePolicyConflictResolved { conflict_id: "c-1".into(), resolution_strategy: "prefer-newer".into() },
             PolicyExtEventType::PackagePublishedToRegistry { package_id: "pkg-1".into(), registry_id: "reg-1".into() },
             PolicyExtEventType::PackageUnpublishedFromRegistry { package_id: "pkg-1".into(), registry_id: "reg-1".into() },
             PolicyExtEventType::PackageSignatureVerified { package_id: "pkg-1".into(), signer: "admin".into() },
@@ -640,7 +640,7 @@ mod tests {
     #[test]
     fn test_is_composition_event() {
         assert!(PolicyExtEventType::PackageComposed { source_count: 2, strategy: "union".into() }.is_composition_event());
-        assert!(PolicyExtEventType::L3PolicyConflictDetected { conflict_id: "c".into(), conflict_type: "t".into() }.is_composition_event());
+        assert!(PolicyExtEventType::PackagePolicyConflictDetected { conflict_id: "c".into(), conflict_type: "t".into() }.is_composition_event());
         assert!(!PolicyExtEventType::PackageExported { package_id: "p".into(), format: "f".into() }.is_composition_event());
     }
 

@@ -291,7 +291,7 @@ rune-policy-ext handles policy packaging, versioning, distribution, and composit
 
 ### Audit Changes
 
-26 new `PolicyExtEventType` variants: `PolicyPackageBackendChanged`, `PolicyPackageStored`, `PolicyPackageRetrieved`, `PolicyPackageDeleted`, `PolicyPackageListed`, `RuleSetStored`, `RuleSetRetrieved`, `EvaluationRecordStored`, `PackageSignatureStored`, `PolicyPackageComposed`, `PackageCompositionStrategyApplied`, `L3PolicyConflictDetected`, `L3PolicyConflictResolved`, `PolicyPackagePublished`, `PolicyPackageLookedUp`, `PolicyPackageSubscribed`, `PolicyPackageUnpublished`, `PolicyPackageIntegrityVerified`, `PolicyPackageExported`, `PolicyPackageExportFailed`, `ExternalEvaluationSubmitted`, `ExternalEvaluationCompleted`, `ExternalEvaluationCancelled`, `PolicyLifecycleEventPublished`, `PolicyPackageValidated`, `PolicyPackageValidationFailed`.
+26 new `PolicyExtEventType` variants: `PolicyPackageBackendChanged`, `PolicyPackageStored`, `PolicyPackageRetrieved`, `PolicyPackageDeleted`, `PolicyPackageListed`, `RuleSetStored`, `RuleSetRetrieved`, `EvaluationRecordStored`, `PackageSignatureStored`, `PolicyPackageComposed`, `PackageCompositionStrategyApplied`, `PackagePolicyConflictDetected`, `PackagePolicyConflictResolved`, `PolicyPackagePublished`, `PolicyPackageLookedUp`, `PolicyPackageSubscribed`, `PolicyPackageUnpublished`, `PolicyPackageIntegrityVerified`, `PolicyPackageExported`, `PolicyPackageExportFailed`, `ExternalEvaluationSubmitted`, `ExternalEvaluationCompleted`, `ExternalEvaluationCancelled`, `PolicyLifecycleEventPublished`, `PolicyPackageValidated`, `PolicyPackageValidationFailed`.
 
 Public `kind()` method and 7 classification methods: `is_backend_event`, `is_package_event`, `is_composition_event`, `is_registry_event`, `is_evaluation_event`, `is_export_event`, `is_validation_event`.
 
@@ -306,7 +306,7 @@ Two new `PolicyExtError` variants: `SerializationFailed(String)`, `PackageNotFou
 | `CompositionStrategy` (rule-level, 4 variants) | `PackageCompositionStrategy` (package-level) | L1 composes rules within a policy; L3 composes entire packages |
 | `PolicyConflict` / `L2PolicyConflict` | `PackagePolicyConflict` | L3 detects conflicts between packages, not individual rules |
 | `ConflictResolutionStrategy` (L2) | `PackageConflictResolutionStrategy` | Follows `PackagePolicyConflict` naming |
-| `PolicyConflictDetected` / `PolicyConflictResolved` (L2 audit) | `L3PolicyConflictDetected` / `L3PolicyConflictResolved` | Only L3-prefixed variants — necessary to avoid audit collision |
+| `PolicyConflictDetected` / `PolicyConflictResolved` (L2 audit) | `PackagePolicyConflictDetected` / `PackagePolicyConflictResolved` | Descriptive `Package` prefix matches `PackagePolicyConflict` type; corrected from initial `L3`-prefix per house style (see naming correction below) |
 
 ### Design Decisions
 
@@ -321,3 +321,22 @@ Two new `PolicyExtError` variants: `SerializationFailed(String)`, `PackageNotFou
 - **rune-permissions**: ExternalEvaluatorIntegration prepares payloads but never decides — rune-permissions owns XACML four-outcome model (Permit/Deny/Indeterminate/NotApplicable)
 - **rune-provenance**: StoredPackageSignature.signature_ref preserved across all export formats for provenance chain continuity
 - **rune-framework**: PolicyLifecycleEventType and PolicyPackageBackendInfo available for Layer 5 governance pipeline integration
+
+---
+
+## Naming Discipline Correction — rune-policy-ext audit variants
+
+**Date**: 2026-04-20
+
+### Renamed Variants
+
+| Before | After | Rationale |
+|---|---|---|
+| `L3PolicyConflictDetected` | `PackagePolicyConflictDetected` | Descriptive `Package` qualifier matches the `PackagePolicyConflict` type these variants audit; aligns with house style established by naming corrections at libraries eleven (rune-truth, 64ca188) and twelve (rune-security, 27472d3) |
+| `L3PolicyConflictResolved` | `PackagePolicyConflictResolved` | Same rationale — `Package` prefix distinguishes from L1 rule-level `PolicyConflictDetected` and L2 `PolicyConflictResolved` without resorting to layer-number prefixes |
+
+### Verification
+
+- Test count unchanged at 235 (140 baseline + 95 L3)
+- Zero references to old `L3PolicyConflict*` names remain in the workspace
+- The original rune-policy-ext Layer 3 entry above remains in place for historical accuracy; this correction supersedes the old names and re-establishes the descriptive-qualifier convention for the four remaining libraries (rune-framework, rune-safety, rune-agents, rune-networking-ext)
