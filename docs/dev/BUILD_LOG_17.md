@@ -213,3 +213,56 @@ Classification methods on ExplainabilityEventType: kind(), is_backend_event, is_
 - **rune-truth**: Claim justification explanations via SubjectIdRef
 - **rune-provenance**: DepthLimitedReasoningTraceRecorder follows DepthLimitedLineageTracker pattern
 - **rune-framework**: ExplanationLifecycleEventType and ExplanationBackendInfo available for Layer 5 governance pipeline integration
+
+---
+
+## rune-document Layer 3
+
+**Test count**: 151 → 246 (+95 tests, zero failures)
+
+### New Modules
+
+| Module | Primary types |
+|---|---|
+| `backend.rs` | `DocumentBackend` trait (21 methods), `StoredDocumentCategory` (9 variants), `ClassificationLevel` (5 variants), `StoredDocumentRecord`, `StoredDocumentVersion`, `StoredContentBlob`, `StoredDocumentRetentionRecord`, `DocumentBackendInfo`, `InMemoryDocumentBackend` |
+| `document_export.rs` | `DocumentExporter` trait (5 methods), `ExportableDocument`, `JsonDocumentExporter`, `PdfAExporter` (ISO 19005-3), `DitaTopicExporter` (OASIS DITA 1.3), `DocbookExporter` (DocBook 5.1), `AtomFeedExporter` (RFC 4287 Atom 1.0) |
+| `content_ingestion.rs` | `ContentIngestor` trait (5 methods), `ContentSourceFormat` (10 variants), `NormalizedContent`, `MarkdownContentIngestor`, `PlainTextContentIngestor`, `HtmlContentIngestor` (entity decoding + whitespace collapse), `NullContentIngestor` |
+| `version_control.rs` | `DocumentVersionController` trait (8 methods), `FieldChangeType` (3 variants), `MetadataFieldChange`, `ChronologicalOrder`, `VersionComparison`, `DocumentTag`, `InMemoryDocumentVersionController` (lineage chain), `LinearDocumentVersionController` (rejects branching), `NullDocumentVersionController` |
+| `retention_integration.rs` | `RetentionPolicyLinker` trait (8 methods), `DisposalEligibility` (4 variants), `DisposalRecord` (reuses L2 `DisposalMethod`), `InMemoryRetentionPolicyLinker`, `LegalHoldAwareRetentionPolicyLinker` (composable wrapper blocking disposal under hold), `NullRetentionPolicyLinker` |
+| `document_stream.rs` | `DocumentEventSubscriber` trait (3 methods), `DocumentEventSubscriberRegistry` (register/notify/notify_batch/active_count/remove_inactive), `DocumentEventCollector`, `FilteredDocumentEventSubscriber` (category/classification/event-type filters), `DocumentLifecycleEvent`, `DocumentLifecycleEventType` (18 variants) |
+| `content_format_converter.rs` | `ContentFormatConverter` trait (4 methods), `ConversionPair`, `MarkdownToHtmlConverter` (headings/paragraphs/emphasis/code blocks/lists/links/images), `HtmlToPlainTextConverter` (tag stripping + entity decoding), `NullContentFormatConverter` |
+
+### Audit Changes
+
+22 new `DocumentEventType` variants: `DocumentBackendChanged`, `DocumentRecordStored`, `DocumentRecordRetrieved`, `DocumentRecordDeleted`, `DocumentVersionStored`, `ContentBlobStored`, `DocumentMetadataSearched`, `DocumentExported`, `DocumentExportFailed`, `ContentIngested`, `ContentIngestionFailed`, `VersionControllerActionPerformed`, `DocumentTagCreated`, `VersionComparisonComputed`, `RetentionPolicyLinked`, `RetentionPolicyUnlinked`, `DocumentDisposalRecorded`, `ContentFormatConverted`, `ContentFormatConversionFailed`, `DocumentSubscriberRegistered`, `DocumentSubscriberRemoved`, `DocumentEventPublished`.
+
+Public `kind()` method and 6 classification methods: `is_backend_event`, `is_version_event`, `is_retention_event`, `is_ingestion_event`, `is_conversion_event`, `is_export_event`.
+
+### Error Changes
+
+Two new `DocumentError` variants: `SerializationFailed(String)`, `VersionNotFound(String)`.
+
+### Naming Collision Resolution
+
+| L2 type | L3 type | Rationale |
+|---|---|---|
+| `DocumentCategory` (sensitivity domains) | `StoredDocumentCategory` (functional purpose) | L2 classifies by data sensitivity; L3 categorizes for storage/retrieval |
+| `SensitivityLevel` (with Ord scoring) | `ClassificationLevel` (storage label) | L2 drives risk calculations; L3 drives access control labels |
+| `MetadataChangeType` (nested enums) | `FieldChangeType` (flat for Eq) | L3 flattened to derive Eq for backend compatibility |
+| `MetadataChange` | `MetadataFieldChange` | Follows `FieldChangeType` renaming |
+| `DocumentRetentionRecord` (L2) | `StoredDocumentRetentionRecord` (L3) | `Stored*` prefix for backend-persisted types |
+
+### Design Decisions
+
+- **DisposalMethod reused from L2**: `retention_integration.rs` imports `crate::retention::DisposalMethod` rather than duplicating the enum. DisposalRecord at L3 composes with the L2 enum.
+- **LinearDocumentVersionController**: Wraps InMemoryDocumentVersionController and rejects version creation when a different version already exists for the document — enforces linear history for regulated environments.
+- **LegalHoldAwareRetentionPolicyLinker**: Composable wrapper that short-circuits disposal eligibility to `OnLegalHold` and blocks `record_disposal` when a hold is active.
+- **ContentIngestor scope**: Only Markdown, PlainText, and HTML ingestors shipped. PDF text extraction, DOCX parsing, and email MIME parsing require full format libraries belonging in adapter crates.
+- **MarkdownToHtmlConverter**: Handles headings, paragraphs, emphasis, bold, inline code, fenced code blocks, unordered lists, links, and images using let-chains for Rust 2024 edition.
+- **PDF/A, DITA, DocBook, Atom exporters**: Generate standard-conformant document structures (ISO 19005-3, OASIS DITA 1.3, DocBook 5.1, RFC 4287) with attestation_refs and retention_policy_ref preserved.
+
+### Integration Points
+
+- **rune-privacy**: DisposalRecord.retention_policy_ref is an opaque string for cross-library coupling with rune-privacy retention policies
+- **rune-provenance**: ExportableDocument.attestation_refs preserved across all export formats for provenance chain continuity
+- **rune-framework**: DocumentLifecycleEventType and DocumentBackendInfo available for Layer 5 governance pipeline integration

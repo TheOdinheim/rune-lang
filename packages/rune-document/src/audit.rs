@@ -38,6 +38,29 @@ pub enum DocumentEventType {
     DocumentExpired { doc_id: String, policy_id: String },
     LegalHoldPlaced { doc_id: String, hold_id: String },
     DocumentDisposed { doc_id: String, method: String },
+    // ── Layer 3 event types ─────────────────────────────────────────
+    DocumentBackendChanged { backend_id: String },
+    DocumentRecordStored { doc_id: String, category: String },
+    DocumentRecordRetrieved { doc_id: String },
+    DocumentRecordDeleted { doc_id: String },
+    DocumentVersionStored { doc_id: String, version_id: String },
+    ContentBlobStored { doc_id: String, blob_size: usize },
+    DocumentMetadataSearched { query: String, result_count: usize },
+    DocumentExported { doc_id: String, format: String },
+    DocumentExportFailed { doc_id: String, format: String, reason: String },
+    ContentIngested { content_id: String, source_format: String },
+    ContentIngestionFailed { content_id: String, reason: String },
+    VersionControllerActionPerformed { doc_id: String, action: String },
+    DocumentTagCreated { doc_id: String, tag: String },
+    VersionComparisonComputed { doc_id: String, version_a: String, version_b: String },
+    RetentionPolicyLinked { doc_id: String, policy_id: String },
+    RetentionPolicyUnlinked { doc_id: String, policy_id: String },
+    DocumentDisposalRecorded { doc_id: String, method: String },
+    ContentFormatConverted { from_format: String, to_format: String },
+    ContentFormatConversionFailed { from_format: String, to_format: String, reason: String },
+    DocumentSubscriberRegistered { subscriber_id: String },
+    DocumentSubscriberRemoved { subscriber_id: String },
+    DocumentEventPublished { event_type: String, subscriber_count: usize },
 }
 
 impl fmt::Display for DocumentEventType {
@@ -114,6 +137,72 @@ impl fmt::Display for DocumentEventType {
             Self::DocumentDisposed { doc_id, method } => {
                 write!(f, "document-disposed:{doc_id} [{method}]")
             }
+            Self::DocumentBackendChanged { backend_id } => {
+                write!(f, "document-backend-changed:{backend_id}")
+            }
+            Self::DocumentRecordStored { doc_id, category } => {
+                write!(f, "document-record-stored:{doc_id} [{category}]")
+            }
+            Self::DocumentRecordRetrieved { doc_id } => {
+                write!(f, "document-record-retrieved:{doc_id}")
+            }
+            Self::DocumentRecordDeleted { doc_id } => {
+                write!(f, "document-record-deleted:{doc_id}")
+            }
+            Self::DocumentVersionStored { doc_id, version_id } => {
+                write!(f, "document-version-stored:{doc_id} [{version_id}]")
+            }
+            Self::ContentBlobStored { doc_id, blob_size } => {
+                write!(f, "content-blob-stored:{doc_id} ({blob_size} bytes)")
+            }
+            Self::DocumentMetadataSearched { query, result_count } => {
+                write!(f, "document-metadata-searched:{query} ({result_count} results)")
+            }
+            Self::DocumentExported { doc_id, format } => {
+                write!(f, "document-exported:{doc_id} [{format}]")
+            }
+            Self::DocumentExportFailed { doc_id, format, reason } => {
+                write!(f, "document-export-failed:{doc_id} [{format}] {reason}")
+            }
+            Self::ContentIngested { content_id, source_format } => {
+                write!(f, "content-ingested:{content_id} [{source_format}]")
+            }
+            Self::ContentIngestionFailed { content_id, reason } => {
+                write!(f, "content-ingestion-failed:{content_id} {reason}")
+            }
+            Self::VersionControllerActionPerformed { doc_id, action } => {
+                write!(f, "version-controller-action:{doc_id} [{action}]")
+            }
+            Self::DocumentTagCreated { doc_id, tag } => {
+                write!(f, "document-tag-created:{doc_id} [{tag}]")
+            }
+            Self::VersionComparisonComputed { doc_id, version_a, version_b } => {
+                write!(f, "version-comparison-computed:{doc_id} {version_a} vs {version_b}")
+            }
+            Self::RetentionPolicyLinked { doc_id, policy_id } => {
+                write!(f, "retention-policy-linked:{doc_id} [{policy_id}]")
+            }
+            Self::RetentionPolicyUnlinked { doc_id, policy_id } => {
+                write!(f, "retention-policy-unlinked:{doc_id} [{policy_id}]")
+            }
+            Self::DocumentDisposalRecorded { doc_id, method } => {
+                write!(f, "document-disposal-recorded:{doc_id} [{method}]")
+            }
+            Self::ContentFormatConverted { from_format, to_format } => {
+                write!(f, "content-format-converted:{from_format} -> {to_format}")
+            }
+            Self::ContentFormatConversionFailed { from_format, to_format, reason } => {
+                write!(f, "content-format-conversion-failed:{from_format} -> {to_format} {reason}")
+            }
+            Self::DocumentSubscriberRegistered { subscriber_id } => {
+                write!(f, "document-subscriber-registered:{subscriber_id}")
+            }
+            Self::DocumentSubscriberRemoved { subscriber_id } => {
+                write!(f, "document-subscriber-removed:{subscriber_id}")
+            }
+            Self::DocumentEventPublished { event_type, subscriber_count } => {
+                write!(f, "document-event-published:{event_type} ({subscriber_count} subscribers)")
+            }
         }
     }
 }
@@ -146,7 +235,85 @@ impl DocumentEventType {
             Self::DocumentExpired { .. } => "document-expired",
             Self::LegalHoldPlaced { .. } => "legal-hold-placed",
             Self::DocumentDisposed { .. } => "document-disposed",
+            Self::DocumentBackendChanged { .. } => "document-backend-changed",
+            Self::DocumentRecordStored { .. } => "document-record-stored",
+            Self::DocumentRecordRetrieved { .. } => "document-record-retrieved",
+            Self::DocumentRecordDeleted { .. } => "document-record-deleted",
+            Self::DocumentVersionStored { .. } => "document-version-stored",
+            Self::ContentBlobStored { .. } => "content-blob-stored",
+            Self::DocumentMetadataSearched { .. } => "document-metadata-searched",
+            Self::DocumentExported { .. } => "document-exported",
+            Self::DocumentExportFailed { .. } => "document-export-failed",
+            Self::ContentIngested { .. } => "content-ingested",
+            Self::ContentIngestionFailed { .. } => "content-ingestion-failed",
+            Self::VersionControllerActionPerformed { .. } => "version-controller-action-performed",
+            Self::DocumentTagCreated { .. } => "document-tag-created",
+            Self::VersionComparisonComputed { .. } => "version-comparison-computed",
+            Self::RetentionPolicyLinked { .. } => "retention-policy-linked",
+            Self::RetentionPolicyUnlinked { .. } => "retention-policy-unlinked",
+            Self::DocumentDisposalRecorded { .. } => "document-disposal-recorded",
+            Self::ContentFormatConverted { .. } => "content-format-converted",
+            Self::ContentFormatConversionFailed { .. } => "content-format-conversion-failed",
+            Self::DocumentSubscriberRegistered { .. } => "document-subscriber-registered",
+            Self::DocumentSubscriberRemoved { .. } => "document-subscriber-removed",
+            Self::DocumentEventPublished { .. } => "document-event-published",
         }
+    }
+
+    pub fn kind(&self) -> &str {
+        self.type_name()
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DocumentBackendChanged { .. }
+                | Self::DocumentRecordStored { .. }
+                | Self::DocumentRecordRetrieved { .. }
+                | Self::DocumentRecordDeleted { .. }
+                | Self::ContentBlobStored { .. }
+                | Self::DocumentMetadataSearched { .. }
+        )
+    }
+
+    pub fn is_version_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DocumentVersionStored { .. }
+                | Self::VersionControllerActionPerformed { .. }
+                | Self::DocumentTagCreated { .. }
+                | Self::VersionComparisonComputed { .. }
+        )
+    }
+
+    pub fn is_retention_event(&self) -> bool {
+        matches!(
+            self,
+            Self::RetentionPolicyLinked { .. }
+                | Self::RetentionPolicyUnlinked { .. }
+                | Self::DocumentDisposalRecorded { .. }
+        )
+    }
+
+    pub fn is_ingestion_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ContentIngested { .. } | Self::ContentIngestionFailed { .. }
+        )
+    }
+
+    pub fn is_conversion_event(&self) -> bool {
+        matches!(
+            self,
+            Self::ContentFormatConverted { .. } | Self::ContentFormatConversionFailed { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DocumentExported { .. } | Self::DocumentExportFailed { .. }
+        )
     }
 }
 
@@ -184,7 +351,20 @@ impl DocumentAuditEvent {
             | DocumentEventType::RetentionPolicyApplied { doc_id, .. }
             | DocumentEventType::DocumentExpired { doc_id, .. }
             | DocumentEventType::LegalHoldPlaced { doc_id, .. }
-            | DocumentEventType::DocumentDisposed { doc_id, .. } => {
+            | DocumentEventType::DocumentDisposed { doc_id, .. }
+            | DocumentEventType::DocumentRecordStored { doc_id, .. }
+            | DocumentEventType::DocumentRecordRetrieved { doc_id, .. }
+            | DocumentEventType::DocumentRecordDeleted { doc_id, .. }
+            | DocumentEventType::DocumentVersionStored { doc_id, .. }
+            | DocumentEventType::ContentBlobStored { doc_id, .. }
+            | DocumentEventType::DocumentExported { doc_id, .. }
+            | DocumentEventType::DocumentExportFailed { doc_id, .. }
+            | DocumentEventType::VersionControllerActionPerformed { doc_id, .. }
+            | DocumentEventType::DocumentTagCreated { doc_id, .. }
+            | DocumentEventType::VersionComparisonComputed { doc_id, .. }
+            | DocumentEventType::RetentionPolicyLinked { doc_id, .. }
+            | DocumentEventType::RetentionPolicyUnlinked { doc_id, .. }
+            | DocumentEventType::DocumentDisposalRecorded { doc_id, .. } => {
                 Some(DocumentId::new(doc_id))
             }
             _ => None,
@@ -439,5 +619,158 @@ mod tests {
         ));
         assert_eq!(log.events_by_type("document-hash-computed").len(), 2);
         assert_eq!(log.events_by_type("lifecycle-transitioned").len(), 1);
+    }
+
+    #[test]
+    fn test_l3_event_type_display() {
+        let events = vec![
+            DocumentEventType::DocumentBackendChanged { backend_id: "b1".into() },
+            DocumentEventType::DocumentRecordStored { doc_id: "d1".into(), category: "policy".into() },
+            DocumentEventType::DocumentRecordRetrieved { doc_id: "d1".into() },
+            DocumentEventType::DocumentRecordDeleted { doc_id: "d1".into() },
+            DocumentEventType::DocumentVersionStored { doc_id: "d1".into(), version_id: "v1".into() },
+            DocumentEventType::ContentBlobStored { doc_id: "d1".into(), blob_size: 1024 },
+            DocumentEventType::DocumentMetadataSearched { query: "q".into(), result_count: 5 },
+            DocumentEventType::DocumentExported { doc_id: "d1".into(), format: "json".into() },
+            DocumentEventType::DocumentExportFailed { doc_id: "d1".into(), format: "pdf".into(), reason: "err".into() },
+            DocumentEventType::ContentIngested { content_id: "c1".into(), source_format: "markdown".into() },
+            DocumentEventType::ContentIngestionFailed { content_id: "c1".into(), reason: "bad".into() },
+            DocumentEventType::VersionControllerActionPerformed { doc_id: "d1".into(), action: "create".into() },
+            DocumentEventType::DocumentTagCreated { doc_id: "d1".into(), tag: "v1.0".into() },
+            DocumentEventType::VersionComparisonComputed { doc_id: "d1".into(), version_a: "v1".into(), version_b: "v2".into() },
+            DocumentEventType::RetentionPolicyLinked { doc_id: "d1".into(), policy_id: "p1".into() },
+            DocumentEventType::RetentionPolicyUnlinked { doc_id: "d1".into(), policy_id: "p1".into() },
+            DocumentEventType::DocumentDisposalRecorded { doc_id: "d1".into(), method: "archive".into() },
+            DocumentEventType::ContentFormatConverted { from_format: "md".into(), to_format: "html".into() },
+            DocumentEventType::ContentFormatConversionFailed { from_format: "md".into(), to_format: "pdf".into(), reason: "err".into() },
+            DocumentEventType::DocumentSubscriberRegistered { subscriber_id: "s1".into() },
+            DocumentEventType::DocumentSubscriberRemoved { subscriber_id: "s1".into() },
+            DocumentEventType::DocumentEventPublished { event_type: "created".into(), subscriber_count: 3 },
+        ];
+        assert_eq!(events.len(), 22);
+        for event in &events {
+            assert!(!event.to_string().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_l3_event_doc_id_extraction() {
+        let event = DocumentAuditEvent::new(
+            DocumentEventType::DocumentRecordStored {
+                doc_id: "d42".into(),
+                category: "policy".into(),
+            },
+            "system",
+            6000,
+            "stored",
+        );
+        assert_eq!(event.document_id, Some(DocumentId::new("d42")));
+    }
+
+    #[test]
+    fn test_l3_event_no_doc_id() {
+        let event = DocumentAuditEvent::new(
+            DocumentEventType::DocumentBackendChanged {
+                backend_id: "b1".into(),
+            },
+            "system",
+            6000,
+            "changed",
+        );
+        assert!(event.document_id.is_none());
+
+        let event2 = DocumentAuditEvent::new(
+            DocumentEventType::ContentIngested {
+                content_id: "c1".into(),
+                source_format: "md".into(),
+            },
+            "system",
+            6000,
+            "ingested",
+        );
+        assert!(event2.document_id.is_none());
+    }
+
+    #[test]
+    fn test_kind_method() {
+        let event = DocumentEventType::DocumentCreated {
+            document_type: "ssp".into(),
+            framework: "FedRAMP".into(),
+        };
+        assert_eq!(event.kind(), "document-created");
+
+        let event2 = DocumentEventType::DocumentExported {
+            doc_id: "d1".into(),
+            format: "json".into(),
+        };
+        assert_eq!(event2.kind(), "document-exported");
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        assert!(DocumentEventType::DocumentBackendChanged { backend_id: "b".into() }.is_backend_event());
+        assert!(DocumentEventType::DocumentRecordStored { doc_id: "d".into(), category: "c".into() }.is_backend_event());
+        assert!(DocumentEventType::DocumentRecordRetrieved { doc_id: "d".into() }.is_backend_event());
+        assert!(DocumentEventType::DocumentRecordDeleted { doc_id: "d".into() }.is_backend_event());
+        assert!(DocumentEventType::ContentBlobStored { doc_id: "d".into(), blob_size: 0 }.is_backend_event());
+        assert!(DocumentEventType::DocumentMetadataSearched { query: "q".into(), result_count: 0 }.is_backend_event());
+        assert!(!DocumentEventType::DocumentExported { doc_id: "d".into(), format: "f".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_version_event() {
+        assert!(DocumentEventType::DocumentVersionStored { doc_id: "d".into(), version_id: "v".into() }.is_version_event());
+        assert!(DocumentEventType::VersionControllerActionPerformed { doc_id: "d".into(), action: "a".into() }.is_version_event());
+        assert!(DocumentEventType::DocumentTagCreated { doc_id: "d".into(), tag: "t".into() }.is_version_event());
+        assert!(DocumentEventType::VersionComparisonComputed { doc_id: "d".into(), version_a: "a".into(), version_b: "b".into() }.is_version_event());
+        assert!(!DocumentEventType::DocumentPublished.is_version_event());
+    }
+
+    #[test]
+    fn test_is_retention_event() {
+        assert!(DocumentEventType::RetentionPolicyLinked { doc_id: "d".into(), policy_id: "p".into() }.is_retention_event());
+        assert!(DocumentEventType::RetentionPolicyUnlinked { doc_id: "d".into(), policy_id: "p".into() }.is_retention_event());
+        assert!(DocumentEventType::DocumentDisposalRecorded { doc_id: "d".into(), method: "m".into() }.is_retention_event());
+        assert!(!DocumentEventType::DocumentPublished.is_retention_event());
+    }
+
+    #[test]
+    fn test_is_ingestion_event() {
+        assert!(DocumentEventType::ContentIngested { content_id: "c".into(), source_format: "md".into() }.is_ingestion_event());
+        assert!(DocumentEventType::ContentIngestionFailed { content_id: "c".into(), reason: "r".into() }.is_ingestion_event());
+        assert!(!DocumentEventType::DocumentPublished.is_ingestion_event());
+    }
+
+    #[test]
+    fn test_is_conversion_event() {
+        assert!(DocumentEventType::ContentFormatConverted { from_format: "a".into(), to_format: "b".into() }.is_conversion_event());
+        assert!(DocumentEventType::ContentFormatConversionFailed { from_format: "a".into(), to_format: "b".into(), reason: "r".into() }.is_conversion_event());
+        assert!(!DocumentEventType::DocumentPublished.is_conversion_event());
+    }
+
+    #[test]
+    fn test_is_export_event() {
+        assert!(DocumentEventType::DocumentExported { doc_id: "d".into(), format: "f".into() }.is_export_event());
+        assert!(DocumentEventType::DocumentExportFailed { doc_id: "d".into(), format: "f".into(), reason: "r".into() }.is_export_event());
+        assert!(!DocumentEventType::DocumentPublished.is_export_event());
+    }
+
+    #[test]
+    fn test_l3_events_by_type() {
+        let mut log = DocumentAuditLog::new();
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::DocumentExported { doc_id: "d1".into(), format: "json".into() },
+            "system", 1000, "",
+        ));
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::DocumentExported { doc_id: "d2".into(), format: "pdf-a".into() },
+            "system", 2000, "",
+        ));
+        log.record(DocumentAuditEvent::new(
+            DocumentEventType::ContentIngested { content_id: "c1".into(), source_format: "md".into() },
+            "system", 3000, "",
+        ));
+        assert_eq!(log.events_by_type("document-exported").len(), 2);
+        assert_eq!(log.events_by_type("content-ingested").len(), 1);
     }
 }

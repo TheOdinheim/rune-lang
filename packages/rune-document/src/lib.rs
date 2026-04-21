@@ -76,3 +76,44 @@ pub use version_diff::{
     diff_versions, MetadataChange, MetadataChangeType, VersionDiff, VersionHistoryStore,
     VersionSnapshot,
 };
+
+// ── Layer 3 modules ─────────────────────────────────────────────────
+pub mod backend;
+pub mod content_format_converter;
+pub mod content_ingestion;
+pub mod document_export;
+pub mod document_stream;
+pub mod retention_integration;
+pub mod version_control;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    ClassificationLevel, DocumentBackend, DocumentBackendInfo, InMemoryDocumentBackend,
+    StoredContentBlob, StoredDocumentCategory, StoredDocumentRecord, StoredDocumentRetentionRecord,
+    StoredDocumentVersion,
+};
+pub use content_format_converter::{
+    ContentFormatConverter, ConversionPair, HtmlToPlainTextConverter, MarkdownToHtmlConverter,
+    NullContentFormatConverter,
+};
+pub use content_ingestion::{
+    ContentIngestor, ContentSourceFormat, HtmlContentIngestor, MarkdownContentIngestor,
+    NormalizedContent, NullContentIngestor, PlainTextContentIngestor,
+};
+pub use document_export::{
+    AtomFeedExporter, DitaTopicExporter, DocbookExporter, DocumentExporter, ExportableDocument,
+    JsonDocumentExporter, PdfAExporter,
+};
+pub use document_stream::{
+    DocumentEventCollector, DocumentEventSubscriber, DocumentEventSubscriberRegistry,
+    DocumentLifecycleEvent, DocumentLifecycleEventType, FilteredDocumentEventSubscriber,
+};
+pub use retention_integration::{
+    DisposalEligibility, DisposalRecord, InMemoryRetentionPolicyLinker,
+    LegalHoldAwareRetentionPolicyLinker, NullRetentionPolicyLinker, RetentionPolicyLinker,
+};
+pub use version_control::{
+    ChronologicalOrder, DocumentTag, DocumentVersionController, FieldChangeType,
+    InMemoryDocumentVersionController, LinearDocumentVersionController, MetadataFieldChange,
+    NullDocumentVersionController, VersionComparison,
+};

@@ -15,6 +15,8 @@ pub enum DocumentError {
     ValidationFailed { gaps: Vec<String> },
     FrameworkNotSupported(String),
     InvalidOperation(String),
+    SerializationFailed(String),
+    VersionNotFound(String),
 }
 
 impl fmt::Display for DocumentError {
@@ -37,6 +39,8 @@ impl fmt::Display for DocumentError {
             }
             Self::FrameworkNotSupported(fw) => write!(f, "framework not supported: {fw}"),
             Self::InvalidOperation(s) => write!(f, "invalid operation: {s}"),
+            Self::SerializationFailed(s) => write!(f, "serialization failed: {s}"),
+            Self::VersionNotFound(s) => write!(f, "version not found: {s}"),
         }
     }
 }
@@ -70,6 +74,8 @@ mod tests {
             },
             DocumentError::FrameworkNotSupported("unknown".into()),
             DocumentError::InvalidOperation("op".into()),
+            DocumentError::SerializationFailed("ser".into()),
+            DocumentError::VersionNotFound("v1".into()),
         ];
         for e in &errors {
             assert!(!e.to_string().is_empty());
