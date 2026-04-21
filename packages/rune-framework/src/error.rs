@@ -17,6 +17,8 @@ pub enum FrameworkError {
     WorkflowNotFound { template_name: String },
     HealthCheckFailed { reason: String },
     AuditError { reason: String },
+    SerializationFailed(String),
+    FrameworkNotFound(String),
 }
 
 impl fmt::Display for FrameworkError {
@@ -56,6 +58,12 @@ impl fmt::Display for FrameworkError {
             Self::AuditError { reason } => {
                 write!(f, "Audit error: {reason}")
             }
+            Self::SerializationFailed(reason) => {
+                write!(f, "serialization failed: {reason}")
+            }
+            Self::FrameworkNotFound(id) => {
+                write!(f, "framework not found: {id}")
+            }
         }
     }
 }
@@ -84,10 +92,12 @@ mod tests {
             FrameworkError::WorkflowNotFound { template_name: "t".into() },
             FrameworkError::HealthCheckFailed { reason: "r".into() },
             FrameworkError::AuditError { reason: "r".into() },
+            FrameworkError::SerializationFailed("s".into()),
+            FrameworkError::FrameworkNotFound("f".into()),
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
         }
-        assert_eq!(variants.len(), 11);
+        assert_eq!(variants.len(), 13);
     }
 }

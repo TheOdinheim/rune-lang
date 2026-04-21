@@ -340,3 +340,85 @@ Two new `PolicyExtError` variants: `SerializationFailed(String)`, `PackageNotFou
 - Test count unchanged at 235 (140 baseline + 95 L3)
 - Zero references to old `L3PolicyConflict*` names remain in the workspace
 - The original rune-policy-ext Layer 3 entry above remains in place for historical accuracy; this correction supersedes the old names and re-establishes the descriptive-qualifier convention for the four remaining libraries (rune-framework, rune-safety, rune-agents, rune-networking-ext)
+
+---
+
+## rune-framework Layer 3
+
+**Date**: 2026-04-20
+**Test count**: 143 → 229 (+86 tests, zero failures)
+**Commit**: `e01d416`
+
+**Clippy**: Zero rune-framework-specific warnings
+
+### What Changed
+
+Layer 3 adds the framework manifest composition layer: pluggable backend storage for framework manifests, requirements, cross-framework mappings, and compliance evidence records; a framework registry with ten built-in regulatory framework manifests (CJIS v6.0, GDPR, HIPAA, PCI DSS v4.0, FedRAMP Moderate, FedRAMP High, NIST SP 800-53 Rev. 5, NIST AI RMF 1.0, EU AI Act 2024/1689, SOC 2 Trust Services Criteria 2017); cross-framework requirement mapping with cycle detection and gap suggestion; five export formats (JSON, OSCAL Profile, STIX 2.1 course-of-action, CJIS compliance evidence, XLSX compliance matrix); structural/referential/mapping manifest validation; lifecycle event streaming with jurisdiction/domain/event-type filtering; and compliance evidence linking with freshness-aware wrapper enforcement.
+
+### New Modules (7)
+
+| Module | Lines | Tests | Purpose |
+|--------|-------|-------|---------|
+| `backend.rs` | ~695 | 14 | FrameworkBackend trait + InMemoryFrameworkBackend |
+| `framework_registry.rs` | ~984 | 14 | FrameworkRegistry trait + 4 implementations + 10 built-in manifests |
+| `cross_framework_mapper.rs` | ~407 | 8 | CrossFrameworkMapper trait + AuthoritativeCrossFrameworkMapper |
+| `framework_export.rs` | ~538 | 9 | FrameworkExporter trait + 5 format implementations |
+| `framework_validation.rs` | ~677 | 12 | FrameworkManifestValidator trait + 5 implementations |
+| `framework_stream.rs` | ~503 | 10 | FrameworkLifecycleEventSubscriber trait + registry + filtering |
+| `compliance_evidence.rs` | ~464 | 12 | ComplianceEvidenceLinker trait + FreshnessAwareComplianceEvidenceLinker |
+
+### Trait Contracts
+
+- **FrameworkBackend**: 18 methods — store/retrieve/delete/list frameworks by jurisdiction/domain, list/resolve versions, framework_count, store/retrieve requirements, list requirements for framework, store/retrieve/list cross-framework mappings, store/retrieve/list compliance evidence records, flush/backend_info. InMemoryFrameworkBackend reference implementation. Jurisdiction 7-variant enum (UnitedStates/EuropeanUnion/UnitedKingdom/Canada/Australia/International/Other), FrameworkDomain 9-variant enum (CriminalJustice/Healthcare/FinancialServices/GeneralPrivacy/FederalGovernment/ArtificialIntelligence/CloudServices/PaymentCard/Other), RequirementPriorityLevel 3-variant (Sanctionable/Recommended/Informational), MappingType 5-variant (Equivalent/Subset/Superset/Related/PartiallyOverlapping), MappingConfidence 4-variant (Authoritative/HighConfidence/ProvisionalMapping/DisputedMapping), ComplianceEvidenceType 7-variant. StoredFrameworkManifest with semver version, jurisdiction, domain, authority, policy_area_count, requirement_refs, mapping_refs, published_at/effective_date/sunset_date. StoredFrameworkRequirement with requirement_identifier (e.g. "CJIS-5.6.2.1"), referenced_library/referenced_capability opaque strings, evaluation_context_hint HashMap. StoredCrossFrameworkMapping with mapping_type/confidence/justification. StoredComplianceEvidenceRecord with evidence_type/evidence_artifact_ref opaque string.
+- **FrameworkRegistry**: 10 methods — register/lookup/list/list_jurisdictions/list_domains/dependency_graph/subscribe/unsubscribe/registry_id/is_active. FrameworkQuery with name_pattern/jurisdiction_filter/domain_filter/authority_filter/effective_at_or_before. InMemoryFrameworkRegistry, ReadOnlyFrameworkRegistry<R> (wraps another, rejects writes), CachedFrameworkRegistry<R> (bounded LRU cache with hit_rate/invalidate/invalidate_all matching CachedRoleProvider/CachedPolicyPackageRegistry pattern), NullFrameworkRegistry. Ten built-in manifests via builtin_framework_manifests(), builtin_cjis_requirements() with representative CJIS v6.0 requirements, builtin_cross_framework_mappings() with CJIS-to-NIST/GDPR-to-ISO-27001/HIPAA-to-NIST/PCI-to-NIST baseline mappings.
+- **CrossFrameworkMapper**: 7 methods — register_mapping/query_equivalents/query_traceability/detect_mapping_cycles/suggest_gaps/mapper_id/is_active. InMemoryCrossFrameworkMapper, AuthoritativeCrossFrameworkMapper<M> (wraps another, only accepts Authoritative confidence), NullCrossFrameworkMapper.
+- **FrameworkExporter**: 5 methods — export_framework/export_framework_with_evidence/export_batch/format_name/content_type. JsonFrameworkExporter (native JSON), OscalProfileExporter (NIST OSCAL 1.1.2 Profile JSON with imports/modify/merge/back-matter), Stix21CourseOfActionExporter (STIX 2.1 course-of-action SDO with x_rune_framework_id/x_rune_requirement_id), CjisComplianceEvidenceExporter (CJIS-specific evidence shape with section/subcontrol identifiers), XlsxComplianceMatrixExporter (structured ComplianceMatrixRow representation — actual XLSX workbook generation in adapter crates). All preserve evidence_artifact_ref pass-through.
+- **FrameworkManifestValidator**: 3 methods — validate_manifest/validator_id/is_active. FrameworkValidationReport with report_id/framework_id/passed/validation_checks/overall_severity (ManifestValidationSeverity 5-variant Clean/Info/Warning/Error/Critical). ManifestCheckResult with check_name/check_category (ManifestCheckCategory 5-variant Structural/Referential/Dependency/Mapping/Metadata)/passed/severity/message/affected_requirement_refs. StructuralFrameworkManifestValidator (framework_id format, semver, required fields, requirement identifier conventions), ReferentialFrameworkManifestValidator (no dangling refs, referenced_library names match known RUNE libraries), MappingFrameworkManifestValidator (no cycles, confidence appropriate, both endpoints exist), CompositeFrameworkManifestValidator (aggregates multiple validators), NullFrameworkManifestValidator.
+- **FrameworkLifecycleEventSubscriber**: 3 methods — on_framework_event/subscriber_id/is_active. FrameworkLifecycleEventSubscriberRegistry with register/notify/notify_batch/active_count/remove_inactive. FrameworkLifecycleEventCollector reference implementation. FilteredFrameworkLifecycleEventSubscriber<S> with jurisdiction/domain/framework_id/event_type filters. FrameworkLifecycleEventType 20-variant enum (FrameworkRegistered/FrameworkRetrieved/FrameworkUnregistered/FrameworkVersionResolved/FrameworkUpdated/RequirementAdded/RequirementUpdated/RequirementRemoved/CrossFrameworkMappingRegistered/CrossFrameworkMappingDisputed/CrossFrameworkMappingResolved/ComplianceEvidenceRecorded/ComplianceEvidenceExpired/FrameworkExported/FrameworkExportFailed/FrameworkValidated/FrameworkValidationFailed/FrameworkSubscriberRegistered/FrameworkSubscriberRemoved/FrameworkEventPublished).
+- **ComplianceEvidenceLinker**: 9 methods — link_evidence/unlink_evidence/list_evidence_for_requirement/list_requirements_for_evidence/check_evidence_freshness/record_evidence_review/linker_id/is_active. EvidenceFreshness 5-variant (Current/ExpiringSoon{expires_at}/Expired{expired_at}/NoExpiration/Unknown). EvidenceLink with link_id/requirement_id/evidence_artifact_ref opaque string/evidence_type/linked_at/linked_by/expires_at/review_history. EvidenceReview with reviewer_id/reviewed_at/verdict (EvidenceReviewVerdict 3-variant Adequate/Inadequate/NeedsUpdate)/notes. InMemoryComplianceEvidenceLinker, FreshnessAwareComplianceEvidenceLinker<L> (composable wrapper blocking expired evidence linking — matches LegalHoldAwareRetentionPolicyLinker pattern from rune-document), NullComplianceEvidenceLinker.
+
+### Modified Files
+
+- **audit.rs**: 24 new FrameworkEventType L3 variants with struct fields (FrameworkBackendChanged/FrameworkManifestStored/FrameworkManifestRetrieved/FrameworkManifestDeleted/FrameworkRequirementStored/ManifestFrameworkVersionResolved/CrossFrameworkMappingStored/CrossFrameworkMappingQueried/ComplianceEvidenceRecordStored/ComplianceEvidenceLinked/ComplianceEvidenceUnlinked/ComplianceEvidenceFreshnessChecked/ComplianceEvidenceReviewRecorded/FrameworkManifestRegistered/FrameworkManifestUnregistered/FrameworkRegistrySubscribed/FrameworkManifestExported/FrameworkManifestExportFailed/FrameworkManifestValidated/FrameworkManifestValidationFailed/FrameworkSubscriberRegistered/FrameworkSubscriberRemoved/FrameworkLifecycleEventPublished). Display impl delegates L3 variants to type_name(). Classification methods: kind/is_backend_event/is_framework_event/is_mapping_event/is_evidence_event/is_export_event/is_validation_event. Test constructs every L3 variant and asserts non-empty Display and kind() output.
+- **error.rs**: 2 new FrameworkError variants: SerializationFailed(String), FrameworkNotFound(String). Display impl updated. Test updated to cover all 13 variants.
+- **lib.rs**: 7 new module declarations (backend/compliance_evidence/cross_framework_mapper/framework_export/framework_registry/framework_stream/framework_validation) under Layer 3 section. Layer 3 re-exports grouped under `// ── Layer 3 re-exports ──` comment.
+
+### Naming Collision Resolutions
+
+| L1/L2 type | L3 type | Rationale |
+|---|---|---|
+| `FrameworkRegistered` (L2 audit variant, unit) | `FrameworkManifestRegistered { framework_id, registry_id }` (L3 audit variant) | L3 variant carries structured fields; `Manifest` prefix distinguishes registry-level from L2 definition-level |
+| `FrameworkControl` (L2 struct) | `StoredFrameworkRequirement` (L3 struct) | L3 uses `Requirement` following regulatory terminology; `Stored` prefix matches backend storage pattern |
+| `ControlMapping` (L2 struct) | `StoredCrossFrameworkMapping` (L3 struct) | L3 maps across frameworks; `CrossFramework` clarifies scope |
+| `L2FrameworkRegistry` (L2 struct) | `FrameworkRegistry` (L3 trait) | L3 trait is the canonical contract; L2 struct retains `L2` prefix |
+| `FrameworkValidated` / `FrameworkValidationFailed` (L3 stream events) | `FrameworkManifestValidated` / `FrameworkManifestValidationFailed` (L3 audit variants) | `Manifest` prefix in audit variants distinguishes from stream events |
+
+### Design Decisions
+
+- **Pure composition layer, not evaluator dispatch**: rune-framework defines regulatory framework manifests as collections of requirement references pointing to other RUNE libraries via opaque strings. It does NOT evaluate requirements, dispatch to evaluator implementations, or make compliance determinations. Evaluator dispatch is deferred to Layer 4 pending benchmark data on dispatch overhead and real customer usage patterns.
+- **Opaque string references to source-library capabilities**: StoredFrameworkRequirement.referenced_library and referenced_capability are plain strings (e.g. "rune-identity", "FactorType::Possession"). This preserves loose coupling and prevents rune-framework from becoming a god object that imports every RUNE library.
+- **CJIS v6.0 targeted baseline**: CJIS Security Policy v6.0 (released December 27, 2024) is the current FBI baseline with October 1, 2027 enforcement deadline. v6.1 is slated for spring 2026 release but not yet available; v6.0 is the correct target.
+- **Ten built-in framework manifests**: CJIS v6.0, GDPR, HIPAA, PCI DSS v4.0, FedRAMP Moderate, FedRAMP High, NIST SP 800-53 Rev. 5, NIST AI RMF 1.0, EU AI Act 2024/1689, SOC 2 TSC 2017. These cover the primary regulatory domains for RUNE deployments (criminal justice, healthcare, financial services, federal government, AI governance, cloud services, payment card).
+- **Representative subset of requirements per framework**: Each built-in manifest ships with a representative subset of requirements rather than full enumeration. CJIS v6.0 alone has 1,300+ subcontrols; full enumeration belongs in adapter crates that can be versioned independently.
+- **OSCAL Profile rather than OSCAL SSP**: The OscalProfileExporter emits NIST OSCAL 1.1.2 Profile JSON (imports/modify/merge/back-matter). Profile is the correct OSCAL artifact for framework definition (which controls are selected); SSP (System Security Plan) is a deployment-specific implementation artifact that belongs in Layer 4 or adapter crates.
+- **XlsxComplianceMatrixExporter emits structured rows**: The exporter produces ComplianceMatrixRow structs rather than actual XLSX bytes. XLSX workbook generation requires a third-party library (e.g. rust_xlsxwriter) which belongs in adapter crates; the core library defines the data contract.
+- **CachedFrameworkRegistry and ReadOnlyFrameworkRegistry first-class**: CachedFrameworkRegistry<R> provides bounded LRU cache with hit_rate tracking, invalidate/invalidate_all, matching the CachedRoleProvider (rune-permissions) and CachedPolicyPackageRegistry (rune-policy-ext) patterns. ReadOnlyFrameworkRegistry<R> wraps any registry and rejects writes for production read-replica scenarios.
+- **FreshnessAwareComplianceEvidenceLinker composable wrapper**: Wraps any ComplianceEvidenceLinker and blocks expired evidence from being linked. Follows the composable wrapper pattern now established across six libraries (SlaEnforcingVulnerabilityLifecycleTracker in rune-security, LegalHoldAwareRetentionPolicyLinker in rune-document, DepthLimitedReasoningTraceRecorder in rune-explainability, ContinuityEnforcingCustodyChainRecorder in rune-provenance, DepthLimitedLineageTracker in rune-provenance, ExpiryAwareCapabilityVerifier in rune-permissions).
+
+### Four-Pillar Alignment
+
+| Pillar | Alignment |
+|--------|-----------|
+| **Transparency** | All backend operations and registry mutations emit structured audit events. Framework manifests are exportable in standards-aligned formats (OSCAL, STIX 2.1, CJIS evidence). Lifecycle event streaming enables real-time observability of framework registration, evidence recording, and validation activities. |
+| **Accountability** | Every StoredComplianceEvidenceRecord, StoredCrossFrameworkMapping, and EvidenceReview carries actor/timestamp metadata. Evidence review verdicts (Adequate/Inadequate/NeedsUpdate) create an auditable approval chain. FreshnessAwareComplianceEvidenceLinker enforces evidence currency. |
+| **Fairness** | Cross-framework mapping with confidence levels (Authoritative/HighConfidence/ProvisionalMapping/DisputedMapping) and cycle detection prevents circular reasoning in compliance arguments. AuthoritativeCrossFrameworkMapper enforces mapping quality gates. |
+| **Safety** | Five-level manifest validation (Structural/Referential/Dependency/Mapping/Metadata) catches malformed frameworks before registration. ReadOnlyFrameworkRegistry prevents unauthorized mutations. Composable wrappers enforce constraints without modifying core implementations. |
+
+### Integration Points
+
+- **rune-identity**: StoredFrameworkRequirement references rune-identity capabilities via opaque strings (e.g. referenced_library: "rune-identity", referenced_capability: "FactorType::Possession" for CJIS 5.6 MFA)
+- **rune-privacy**: GDPR/HIPAA framework manifests reference rune-privacy capabilities (e.g. "ConsentLegalBasis", "RedactionStrategy") for data protection requirements
+- **rune-security**: CJIS/FedRAMP/NIST SP 800-53 manifests reference rune-security capabilities (e.g. "CvssSeverity", "IncidentResponseWorkflow") for security control requirements
+- **rune-policy-ext**: Framework manifests reference rune-policy-ext for policy package evaluation capabilities; PolicyLifecycleEventType available for cross-library event correlation
+- **rune-document**: Compliance evidence records link to document artifacts via evidence_artifact_ref; document retention policies govern evidence lifecycle
+- **rune-audit-ext**: FrameworkEventType audit variants feed into AuditBackend for centralized governance audit trail; FrameworkLifecycleEventType available for Layer 5 governance pipeline integration

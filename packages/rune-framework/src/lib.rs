@@ -67,3 +67,50 @@ pub use l2_regulatory::{
     assess_change_impact, ChangeImpact, ChangeImpactAssessment, RegulatoryChange,
     RegulatoryChangeTracker, RegulatoryChangeType, RemediationEffort,
 };
+
+// ── Layer 3 modules ─────────────────────────────────────────────────
+pub mod backend;
+pub mod compliance_evidence;
+pub mod cross_framework_mapper;
+pub mod framework_export;
+pub mod framework_registry;
+pub mod framework_stream;
+pub mod framework_validation;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    ComplianceEvidenceType, FrameworkBackend, FrameworkBackendInfo, FrameworkDomain,
+    InMemoryFrameworkBackend, Jurisdiction, MappingConfidence, MappingType,
+    RequirementPriorityLevel, StoredComplianceEvidenceRecord, StoredCrossFrameworkMapping,
+    StoredFrameworkManifest, StoredFrameworkRequirement,
+};
+pub use compliance_evidence::{
+    ComplianceEvidenceLinker, EvidenceFreshness, EvidenceLink, EvidenceReview,
+    EvidenceReviewVerdict, FreshnessAwareComplianceEvidenceLinker,
+    InMemoryComplianceEvidenceLinker, NullComplianceEvidenceLinker,
+};
+pub use cross_framework_mapper::{
+    AuthoritativeCrossFrameworkMapper, CrossFrameworkMapper, InMemoryCrossFrameworkMapper,
+    NullCrossFrameworkMapper,
+};
+pub use framework_export::{
+    CjisComplianceEvidenceExporter, ComplianceMatrixRow, FrameworkExporter,
+    JsonFrameworkExporter, OscalProfileExporter, Stix21CourseOfActionExporter,
+    XlsxComplianceMatrixExporter,
+};
+pub use framework_registry::{
+    builtin_cjis_requirements, builtin_cross_framework_mappings, builtin_framework_manifests,
+    CachedFrameworkRegistry, FrameworkQuery, FrameworkRegistry, InMemoryFrameworkRegistry,
+    NullFrameworkRegistry, ReadOnlyFrameworkRegistry, SubscriptionHandle,
+};
+pub use framework_stream::{
+    FilteredFrameworkLifecycleEventSubscriber, FrameworkLifecycleEvent,
+    FrameworkLifecycleEventCollector, FrameworkLifecycleEventSubscriber,
+    FrameworkLifecycleEventSubscriberRegistry, FrameworkLifecycleEventType,
+};
+pub use framework_validation::{
+    CompositeFrameworkManifestValidator, FrameworkManifestValidator, FrameworkValidationReport,
+    ManifestCheckCategory, ManifestCheckResult, ManifestValidationSeverity,
+    MappingFrameworkManifestValidator, NullFrameworkManifestValidator,
+    ReferentialFrameworkManifestValidator, StructuralFrameworkManifestValidator,
+};
