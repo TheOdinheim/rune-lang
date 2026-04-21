@@ -67,3 +67,49 @@ pub use l2_versioning::{
     compute_policy_hash, L2PolicyVersion, L2PolicyVersionStatus, L2PolicyVersionStore,
     VersionChainVerification,
 };
+
+// ── Layer 3 modules ─────────────────────────────────────────────────
+pub mod backend;
+pub mod external_evaluator_integration;
+pub mod package_composer;
+pub mod package_registry;
+pub mod policy_export;
+pub mod policy_stream;
+pub mod policy_validation;
+
+// ── Layer 3 re-exports ──────────────────────────────────────────────
+pub use backend::{
+    InMemoryPolicyPackageBackend, PackageDependency, PolicyPackageBackend,
+    PolicyPackageBackendInfo, StoredPackageSignature, StoredPolicyEvaluationRecord,
+    StoredPolicyPackage, StoredRuleSet,
+};
+pub use external_evaluator_integration::{
+    EvaluationHandle, EvaluationPayload, EvaluationResult, EvaluatorType,
+    ExternalEvaluatorIntegration, InMemoryExternalEvaluatorIntegration,
+    NullExternalEvaluatorIntegration,
+};
+pub use package_composer::{
+    ComposedPackage, InMemoryPolicyPackageComposer, NullPolicyPackageComposer,
+    OverridePolicyPackageComposer, PackageCompositionStrategy, PackageConflictCategory,
+    PackageConflictResolutionStrategy, PackagePolicyConflict, PolicyPackageComposer,
+    UnionPolicyPackageComposer,
+};
+pub use package_registry::{
+    CachedPolicyPackageRegistry, InMemoryPolicyPackageRegistry, NullPolicyPackageRegistry,
+    PackageQuery, PolicyPackageRegistry, ReadOnlyPolicyPackageRegistry, RegistryCredentials,
+    SubscriptionHandle,
+};
+pub use policy_export::{
+    CedarPolicyExporter, JsonPolicyPackageExporter, OpaBundleExporter,
+    PolicyPackageExporter, SignedBundleManifestExporter, XacmlPolicySetExporter,
+};
+pub use policy_stream::{
+    FilteredPolicyLifecycleEventSubscriber, PolicyLifecycleEvent,
+    PolicyLifecycleEventCollector, PolicyLifecycleEventSubscriber,
+    PolicyLifecycleEventSubscriberRegistry, PolicyLifecycleEventType,
+};
+pub use policy_validation::{
+    CompositePackageValidator, NullPolicyPackageValidator, PackageValidationReport,
+    PolicyPackageValidator, SecurityPackageValidator, SyntacticPackageValidator,
+    ValidationCheckCategory, ValidationCheckResult, ValidationSeverity,
+};

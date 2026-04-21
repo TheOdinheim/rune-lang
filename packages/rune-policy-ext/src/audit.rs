@@ -40,6 +40,34 @@ pub enum PolicyExtEventType {
     PolicyDependencyAdded { policy_id: String, depends_on: String },
     PolicyCascadeAnalyzed { policy_id: String, total_affected: usize },
     PolicyDependencyValidated { issues: usize },
+
+    // ── Layer 3 event types ────────────────────────────────────────
+    PolicyPackageBackendChanged { backend_id: String },
+    PackageStored { package_id: String, namespace: String },
+    PackageRetrieved { package_id: String },
+    PackageDeleted { package_id: String },
+    PackageVersionResolved { name: String, namespace: String, resolved_version: String },
+    RuleSetStored { rule_set_id: String, package_id: String },
+    PackageComposed { source_count: usize, strategy: String },
+    L3PolicyConflictDetected { conflict_id: String, conflict_type: String },
+    L3PolicyConflictResolved { conflict_id: String, resolution_strategy: String },
+    PackagePublishedToRegistry { package_id: String, registry_id: String },
+    PackageUnpublishedFromRegistry { package_id: String, registry_id: String },
+    PackageSignatureVerified { package_id: String, signer: String },
+    PackageSignatureInvalid { package_id: String, reason: String },
+    PackageIntegrityVerified { package_id: String, valid: bool },
+    EvaluationPayloadPrepared { payload_id: String, evaluator_type: String },
+    EvaluationSubmittedToExternal { handle: String, evaluator_type: String },
+    EvaluationCompletedByExternal { handle: String, outcome: String },
+    EvaluationFailedByExternal { handle: String, reason: String },
+    EvaluationCanceled { handle: String },
+    PackageExported { package_id: String, format: String },
+    PackageExportFailed { package_id: String, format: String, reason: String },
+    PackageValidated { package_id: String, passed: bool, severity: String },
+    PackageValidationFailed { package_id: String, reason: String },
+    PolicySubscriberRegistered { subscriber_id: String },
+    PolicySubscriberRemoved { subscriber_id: String },
+    PolicyEventPublished { event_type: String, subscriber_count: usize },
 }
 
 impl fmt::Display for PolicyExtEventType {
@@ -111,6 +139,84 @@ impl fmt::Display for PolicyExtEventType {
             Self::PolicyDependencyValidated { issues } => {
                 write!(f, "l2-dependency-validated:{issues} issues")
             }
+            Self::PolicyPackageBackendChanged { backend_id } => {
+                write!(f, "policy-package-backend-changed:{backend_id}")
+            }
+            Self::PackageStored { package_id, namespace } => {
+                write!(f, "package-stored:{package_id} [{namespace}]")
+            }
+            Self::PackageRetrieved { package_id } => {
+                write!(f, "package-retrieved:{package_id}")
+            }
+            Self::PackageDeleted { package_id } => {
+                write!(f, "package-deleted:{package_id}")
+            }
+            Self::PackageVersionResolved { name, namespace, resolved_version } => {
+                write!(f, "package-version-resolved:{namespace}/{name}@{resolved_version}")
+            }
+            Self::RuleSetStored { rule_set_id, package_id } => {
+                write!(f, "rule-set-stored:{rule_set_id} [{package_id}]")
+            }
+            Self::PackageComposed { source_count, strategy } => {
+                write!(f, "package-composed:{source_count} packages [{strategy}]")
+            }
+            Self::L3PolicyConflictDetected { conflict_id, conflict_type } => {
+                write!(f, "package-conflict-detected:{conflict_id} [{conflict_type}]")
+            }
+            Self::L3PolicyConflictResolved { conflict_id, resolution_strategy } => {
+                write!(f, "package-conflict-resolved:{conflict_id} [{resolution_strategy}]")
+            }
+            Self::PackagePublishedToRegistry { package_id, registry_id } => {
+                write!(f, "package-published:{package_id} [{registry_id}]")
+            }
+            Self::PackageUnpublishedFromRegistry { package_id, registry_id } => {
+                write!(f, "package-unpublished:{package_id} [{registry_id}]")
+            }
+            Self::PackageSignatureVerified { package_id, signer } => {
+                write!(f, "package-signature-verified:{package_id} [{signer}]")
+            }
+            Self::PackageSignatureInvalid { package_id, reason } => {
+                write!(f, "package-signature-invalid:{package_id} {reason}")
+            }
+            Self::PackageIntegrityVerified { package_id, valid } => {
+                write!(f, "package-integrity-verified:{package_id} {}", if *valid { "ok" } else { "failed" })
+            }
+            Self::EvaluationPayloadPrepared { payload_id, evaluator_type } => {
+                write!(f, "evaluation-payload-prepared:{payload_id} [{evaluator_type}]")
+            }
+            Self::EvaluationSubmittedToExternal { handle, evaluator_type } => {
+                write!(f, "evaluation-submitted:{handle} [{evaluator_type}]")
+            }
+            Self::EvaluationCompletedByExternal { handle, outcome } => {
+                write!(f, "evaluation-completed:{handle} [{outcome}]")
+            }
+            Self::EvaluationFailedByExternal { handle, reason } => {
+                write!(f, "evaluation-failed:{handle} {reason}")
+            }
+            Self::EvaluationCanceled { handle } => {
+                write!(f, "evaluation-canceled:{handle}")
+            }
+            Self::PackageExported { package_id, format } => {
+                write!(f, "package-exported:{package_id} [{format}]")
+            }
+            Self::PackageExportFailed { package_id, format, reason } => {
+                write!(f, "package-export-failed:{package_id} [{format}] {reason}")
+            }
+            Self::PackageValidated { package_id, passed, severity } => {
+                write!(f, "package-validated:{package_id} {} [{severity}]", if *passed { "passed" } else { "failed" })
+            }
+            Self::PackageValidationFailed { package_id, reason } => {
+                write!(f, "package-validation-failed:{package_id} {reason}")
+            }
+            Self::PolicySubscriberRegistered { subscriber_id } => {
+                write!(f, "policy-subscriber-registered:{subscriber_id}")
+            }
+            Self::PolicySubscriberRemoved { subscriber_id } => {
+                write!(f, "policy-subscriber-removed:{subscriber_id}")
+            }
+            Self::PolicyEventPublished { event_type, subscriber_count } => {
+                write!(f, "policy-event-published:{event_type} ({subscriber_count} subscribers)")
+            }
         }
     }
 }
@@ -144,7 +250,105 @@ impl PolicyExtEventType {
             Self::PolicyDependencyAdded { .. } => "l2-dependency-added",
             Self::PolicyCascadeAnalyzed { .. } => "l2-cascade-analyzed",
             Self::PolicyDependencyValidated { .. } => "l2-dependency-validated",
+            Self::PolicyPackageBackendChanged { .. } => "policy-package-backend-changed",
+            Self::PackageStored { .. } => "package-stored",
+            Self::PackageRetrieved { .. } => "package-retrieved",
+            Self::PackageDeleted { .. } => "package-deleted",
+            Self::PackageVersionResolved { .. } => "package-version-resolved",
+            Self::RuleSetStored { .. } => "rule-set-stored",
+            Self::PackageComposed { .. } => "package-composed",
+            Self::L3PolicyConflictDetected { .. } => "package-conflict-detected",
+            Self::L3PolicyConflictResolved { .. } => "package-conflict-resolved",
+            Self::PackagePublishedToRegistry { .. } => "package-published-to-registry",
+            Self::PackageUnpublishedFromRegistry { .. } => "package-unpublished-from-registry",
+            Self::PackageSignatureVerified { .. } => "package-signature-verified",
+            Self::PackageSignatureInvalid { .. } => "package-signature-invalid",
+            Self::PackageIntegrityVerified { .. } => "package-integrity-verified",
+            Self::EvaluationPayloadPrepared { .. } => "evaluation-payload-prepared",
+            Self::EvaluationSubmittedToExternal { .. } => "evaluation-submitted-to-external",
+            Self::EvaluationCompletedByExternal { .. } => "evaluation-completed-by-external",
+            Self::EvaluationFailedByExternal { .. } => "evaluation-failed-by-external",
+            Self::EvaluationCanceled { .. } => "evaluation-canceled",
+            Self::PackageExported { .. } => "package-exported",
+            Self::PackageExportFailed { .. } => "package-export-failed",
+            Self::PackageValidated { .. } => "package-validated",
+            Self::PackageValidationFailed { .. } => "package-validation-failed",
+            Self::PolicySubscriberRegistered { .. } => "policy-subscriber-registered",
+            Self::PolicySubscriberRemoved { .. } => "policy-subscriber-removed",
+            Self::PolicyEventPublished { .. } => "policy-event-published",
         }
+    }
+
+    pub fn kind(&self) -> &str {
+        self.type_name()
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PolicyPackageBackendChanged { .. }
+                | Self::PackageStored { .. }
+                | Self::PackageRetrieved { .. }
+                | Self::PackageDeleted { .. }
+                | Self::PackageVersionResolved { .. }
+                | Self::RuleSetStored { .. }
+        )
+    }
+
+    pub fn is_package_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PackageStored { .. }
+                | Self::PackageRetrieved { .. }
+                | Self::PackageDeleted { .. }
+                | Self::PackageVersionResolved { .. }
+                | Self::PackageSignatureVerified { .. }
+                | Self::PackageSignatureInvalid { .. }
+                | Self::PackageIntegrityVerified { .. }
+        )
+    }
+
+    pub fn is_composition_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PackageComposed { .. }
+                | Self::L3PolicyConflictDetected { .. }
+                | Self::L3PolicyConflictResolved { .. }
+        )
+    }
+
+    pub fn is_registry_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PackagePublishedToRegistry { .. }
+                | Self::PackageUnpublishedFromRegistry { .. }
+                | Self::PackageIntegrityVerified { .. }
+        )
+    }
+
+    pub fn is_evaluation_event(&self) -> bool {
+        matches!(
+            self,
+            Self::EvaluationPayloadPrepared { .. }
+                | Self::EvaluationSubmittedToExternal { .. }
+                | Self::EvaluationCompletedByExternal { .. }
+                | Self::EvaluationFailedByExternal { .. }
+                | Self::EvaluationCanceled { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PackageExported { .. } | Self::PackageExportFailed { .. }
+        )
+    }
+
+    pub fn is_validation_event(&self) -> bool {
+        matches!(
+            self,
+            Self::PackageValidated { .. } | Self::PackageValidationFailed { .. }
+        )
     }
 }
 
@@ -371,5 +575,120 @@ mod tests {
             assert!(!t.type_name().is_empty());
         }
         assert_eq!(types.len(), 26);
+    }
+
+    #[test]
+    fn test_l3_event_type_display() {
+        let types = vec![
+            PolicyExtEventType::PolicyPackageBackendChanged { backend_id: "b1".into() },
+            PolicyExtEventType::PackageStored { package_id: "pkg-1".into(), namespace: "org".into() },
+            PolicyExtEventType::PackageRetrieved { package_id: "pkg-1".into() },
+            PolicyExtEventType::PackageDeleted { package_id: "pkg-1".into() },
+            PolicyExtEventType::PackageVersionResolved { name: "access".into(), namespace: "org".into(), resolved_version: "1.0.0".into() },
+            PolicyExtEventType::RuleSetStored { rule_set_id: "rs-1".into(), package_id: "pkg-1".into() },
+            PolicyExtEventType::PackageComposed { source_count: 3, strategy: "union".into() },
+            PolicyExtEventType::L3PolicyConflictDetected { conflict_id: "c-1".into(), conflict_type: "overlapping-scope".into() },
+            PolicyExtEventType::L3PolicyConflictResolved { conflict_id: "c-1".into(), resolution_strategy: "prefer-newer".into() },
+            PolicyExtEventType::PackagePublishedToRegistry { package_id: "pkg-1".into(), registry_id: "reg-1".into() },
+            PolicyExtEventType::PackageUnpublishedFromRegistry { package_id: "pkg-1".into(), registry_id: "reg-1".into() },
+            PolicyExtEventType::PackageSignatureVerified { package_id: "pkg-1".into(), signer: "admin".into() },
+            PolicyExtEventType::PackageSignatureInvalid { package_id: "pkg-1".into(), reason: "expired".into() },
+            PolicyExtEventType::PackageIntegrityVerified { package_id: "pkg-1".into(), valid: true },
+            PolicyExtEventType::EvaluationPayloadPrepared { payload_id: "pay-1".into(), evaluator_type: "opa-rego".into() },
+            PolicyExtEventType::EvaluationSubmittedToExternal { handle: "eval-1".into(), evaluator_type: "cedar".into() },
+            PolicyExtEventType::EvaluationCompletedByExternal { handle: "eval-1".into(), outcome: "Permit".into() },
+            PolicyExtEventType::EvaluationFailedByExternal { handle: "eval-1".into(), reason: "timeout".into() },
+            PolicyExtEventType::EvaluationCanceled { handle: "eval-1".into() },
+            PolicyExtEventType::PackageExported { package_id: "pkg-1".into(), format: "json".into() },
+            PolicyExtEventType::PackageExportFailed { package_id: "pkg-1".into(), format: "xacml".into(), reason: "err".into() },
+            PolicyExtEventType::PackageValidated { package_id: "pkg-1".into(), passed: true, severity: "clean".into() },
+            PolicyExtEventType::PackageValidationFailed { package_id: "pkg-1".into(), reason: "bad".into() },
+            PolicyExtEventType::PolicySubscriberRegistered { subscriber_id: "sub-1".into() },
+            PolicyExtEventType::PolicySubscriberRemoved { subscriber_id: "sub-1".into() },
+            PolicyExtEventType::PolicyEventPublished { event_type: "package-published".into(), subscriber_count: 3 },
+        ];
+        assert_eq!(types.len(), 26);
+        for t in &types {
+            assert!(!t.to_string().is_empty());
+            assert!(!t.kind().is_empty());
+        }
+    }
+
+    #[test]
+    fn test_kind_method() {
+        let event = PolicyExtEventType::PolicyCreated { domain: "access".into() };
+        assert_eq!(event.kind(), "policy-created");
+        let event2 = PolicyExtEventType::PackageExported { package_id: "p".into(), format: "json".into() };
+        assert_eq!(event2.kind(), "package-exported");
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        assert!(PolicyExtEventType::PolicyPackageBackendChanged { backend_id: "b".into() }.is_backend_event());
+        assert!(PolicyExtEventType::PackageStored { package_id: "p".into(), namespace: "n".into() }.is_backend_event());
+        assert!(PolicyExtEventType::RuleSetStored { rule_set_id: "r".into(), package_id: "p".into() }.is_backend_event());
+        assert!(!PolicyExtEventType::PackageComposed { source_count: 1, strategy: "s".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_package_event() {
+        assert!(PolicyExtEventType::PackageStored { package_id: "p".into(), namespace: "n".into() }.is_package_event());
+        assert!(PolicyExtEventType::PackageSignatureVerified { package_id: "p".into(), signer: "s".into() }.is_package_event());
+        assert!(!PolicyExtEventType::PolicyCreated { domain: "d".into() }.is_package_event());
+    }
+
+    #[test]
+    fn test_is_composition_event() {
+        assert!(PolicyExtEventType::PackageComposed { source_count: 2, strategy: "union".into() }.is_composition_event());
+        assert!(PolicyExtEventType::L3PolicyConflictDetected { conflict_id: "c".into(), conflict_type: "t".into() }.is_composition_event());
+        assert!(!PolicyExtEventType::PackageExported { package_id: "p".into(), format: "f".into() }.is_composition_event());
+    }
+
+    #[test]
+    fn test_is_registry_event() {
+        assert!(PolicyExtEventType::PackagePublishedToRegistry { package_id: "p".into(), registry_id: "r".into() }.is_registry_event());
+        assert!(PolicyExtEventType::PackageUnpublishedFromRegistry { package_id: "p".into(), registry_id: "r".into() }.is_registry_event());
+        assert!(!PolicyExtEventType::PolicyCreated { domain: "d".into() }.is_registry_event());
+    }
+
+    #[test]
+    fn test_is_evaluation_event() {
+        assert!(PolicyExtEventType::EvaluationPayloadPrepared { payload_id: "p".into(), evaluator_type: "e".into() }.is_evaluation_event());
+        assert!(PolicyExtEventType::EvaluationSubmittedToExternal { handle: "h".into(), evaluator_type: "e".into() }.is_evaluation_event());
+        assert!(PolicyExtEventType::EvaluationCanceled { handle: "h".into() }.is_evaluation_event());
+        assert!(!PolicyExtEventType::PolicyCreated { domain: "d".into() }.is_evaluation_event());
+    }
+
+    #[test]
+    fn test_is_export_event() {
+        assert!(PolicyExtEventType::PackageExported { package_id: "p".into(), format: "f".into() }.is_export_event());
+        assert!(PolicyExtEventType::PackageExportFailed { package_id: "p".into(), format: "f".into(), reason: "r".into() }.is_export_event());
+        assert!(!PolicyExtEventType::PolicyCreated { domain: "d".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_is_validation_event() {
+        assert!(PolicyExtEventType::PackageValidated { package_id: "p".into(), passed: true, severity: "clean".into() }.is_validation_event());
+        assert!(PolicyExtEventType::PackageValidationFailed { package_id: "p".into(), reason: "r".into() }.is_validation_event());
+        assert!(!PolicyExtEventType::PolicyCreated { domain: "d".into() }.is_validation_event());
+    }
+
+    #[test]
+    fn test_l3_events_by_type() {
+        let mut log = PolicyExtAuditLog::new();
+        log.record(PolicyExtAuditEvent::new(
+            PolicyExtEventType::PackageExported { package_id: "p1".into(), format: "json".into() },
+            "system", 1000, "",
+        ));
+        log.record(PolicyExtAuditEvent::new(
+            PolicyExtEventType::PackageExported { package_id: "p2".into(), format: "cedar".into() },
+            "system", 2000, "",
+        ));
+        log.record(PolicyExtAuditEvent::new(
+            PolicyExtEventType::PackageValidated { package_id: "p1".into(), passed: true, severity: "clean".into() },
+            "system", 3000, "",
+        ));
+        assert_eq!(log.events_by_type("package-exported").len(), 2);
+        assert_eq!(log.events_by_type("package-validated").len(), 1);
     }
 }

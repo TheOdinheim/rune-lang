@@ -266,3 +266,58 @@ Two new `DocumentError` variants: `SerializationFailed(String)`, `VersionNotFoun
 - **rune-privacy**: DisposalRecord.retention_policy_ref is an opaque string for cross-library coupling with rune-privacy retention policies
 - **rune-provenance**: ExportableDocument.attestation_refs preserved across all export formats for provenance chain continuity
 - **rune-framework**: DocumentLifecycleEventType and DocumentBackendInfo available for Layer 5 governance pipeline integration
+
+---
+
+## rune-policy-ext — Layer 3
+
+**Test count**: 140 → 235 (+95)
+
+### Scope Boundary
+
+rune-policy-ext handles policy packaging, versioning, distribution, and composition. It does NOT contain the decision engine — that belongs in rune-permissions. The `ExternalEvaluatorIntegration` trait only prepares, submits, and fetches evaluation results; no actual OPA/Cedar/XACML evaluation calls live here.
+
+### New Modules
+
+| Module | Key types |
+|---|---|
+| `backend.rs` | `PolicyPackageBackend` trait (17 methods), `StoredPolicyPackage` (11 fields), `PackageDependency`, `StoredRuleSet`, `StoredPolicyEvaluationRecord` (duration as String for Eq), `StoredPackageSignature`, `PolicyPackageBackendInfo`, `InMemoryPolicyPackageBackend` |
+| `package_composer.rs` | `PolicyPackageComposer` trait (5 methods), `PackageCompositionStrategy` (Union/Intersection/Override/Explicit), `PackagePolicyConflict`, `PackageConflictCategory` (3 variants), `PackageConflictResolutionStrategy` (4 variants), `ComposedPackage`, `InMemoryPolicyPackageComposer` (heuristic overlap), `UnionPolicyPackageComposer`, `OverridePolicyPackageComposer`, `NullPolicyPackageComposer` |
+| `package_registry.rs` | `PolicyPackageRegistry` trait (8 methods), `RegistryCredentials`, `PackageQuery` (builder pattern), `SubscriptionHandle`, `InMemoryPolicyPackageRegistry` (soft-delete), `ReadOnlyPolicyPackageRegistry<R>` (rejects writes), `CachedPolicyPackageRegistry<R>` (bounded cache, hit_rate), `NullPolicyPackageRegistry` |
+| `policy_export.rs` | `PolicyPackageExporter` trait (5 methods), `JsonPolicyPackageExporter`, `OpaBundleExporter` (OPA bundle manifest with roots/revision), `CedarPolicyExporter` (Cedar @id annotations), `SignedBundleManifestExporter` (SHA256 file hashes), `XacmlPolicySetExporter` (XACML 3.0 PolicySet with deny-overrides) |
+| `external_evaluator_integration.rs` | `ExternalEvaluatorIntegration` trait (7 methods), `EvaluatorType` (OpaRego/Cedar/XacmlPdp/InternalRune/Custom), `EvaluationPayload`, `EvaluationHandle`, `EvaluationResult`, `InMemoryExternalEvaluatorIntegration` (echo-loop), `NullExternalEvaluatorIntegration` |
+| `policy_stream.rs` | `PolicyLifecycleEventSubscriber` trait (3 methods), `PolicyLifecycleEventSubscriberRegistry`, `PolicyLifecycleEventCollector`, `FilteredPolicyLifecycleEventSubscriber` (namespace/event-type/tag filters), `PolicyLifecycleEvent` (builder), `PolicyLifecycleEventType` (20 variants) |
+| `policy_validation.rs` | `PolicyPackageValidator` trait (3 methods), `ValidationSeverity` (5-level with Ord), `ValidationCheckCategory` (5 variants), `ValidationCheckResult`, `PackageValidationReport` (helpers), `SyntacticPackageValidator`, `SecurityPackageValidator` (heuristic-only), `CompositePackageValidator`, `NullPolicyPackageValidator` |
+
+### Audit Changes
+
+26 new `PolicyExtEventType` variants: `PolicyPackageBackendChanged`, `PolicyPackageStored`, `PolicyPackageRetrieved`, `PolicyPackageDeleted`, `PolicyPackageListed`, `RuleSetStored`, `RuleSetRetrieved`, `EvaluationRecordStored`, `PackageSignatureStored`, `PolicyPackageComposed`, `PackageCompositionStrategyApplied`, `L3PolicyConflictDetected`, `L3PolicyConflictResolved`, `PolicyPackagePublished`, `PolicyPackageLookedUp`, `PolicyPackageSubscribed`, `PolicyPackageUnpublished`, `PolicyPackageIntegrityVerified`, `PolicyPackageExported`, `PolicyPackageExportFailed`, `ExternalEvaluationSubmitted`, `ExternalEvaluationCompleted`, `ExternalEvaluationCancelled`, `PolicyLifecycleEventPublished`, `PolicyPackageValidated`, `PolicyPackageValidationFailed`.
+
+Public `kind()` method and 7 classification methods: `is_backend_event`, `is_package_event`, `is_composition_event`, `is_registry_event`, `is_evaluation_event`, `is_export_event`, `is_validation_event`.
+
+### Error Changes
+
+Two new `PolicyExtError` variants: `SerializationFailed(String)`, `PackageNotFound(String)`.
+
+### Naming Collision Resolution
+
+| L1/L2 type | L3 type | Rationale |
+|---|---|---|
+| `CompositionStrategy` (rule-level, 4 variants) | `PackageCompositionStrategy` (package-level) | L1 composes rules within a policy; L3 composes entire packages |
+| `PolicyConflict` / `L2PolicyConflict` | `PackagePolicyConflict` | L3 detects conflicts between packages, not individual rules |
+| `ConflictResolutionStrategy` (L2) | `PackageConflictResolutionStrategy` | Follows `PackagePolicyConflict` naming |
+| `PolicyConflictDetected` / `PolicyConflictResolved` (L2 audit) | `L3PolicyConflictDetected` / `L3PolicyConflictResolved` | Only L3-prefixed variants — necessary to avoid audit collision |
+
+### Design Decisions
+
+- **Echo-loop InMemoryExternalEvaluatorIntegration**: Submit immediately produces a Permit result. Actual OPA/Cedar/XACML evaluation calls belong in adapter crates.
+- **CachedPolicyPackageRegistry pattern**: Matches CachedRoleProvider from rune-permissions — bounded cache with hit_rate tracking and invalidate/invalidate_all.
+- **ReadOnlyPolicyPackageRegistry**: Wraps any registry, rejects all write operations — for production read replicas.
+- **SecurityPackageValidator**: Heuristic-only checks (unsigned packages, wildcard tags, all-optional dependencies). Full symbolic analysis belongs in Layer 5.
+- **Industry standard formats**: OPA Rego bundle (manifest with roots/revision), OPA signed bundle manifest (SHA256 file hashes), AWS Cedar (@id annotations), OASIS XACML 3.0 (deny-overrides combining algorithm).
+
+### Integration Points
+
+- **rune-permissions**: ExternalEvaluatorIntegration prepares payloads but never decides — rune-permissions owns XACML four-outcome model (Permit/Deny/Indeterminate/NotApplicable)
+- **rune-provenance**: StoredPackageSignature.signature_ref preserved across all export formats for provenance chain continuity
+- **rune-framework**: PolicyLifecycleEventType and PolicyPackageBackendInfo available for Layer 5 governance pipeline integration

@@ -17,6 +17,8 @@ pub enum PolicyExtError {
     VersionNotFound { policy_id: String, version: String },
     InvalidExpression(String),
     InvalidOperation(String),
+    SerializationFailed(String),
+    PackageNotFound(String),
 }
 
 impl fmt::Display for PolicyExtError {
@@ -41,6 +43,8 @@ impl fmt::Display for PolicyExtError {
             }
             Self::InvalidExpression(reason) => write!(f, "invalid expression: {reason}"),
             Self::InvalidOperation(reason) => write!(f, "invalid operation: {reason}"),
+            Self::SerializationFailed(reason) => write!(f, "serialization failed: {reason}"),
+            Self::PackageNotFound(id) => write!(f, "package not found: {id}"),
         }
     }
 }
@@ -69,6 +73,8 @@ mod tests {
             PolicyExtError::VersionNotFound { policy_id: "p1".into(), version: "0.1.0".into() },
             PolicyExtError::InvalidExpression("bad".into()),
             PolicyExtError::InvalidOperation("nope".into()),
+            PolicyExtError::SerializationFailed("ser".into()),
+            PolicyExtError::PackageNotFound("pkg-1".into()),
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
