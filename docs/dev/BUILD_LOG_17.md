@@ -70,3 +70,23 @@ Test function `test_layer3_classification_methods` renamed to `test_classificati
 **Test count**: 236 — unchanged before and after rename.
 
 **Note**: The original rune-truth Layer 3 entry in BUILD_LOG_16.md remains in place for historical accuracy. This correction supersedes the old names; the original entry documents what shipped and this entry documents what was corrected.
+
+---
+
+## Naming Discipline Correction — rune-security audit variants
+
+**Date**: 2026-04-20
+
+### Renamed Variants
+
+| Old name | New name | Rationale |
+|----------|----------|-----------|
+| `VulnerabilityRemediatedL3` | `BackendVulnerabilityRemediated` | `Backend` prefix follows the same convention as `BackendSessionCreated` in rune-web — describes the origin (backend operation), not the layer number. |
+| `IncidentDeclaredL3` | `BackendIncidentDeclared` | Same rationale. The `L3` suffix was a layer-number qualifier; `Backend` is a descriptive qualifier. |
+| `IncidentClosedL3` | `BackendIncidentClosed` | Same rationale. |
+
+All occurrences updated in `audit.rs`: enum variant definitions, `kind()` match arms, `Display` impl match arms, `is_vulnerability_event`/`is_incident_event` classification methods, and test assertions.
+
+**Test count**: 245 — unchanged before and after rename.
+
+**Note**: The original rune-security Layer 3 entry earlier in this file lists the old variant names in the "Audit Events" section. That entry remains in place for historical accuracy. This correction supersedes the old names. This completes the naming discipline correction pass across rune-truth and rune-security, re-establishing the house style convention that all subsequent libraries (rune-monitoring onward) must follow: descriptive qualifiers only, no layer-number prefixes or suffixes.

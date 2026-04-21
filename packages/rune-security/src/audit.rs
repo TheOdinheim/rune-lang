@@ -40,17 +40,17 @@ pub enum SecurityEventType {
     SecurityPostureBackendChanged { operation: String },
     VulnerabilityRecorded { vulnerability_id: String },
     VulnerabilityTriaged { vulnerability_id: String, decision: String },
-    VulnerabilityRemediatedL3 { vulnerability_id: String },
+    BackendVulnerabilityRemediated { vulnerability_id: String },
     VulnerabilityReopened { vulnerability_id: String, reason: String },
     VulnerabilitySlaViolatedEvent { vulnerability_id: String, hours_open: u64, threshold_hours: u64 },
     VulnerabilityStaleDetected { vulnerability_id: String, seconds_stale: i64 },
     SecurityControlStored { control_id: String, framework: String },
     SecurityControlStatusUpdated { control_id: String, new_status: String },
     ControlFrameworkMappingQueried { source_framework: String, control_id: String },
-    IncidentDeclaredL3 { incident_id: String, severity: String },
+    BackendIncidentDeclared { incident_id: String, severity: String },
     IncidentStateTransitioned { incident_id: String, from_state: String, to_state: String },
     IncidentResponseActionRecorded { incident_id: String, action_type: String },
-    IncidentClosedL3 { incident_id: String },
+    BackendIncidentClosed { incident_id: String },
     ThreatModelRecorded { threat_model_id: String },
     ThreatModelReviewed { threat_model_id: String },
     SecurityDataExported { format_name: String, record_type: String },
@@ -94,17 +94,17 @@ impl SecurityEventType {
             Self::SecurityPostureBackendChanged { .. } => "SecurityPostureBackendChanged",
             Self::VulnerabilityRecorded { .. } => "VulnerabilityRecorded",
             Self::VulnerabilityTriaged { .. } => "VulnerabilityTriaged",
-            Self::VulnerabilityRemediatedL3 { .. } => "VulnerabilityRemediatedL3",
+            Self::BackendVulnerabilityRemediated { .. } => "BackendVulnerabilityRemediated",
             Self::VulnerabilityReopened { .. } => "VulnerabilityReopened",
             Self::VulnerabilitySlaViolatedEvent { .. } => "VulnerabilitySlaViolatedEvent",
             Self::VulnerabilityStaleDetected { .. } => "VulnerabilityStaleDetected",
             Self::SecurityControlStored { .. } => "SecurityControlStored",
             Self::SecurityControlStatusUpdated { .. } => "SecurityControlStatusUpdated",
             Self::ControlFrameworkMappingQueried { .. } => "ControlFrameworkMappingQueried",
-            Self::IncidentDeclaredL3 { .. } => "IncidentDeclaredL3",
+            Self::BackendIncidentDeclared { .. } => "BackendIncidentDeclared",
             Self::IncidentStateTransitioned { .. } => "IncidentStateTransitioned",
             Self::IncidentResponseActionRecorded { .. } => "IncidentResponseActionRecorded",
-            Self::IncidentClosedL3 { .. } => "IncidentClosedL3",
+            Self::BackendIncidentClosed { .. } => "BackendIncidentClosed",
             Self::ThreatModelRecorded { .. } => "ThreatModelRecorded",
             Self::ThreatModelReviewed { .. } => "ThreatModelReviewed",
             Self::SecurityDataExported { .. } => "SecurityDataExported",
@@ -129,7 +129,7 @@ impl SecurityEventType {
             self,
             Self::VulnerabilityRecorded { .. }
                 | Self::VulnerabilityTriaged { .. }
-                | Self::VulnerabilityRemediatedL3 { .. }
+                | Self::BackendVulnerabilityRemediated { .. }
                 | Self::VulnerabilityReopened { .. }
                 | Self::VulnerabilitySlaViolatedEvent { .. }
                 | Self::VulnerabilityStaleDetected { .. }
@@ -148,10 +148,10 @@ impl SecurityEventType {
     pub fn is_incident_event(&self) -> bool {
         matches!(
             self,
-            Self::IncidentDeclaredL3 { .. }
+            Self::BackendIncidentDeclared { .. }
                 | Self::IncidentStateTransitioned { .. }
                 | Self::IncidentResponseActionRecorded { .. }
-                | Self::IncidentClosedL3 { .. }
+                | Self::BackendIncidentClosed { .. }
         )
     }
 
@@ -251,8 +251,8 @@ impl fmt::Display for SecurityEventType {
             Self::VulnerabilityTriaged { vulnerability_id, decision } => {
                 write!(f, "VulnerabilityTriaged({vulnerability_id}, {decision})")
             }
-            Self::VulnerabilityRemediatedL3 { vulnerability_id } => {
-                write!(f, "VulnerabilityRemediatedL3({vulnerability_id})")
+            Self::BackendVulnerabilityRemediated { vulnerability_id } => {
+                write!(f, "BackendVulnerabilityRemediated({vulnerability_id})")
             }
             Self::VulnerabilityReopened { vulnerability_id, reason } => {
                 write!(f, "VulnerabilityReopened({vulnerability_id}, {reason})")
@@ -272,8 +272,8 @@ impl fmt::Display for SecurityEventType {
             Self::ControlFrameworkMappingQueried { source_framework, control_id } => {
                 write!(f, "ControlFrameworkMappingQueried({source_framework}/{control_id})")
             }
-            Self::IncidentDeclaredL3 { incident_id, severity } => {
-                write!(f, "IncidentDeclaredL3({incident_id}, {severity})")
+            Self::BackendIncidentDeclared { incident_id, severity } => {
+                write!(f, "BackendIncidentDeclared({incident_id}, {severity})")
             }
             Self::IncidentStateTransitioned { incident_id, from_state, to_state } => {
                 write!(f, "IncidentStateTransitioned({incident_id}, {from_state} -> {to_state})")
@@ -281,8 +281,8 @@ impl fmt::Display for SecurityEventType {
             Self::IncidentResponseActionRecorded { incident_id, action_type } => {
                 write!(f, "IncidentResponseActionRecorded({incident_id}, {action_type})")
             }
-            Self::IncidentClosedL3 { incident_id } => {
-                write!(f, "IncidentClosedL3({incident_id})")
+            Self::BackendIncidentClosed { incident_id } => {
+                write!(f, "BackendIncidentClosed({incident_id})")
             }
             Self::ThreatModelRecorded { threat_model_id } => {
                 write!(f, "ThreatModelRecorded({threat_model_id})")
@@ -660,17 +660,17 @@ mod tests {
             SecurityEventType::SecurityPostureBackendChanged { operation: "store".into() },
             SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v1".into() },
             SecurityEventType::VulnerabilityTriaged { vulnerability_id: "v1".into(), decision: "confirm".into() },
-            SecurityEventType::VulnerabilityRemediatedL3 { vulnerability_id: "v1".into() },
+            SecurityEventType::BackendVulnerabilityRemediated { vulnerability_id: "v1".into() },
             SecurityEventType::VulnerabilityReopened { vulnerability_id: "v1".into(), reason: "regression".into() },
             SecurityEventType::VulnerabilitySlaViolatedEvent { vulnerability_id: "v1".into(), hours_open: 30, threshold_hours: 24 },
             SecurityEventType::VulnerabilityStaleDetected { vulnerability_id: "v1".into(), seconds_stale: 86400 },
             SecurityEventType::SecurityControlStored { control_id: "c1".into(), framework: "NIST".into() },
             SecurityEventType::SecurityControlStatusUpdated { control_id: "c1".into(), new_status: "Implemented".into() },
             SecurityEventType::ControlFrameworkMappingQueried { source_framework: "NIST".into(), control_id: "c1".into() },
-            SecurityEventType::IncidentDeclaredL3 { incident_id: "inc-1".into(), severity: "High".into() },
+            SecurityEventType::BackendIncidentDeclared { incident_id: "inc-1".into(), severity: "High".into() },
             SecurityEventType::IncidentStateTransitioned { incident_id: "inc-1".into(), from_state: "Declared".into(), to_state: "Triaging".into() },
             SecurityEventType::IncidentResponseActionRecorded { incident_id: "inc-1".into(), action_type: "Isolate".into() },
-            SecurityEventType::IncidentClosedL3 { incident_id: "inc-1".into() },
+            SecurityEventType::BackendIncidentClosed { incident_id: "inc-1".into() },
             SecurityEventType::ThreatModelRecorded { threat_model_id: "tm-1".into() },
             SecurityEventType::ThreatModelReviewed { threat_model_id: "tm-1".into() },
             SecurityEventType::SecurityDataExported { format_name: "json".into(), record_type: "vulnerability".into() },
@@ -695,13 +695,13 @@ mod tests {
 
         assert!(SecurityEventType::VulnerabilityRecorded { vulnerability_id: "v".into() }.is_vulnerability_event());
         assert!(SecurityEventType::VulnerabilitySlaViolatedEvent { vulnerability_id: "v".into(), hours_open: 1, threshold_hours: 1 }.is_vulnerability_event());
-        assert!(!SecurityEventType::IncidentDeclaredL3 { incident_id: "i".into(), severity: "H".into() }.is_vulnerability_event());
+        assert!(!SecurityEventType::BackendIncidentDeclared { incident_id: "i".into(), severity: "H".into() }.is_vulnerability_event());
 
         assert!(SecurityEventType::SecurityControlStored { control_id: "c".into(), framework: "N".into() }.is_control_event());
         assert!(SecurityEventType::ControlFrameworkMappingQueried { source_framework: "N".into(), control_id: "c".into() }.is_control_event());
 
-        assert!(SecurityEventType::IncidentDeclaredL3 { incident_id: "i".into(), severity: "H".into() }.is_incident_event());
-        assert!(SecurityEventType::IncidentClosedL3 { incident_id: "i".into() }.is_incident_event());
+        assert!(SecurityEventType::BackendIncidentDeclared { incident_id: "i".into(), severity: "H".into() }.is_incident_event());
+        assert!(SecurityEventType::BackendIncidentClosed { incident_id: "i".into() }.is_incident_event());
 
         assert!(SecurityEventType::SecurityDataExported { format_name: "json".into(), record_type: "v".into() }.is_export_event());
         assert!(SecurityEventType::SecurityDataExportFailed { format_name: "json".into(), error: "e".into() }.is_export_event());
