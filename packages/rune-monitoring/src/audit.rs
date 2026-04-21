@@ -37,6 +37,31 @@ pub enum MonitoringEventType {
     StatusHistoryRecorded { status: String, at: i64 },
     DerivedMetricComputed { metric_id: String, value: f64 },
     SystemHealthAssessed { score: f64, status: String },
+    // Layer 3 event types
+    MonitoringBackendChanged { backend_name: String },
+    MetricSeriesStored { series_id: String, metric_name: String },
+    MetricSeriesDeleted { series_id: String },
+    MetricWindowAggregated { series_id: String, function: String },
+    MetricDownsampled { series_id: String, factor: usize },
+    StreamingMetricUpdated { series_id: String },
+    TraceSpanStored { span_id: String, trace_id: String },
+    TraceStored { trace_id: String },
+    TraceContextInjected { format: String },
+    TraceContextExtracted { format: String },
+    LogRecordStored { log_id: String },
+    LogLineIngested { format: String },
+    LogLineParseFailed { format: String, reason: String },
+    HealthProbeExecuted { probe_id: String, status: String },
+    HealthProbeFailed { probe_id: String, reason: String },
+    CompositeProbeEvaluated { probe_id: String, status: String },
+    AlertRuleStored { rule_id: String },
+    AlertRuleTriggered { rule_id: String, metric_name: String },
+    AlertRuleResolved { rule_id: String },
+    TelemetryExported { format: String, record_count: usize },
+    TelemetryExportFailed { format: String, reason: String },
+    TelemetrySubscriberRegistered { subscriber_id: String },
+    TelemetrySubscriberRemoved { subscriber_id: String },
+    TelemetryEventPublished { event_type: String },
 }
 
 impl fmt::Display for MonitoringEventType {
@@ -116,7 +141,199 @@ impl fmt::Display for MonitoringEventType {
             Self::SystemHealthAssessed { score, status } => {
                 write!(f, "system health: score={score:.2} status={status}")
             }
+            Self::MonitoringBackendChanged { backend_name } => {
+                write!(f, "monitoring backend changed: {backend_name}")
+            }
+            Self::MetricSeriesStored { series_id, metric_name } => {
+                write!(f, "metric series stored: {series_id} ({metric_name})")
+            }
+            Self::MetricSeriesDeleted { series_id } => {
+                write!(f, "metric series deleted: {series_id}")
+            }
+            Self::MetricWindowAggregated { series_id, function } => {
+                write!(f, "metric aggregated: {series_id} fn={function}")
+            }
+            Self::MetricDownsampled { series_id, factor } => {
+                write!(f, "metric downsampled: {series_id} factor={factor}")
+            }
+            Self::StreamingMetricUpdated { series_id } => {
+                write!(f, "streaming metric updated: {series_id}")
+            }
+            Self::TraceSpanStored { span_id, trace_id } => {
+                write!(f, "trace span stored: {span_id} trace={trace_id}")
+            }
+            Self::TraceStored { trace_id } => {
+                write!(f, "trace stored: {trace_id}")
+            }
+            Self::TraceContextInjected { format } => {
+                write!(f, "trace context injected: {format}")
+            }
+            Self::TraceContextExtracted { format } => {
+                write!(f, "trace context extracted: {format}")
+            }
+            Self::LogRecordStored { log_id } => {
+                write!(f, "log record stored: {log_id}")
+            }
+            Self::LogLineIngested { format } => {
+                write!(f, "log line ingested: {format}")
+            }
+            Self::LogLineParseFailed { format, reason } => {
+                write!(f, "log parse failed: {format} ({reason})")
+            }
+            Self::HealthProbeExecuted { probe_id, status } => {
+                write!(f, "health probe executed: {probe_id} status={status}")
+            }
+            Self::HealthProbeFailed { probe_id, reason } => {
+                write!(f, "health probe failed: {probe_id} ({reason})")
+            }
+            Self::CompositeProbeEvaluated { probe_id, status } => {
+                write!(f, "composite probe evaluated: {probe_id} status={status}")
+            }
+            Self::AlertRuleStored { rule_id } => {
+                write!(f, "alert rule stored: {rule_id}")
+            }
+            Self::AlertRuleTriggered { rule_id, metric_name } => {
+                write!(f, "alert triggered: {rule_id} metric={metric_name}")
+            }
+            Self::AlertRuleResolved { rule_id } => {
+                write!(f, "alert resolved: {rule_id}")
+            }
+            Self::TelemetryExported { format, record_count } => {
+                write!(f, "telemetry exported: {format} records={record_count}")
+            }
+            Self::TelemetryExportFailed { format, reason } => {
+                write!(f, "telemetry export failed: {format} ({reason})")
+            }
+            Self::TelemetrySubscriberRegistered { subscriber_id } => {
+                write!(f, "telemetry subscriber registered: {subscriber_id}")
+            }
+            Self::TelemetrySubscriberRemoved { subscriber_id } => {
+                write!(f, "telemetry subscriber removed: {subscriber_id}")
+            }
+            Self::TelemetryEventPublished { event_type } => {
+                write!(f, "telemetry event published: {event_type}")
+            }
         }
+    }
+}
+
+// ── kind() and classification methods on MonitoringEventType ────
+
+impl MonitoringEventType {
+    pub fn kind(&self) -> &str {
+        match self {
+            Self::HealthCheckPassed { .. } => "health_check_passed",
+            Self::HealthCheckFailed { .. } => "health_check_failed",
+            Self::HealthCheckDegraded { .. } => "health_check_degraded",
+            Self::ThresholdBreached { .. } => "threshold_breached",
+            Self::ThresholdResolved { .. } => "threshold_resolved",
+            Self::SlaViolation { .. } => "sla_violation",
+            Self::SlaRestored { .. } => "sla_restored",
+            Self::ComponentDown { .. } => "component_down",
+            Self::ComponentUp { .. } => "component_up",
+            Self::MetricCollected { .. } => "metric_collected",
+            Self::StatusChanged { .. } => "status_changed",
+            Self::AlertDeduplicated { .. } => "alert_deduplicated",
+            Self::AlertCorrelated { .. } => "alert_correlated",
+            Self::AlertSuppressed { .. } => "alert_suppressed",
+            Self::BurnRateExceeded { .. } => "burn_rate_exceeded",
+            Self::ErrorBudgetConsumed { .. } => "error_budget_consumed",
+            Self::HealthGroupEvaluated { .. } => "health_group_evaluated",
+            Self::DependencyScheduled { .. } => "dependency_scheduled",
+            Self::DegradedStateDetected { .. } => "degraded_state_detected",
+            Self::HistogramRecorded { .. } => "histogram_recorded",
+            Self::PipelineExecuted { .. } => "pipeline_executed",
+            Self::AnomalyDetected { .. } => "anomaly_detected",
+            Self::DashboardStatusChanged { .. } => "dashboard_status_changed",
+            Self::StatusHistoryRecorded { .. } => "status_history_recorded",
+            Self::DerivedMetricComputed { .. } => "derived_metric_computed",
+            Self::SystemHealthAssessed { .. } => "system_health_assessed",
+            Self::MonitoringBackendChanged { .. } => "monitoring_backend_changed",
+            Self::MetricSeriesStored { .. } => "metric_series_stored",
+            Self::MetricSeriesDeleted { .. } => "metric_series_deleted",
+            Self::MetricWindowAggregated { .. } => "metric_window_aggregated",
+            Self::MetricDownsampled { .. } => "metric_downsampled",
+            Self::StreamingMetricUpdated { .. } => "streaming_metric_updated",
+            Self::TraceSpanStored { .. } => "trace_span_stored",
+            Self::TraceStored { .. } => "trace_stored",
+            Self::TraceContextInjected { .. } => "trace_context_injected",
+            Self::TraceContextExtracted { .. } => "trace_context_extracted",
+            Self::LogRecordStored { .. } => "log_record_stored",
+            Self::LogLineIngested { .. } => "log_line_ingested",
+            Self::LogLineParseFailed { .. } => "log_line_parse_failed",
+            Self::HealthProbeExecuted { .. } => "health_probe_executed",
+            Self::HealthProbeFailed { .. } => "health_probe_failed",
+            Self::CompositeProbeEvaluated { .. } => "composite_probe_evaluated",
+            Self::AlertRuleStored { .. } => "alert_rule_stored",
+            Self::AlertRuleTriggered { .. } => "alert_rule_triggered",
+            Self::AlertRuleResolved { .. } => "alert_rule_resolved",
+            Self::TelemetryExported { .. } => "telemetry_exported",
+            Self::TelemetryExportFailed { .. } => "telemetry_export_failed",
+            Self::TelemetrySubscriberRegistered { .. } => "telemetry_subscriber_registered",
+            Self::TelemetrySubscriberRemoved { .. } => "telemetry_subscriber_removed",
+            Self::TelemetryEventPublished { .. } => "telemetry_event_published",
+        }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        matches!(self, Self::MonitoringBackendChanged { .. })
+    }
+
+    pub fn is_metric_event(&self) -> bool {
+        matches!(
+            self,
+            Self::MetricCollected { .. }
+                | Self::MetricSeriesStored { .. }
+                | Self::MetricSeriesDeleted { .. }
+                | Self::MetricWindowAggregated { .. }
+                | Self::MetricDownsampled { .. }
+                | Self::StreamingMetricUpdated { .. }
+        )
+    }
+
+    pub fn is_trace_event(&self) -> bool {
+        matches!(
+            self,
+            Self::TraceSpanStored { .. }
+                | Self::TraceStored { .. }
+                | Self::TraceContextInjected { .. }
+                | Self::TraceContextExtracted { .. }
+        )
+    }
+
+    pub fn is_log_event(&self) -> bool {
+        matches!(
+            self,
+            Self::LogRecordStored { .. }
+                | Self::LogLineIngested { .. }
+                | Self::LogLineParseFailed { .. }
+        )
+    }
+
+    pub fn is_health_probe_event(&self) -> bool {
+        matches!(
+            self,
+            Self::HealthProbeExecuted { .. }
+                | Self::HealthProbeFailed { .. }
+                | Self::CompositeProbeEvaluated { .. }
+        )
+    }
+
+    pub fn is_alert_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AlertRuleStored { .. }
+                | Self::AlertRuleTriggered { .. }
+                | Self::AlertRuleResolved { .. }
+        )
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        matches!(
+            self,
+            Self::TelemetryExported { .. }
+                | Self::TelemetryExportFailed { .. }
+        )
     }
 }
 
@@ -445,12 +662,38 @@ mod tests {
                 score: 0.95,
                 status: "healthy".into(),
             },
+            // Layer 3 event types
+            MonitoringEventType::MonitoringBackendChanged { backend_name: "mem".into() },
+            MonitoringEventType::MetricSeriesStored { series_id: "s1".into(), metric_name: "m".into() },
+            MonitoringEventType::MetricSeriesDeleted { series_id: "s1".into() },
+            MonitoringEventType::MetricWindowAggregated { series_id: "s1".into(), function: "sum".into() },
+            MonitoringEventType::MetricDownsampled { series_id: "s1".into(), factor: 10 },
+            MonitoringEventType::StreamingMetricUpdated { series_id: "s1".into() },
+            MonitoringEventType::TraceSpanStored { span_id: "sp1".into(), trace_id: "t1".into() },
+            MonitoringEventType::TraceStored { trace_id: "t1".into() },
+            MonitoringEventType::TraceContextInjected { format: "w3c".into() },
+            MonitoringEventType::TraceContextExtracted { format: "b3".into() },
+            MonitoringEventType::LogRecordStored { log_id: "l1".into() },
+            MonitoringEventType::LogLineIngested { format: "logfmt".into() },
+            MonitoringEventType::LogLineParseFailed { format: "syslog".into(), reason: "bad".into() },
+            MonitoringEventType::HealthProbeExecuted { probe_id: "p1".into(), status: "healthy".into() },
+            MonitoringEventType::HealthProbeFailed { probe_id: "p1".into(), reason: "timeout".into() },
+            MonitoringEventType::CompositeProbeEvaluated { probe_id: "c1".into(), status: "degraded".into() },
+            MonitoringEventType::AlertRuleStored { rule_id: "ar1".into() },
+            MonitoringEventType::AlertRuleTriggered { rule_id: "ar1".into(), metric_name: "m".into() },
+            MonitoringEventType::AlertRuleResolved { rule_id: "ar1".into() },
+            MonitoringEventType::TelemetryExported { format: "otlp".into(), record_count: 100 },
+            MonitoringEventType::TelemetryExportFailed { format: "prom".into(), reason: "err".into() },
+            MonitoringEventType::TelemetrySubscriberRegistered { subscriber_id: "sub1".into() },
+            MonitoringEventType::TelemetrySubscriberRemoved { subscriber_id: "sub1".into() },
+            MonitoringEventType::TelemetryEventPublished { event_type: "metric_ingested".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
+            assert!(!t.kind().is_empty());
         }
-        // Verify we have 26 total event types (11 L1 + 15 L2)
-        assert_eq!(types.len(), 26);
+        // Verify we have 50 total event types (11 L1 + 15 L2 + 24 L3)
+        assert_eq!(types.len(), 50);
     }
 
     #[test]
@@ -468,5 +711,30 @@ mod tests {
         };
         assert!(e.to_string().contains("anomaly detected"));
         assert!(e.to_string().contains("lat"));
+    }
+
+    #[test]
+    fn test_classification_methods() {
+        assert!(MonitoringEventType::MonitoringBackendChanged { backend_name: "x".into() }.is_backend_event());
+        assert!(!MonitoringEventType::MetricSeriesStored { series_id: "s".into(), metric_name: "m".into() }.is_backend_event());
+
+        assert!(MonitoringEventType::MetricSeriesStored { series_id: "s".into(), metric_name: "m".into() }.is_metric_event());
+        assert!(MonitoringEventType::MetricCollected { metric_id: "m".into(), value: 1.0 }.is_metric_event());
+        assert!(MonitoringEventType::MetricDownsampled { series_id: "s".into(), factor: 10 }.is_metric_event());
+
+        assert!(MonitoringEventType::TraceSpanStored { span_id: "sp".into(), trace_id: "t".into() }.is_trace_event());
+        assert!(MonitoringEventType::TraceContextInjected { format: "w3c".into() }.is_trace_event());
+
+        assert!(MonitoringEventType::LogRecordStored { log_id: "l".into() }.is_log_event());
+        assert!(MonitoringEventType::LogLineParseFailed { format: "x".into(), reason: "y".into() }.is_log_event());
+
+        assert!(MonitoringEventType::HealthProbeExecuted { probe_id: "p".into(), status: "ok".into() }.is_health_probe_event());
+        assert!(MonitoringEventType::CompositeProbeEvaluated { probe_id: "c".into(), status: "ok".into() }.is_health_probe_event());
+
+        assert!(MonitoringEventType::AlertRuleTriggered { rule_id: "r".into(), metric_name: "m".into() }.is_alert_event());
+        assert!(MonitoringEventType::AlertRuleResolved { rule_id: "r".into() }.is_alert_event());
+
+        assert!(MonitoringEventType::TelemetryExported { format: "otlp".into(), record_count: 1 }.is_export_event());
+        assert!(MonitoringEventType::TelemetryExportFailed { format: "x".into(), reason: "y".into() }.is_export_event());
     }
 }

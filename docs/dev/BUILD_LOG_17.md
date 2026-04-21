@@ -90,3 +90,62 @@ All occurrences updated in `audit.rs`: enum variant definitions, `kind()` match 
 **Test count**: 245 — unchanged before and after rename.
 
 **Note**: The original rune-security Layer 3 entry earlier in this file lists the old variant names in the "Audit Events" section. That entry remains in place for historical accuracy. This correction supersedes the old names. This completes the naming discipline correction pass across rune-truth and rune-security, re-establishing the house style convention that all subsequent libraries (rune-monitoring onward) must follow: descriptive qualifiers only, no layer-number prefixes or suffixes.
+
+---
+
+## rune-monitoring Layer 3
+
+**Test count**: 148 → 241 (+93 tests, zero failures)
+
+**Clippy**: Zero rune-monitoring-specific warnings (pre-existing L1/L2 warnings untouched)
+
+### New Modules (7)
+
+| Module | Lines | Tests | Purpose |
+|--------|-------|-------|---------|
+| `backend.rs` | ~600 | 20 | MonitoringBackend trait + InMemoryMonitoringBackend |
+| `metric_aggregator.rs` | ~420 | 14 | MetricAggregator trait + InMemoryMetricAggregator + StreamingMetricAggregator |
+| `trace_context.rs` | ~415 | 12 | TraceContextPropagator trait + W3C/B3/Multi propagators |
+| `log_ingestion.rs` | ~420 | 14 | StructuredLogIngestor trait + Logfmt/Syslog/JsonLines/Null ingestors |
+| `telemetry_export.rs` | ~430 | 13 | TelemetryExporter trait + 7 format implementations |
+| `monitoring_stream.rs` | ~380 | 13 | TelemetryEventSubscriber trait + registry + filtering |
+| `health_check.rs` | ~280 | 13 | HealthCheckProbe trait + Composite/DependencyAware/Null probes |
+
+### Trait Contracts
+
+- **MonitoringBackend**: 23 methods — store/retrieve/delete/list/count for metric series, trace spans/traces, log records, health check results, alert rules, plus flush/backend_info. InMemoryMonitoringBackend reference implementation. MetricKind 4-variant enum (Counter/Gauge/Histogram/Summary). SpanStatus 3-variant enum (Ok/Error/Unset). LogSeverity 6-level enum (Trace/Debug/Info/Warn/Error/Fatal) with Ord derivation. MetricPoint.value as String for Eq derivation, compatible shape with rune-detection's TimeSeriesPoint (timestamp i64, value String, labels HashMap<String,String>). StoredHealthCheckResult with response_time as String for Eq.
+- **MetricAggregator**: 5 methods — aggregate_window, downsample, compute_percentiles, aggregator_id, is_active. AggregationFunction 12-variant enum (Sum/Mean/Min/Max/Count/First/Last/P50/P75/P90/P95/P99). AggregatedMetricWindow with aggregated_value as String for Eq. PercentileSummary (p50/p75/p90/p95/p99 all as String). InMemoryMetricAggregator recomputes from stored points. StreamingMetricAggregator for incremental updates with ingest_point/streaming_value/reset and internal StreamingState.
+- **TraceContextPropagator**: 4 methods — inject_context, extract_context, supported_formats, propagator_id. PropagationFormat 5-variant enum (W3cTraceContext/B3Single/B3Multi/Jaeger/Custom). TraceContext struct: trace_id, span_id, sampled, trace_flags, tracestate HashMap. Carrier trait for transport abstraction. W3cTraceContextPropagator (traceparent/tracestate). B3Propagator (single header + multi headers). MultiFormatPropagator injects all formats, extracts from first match.
+- **StructuredLogIngestor**: 6 methods — ingest_log, ingest_batch, parse_log_line, supported_formats, ingestor_id, is_active. StructuredLogRecord follows ECS shape (timestamp, severity, service_name, message, fields HashMap). LogLineFormat 6-variant enum (EcsJson/LogfmtLine/SyslogRfc5424/CommonLogFormat/JsonLines/OtelLogRecord). IngestResult tracks ingested/failed counts. LogfmtIngestor with proper quoted-value parsing. SyslogRfc5424Ingestor with RFC 5424 priority-to-severity mapping. JsonLinesIngestor using serde_json. NullLogIngestor for testing.
+- **TelemetryExporter**: 5 methods — export_metrics, export_traces, export_logs, format_name, content_type. Seven implementations: OtlpMetricsExporter (OTLP JSON with resourceMetrics/resourceSpans/resourceLogs envelopes), PrometheusExpositionExporter (text/plain; version=0.0.4), OpenMetricsExporter (application/openmetrics-text; version=1.0.0 with # EOF), JaegerThriftExporter (Jaeger JSON with processes), ZipkinV2Exporter (Zipkin v2 JSON spans with localEndpoint), EcsLogExporter (ECS 8.11), SplunkHecExporter (configurable sourcetype). All produce Vec<u8> — protobuf wire format belongs in adapter crates.
+- **TelemetryEventSubscriber**: 3 methods — on_event, subscriber_id, is_active. TelemetryEventSubscriberRegistry with register/unregister/publish/subscriber_count/active_subscriber_count. TelemetryEventCollector reference implementation. FilteredTelemetryEventSubscriber with category/service_name/severity filters. TelemetryLifecycleEventType 16-variant enum with classification methods: is_metric_event, is_trace_event, is_log_event, is_health_event, is_alert_event, is_export_event.
+- **HealthCheckProbe**: 4 methods — probe, probe_kind, probe_id, is_active. ProbeKind 3-variant enum matching Kubernetes semantics (Liveness/Readiness/Startup). HealthProbeStatus 4-variant enum (Healthy/Unhealthy/Degraded/Unknown). HealthProbeResult with response_time as String for Eq. CompositeHealthCheckProbe aggregates multiple probes with worst-status semantics. DependencyAwareHealthCheckProbe checks dependency first. NullHealthCheckProbe for testing.
+
+### Naming Collision Resolutions
+
+- `HealthCheckResult` (L1 in health.rs) → L3 uses `StoredHealthCheckResult` for backend storage, `HealthProbeResult` for probe results
+- `HealthStatus` (L1 enum) → L3 uses `HealthProbeStatus` for probe-specific status
+- `Histogram` (L2 struct in metric.rs) → L3 `MetricKind::Histogram` is an enum variant, not a struct collision
+
+### Audit Events (+24 variants)
+
+MonitoringBackendChanged, MetricSeriesStored, MetricSeriesDeleted, MetricWindowAggregated, MetricDownsampled, StreamingMetricUpdated, TraceSpanStored, TraceStored, TraceContextInjected, TraceContextExtracted, LogRecordStored, LogLineIngested, LogLineParseFailed, HealthProbeExecuted, HealthProbeFailed, CompositeProbeEvaluated, AlertRuleStored, AlertRuleTriggered, AlertRuleResolved, TelemetryExported, TelemetryExportFailed, TelemetrySubscriberRegistered, TelemetrySubscriberRemoved, TelemetryEventPublished
+
+Classification methods on MonitoringEventType: kind(), is_backend_event, is_metric_event, is_trace_event, is_log_event, is_health_probe_event, is_alert_event, is_export_event
+
+### Design Decisions
+
+- **MetricPoint.value as String**: Follows the value-as-String pattern established across all RUNE backends for Eq derivation. Compatible shape with rune-detection's TimeSeriesPoint (timestamp i64, value String, labels HashMap<String,String>) so monitoring telemetry flows naturally into detection.
+- **StreamingMetricAggregator**: Separate from InMemoryMetricAggregator because incremental aggregation of high-cardinality metric streams requires fundamentally different state management (running count/sum/min/max vs recomputing from stored points).
+- **W3C Trace Context as default**: Industry-standard propagation format. MultiFormatPropagator writes all formats on injection and tries each on extraction for maximum interoperability with existing infrastructure.
+- **ProbeKind matches Kubernetes semantics**: Liveness (is the process alive?), Readiness (can it accept traffic?), Startup (has it finished initialising?). These map directly to Kubernetes probe types.
+- **7 telemetry exporters**: More than other libraries due to the observability standards surface area. All produce Vec<u8> UTF-8 text — actual protobuf wire format belongs in adapter crates, not the trait boundary.
+- **OTLP as JSON, not protobuf**: The TelemetryExporter trait produces serialized bytes. OTLP structures are emitted as JSON following the OTLP/HTTP JSON encoding. Protobuf wire format requires protobuf compilation infrastructure that belongs in connector/adapter crates.
+- **Scope boundary with rune-detection**: Data flow interop via compatible MetricPoint/TimeSeriesPoint shape, no trait coupling. Monitoring publishes metrics that detection can consume.
+- **Scope boundary with rune-audit-ext**: Monitoring handles operational telemetry (metrics, traces, logs). rune-audit-ext handles forensic integrity (tamper-evident audit trails).
+
+### Integration Points
+
+- **rune-detection**: MetricPoint shape (timestamp i64, value String, labels HashMap) is compatible with TimeSeriesPoint for downstream anomaly detection
+- **rune-framework**: TelemetryLifecycleEventType and MonitoringBackendInfo available for Layer 5 governance pipeline integration
+- **rune-security**: Follows same backend/export/stream patterns established in rune-security L3

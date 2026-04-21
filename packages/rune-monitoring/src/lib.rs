@@ -19,6 +19,14 @@ pub mod status;
 pub mod threshold;
 pub mod uptime;
 
+pub mod backend;
+pub mod health_check;
+pub mod log_ingestion;
+pub mod metric_aggregator;
+pub mod monitoring_stream;
+pub mod telemetry_export;
+pub mod trace_context;
+
 pub use audit::{MonitoringAuditEvent, MonitoringAuditLog, MonitoringEventType};
 pub use collector::{CollectorEngine, MetricSource, MetricSourceType};
 pub use error::{MonitoringError, MonitoringResult};
@@ -63,4 +71,35 @@ pub use threshold::{
 pub use sla::{BurnRateAlert, BurnRateAlertLevel, BurnRateWindow, ErrorBudget};
 pub use status::{
     DashboardComponent, DashboardStatus, StatusHistory, StatusHistoryEntry, StatusPageBuilder,
+};
+
+// Layer 3 re-exports
+pub use backend::{
+    InMemoryMonitoringBackend, LogSeverity, MetricKind, MetricPoint, MonitoringBackend,
+    MonitoringBackendInfo, SpanStatus, StoredAlertRule, StoredHealthCheckResult,
+    StoredLogRecord, StoredMetricSeries, StoredTrace, StoredTraceSpan,
+};
+pub use health_check::{
+    CompositeHealthCheckProbe, DependencyAwareHealthCheckProbe, HealthCheckProbe,
+    HealthProbeResult, HealthProbeStatus, NullHealthCheckProbe, ProbeKind,
+};
+pub use log_ingestion::{
+    IngestResult, JsonLinesIngestor, LogLineFormat, LogfmtIngestor, NullLogIngestor,
+    StructuredLogIngestor, StructuredLogRecord, SyslogRfc5424Ingestor,
+};
+pub use metric_aggregator::{
+    AggregatedMetricWindow, AggregationFunction, InMemoryMetricAggregator, MetricAggregator,
+    PercentileSummary, StreamingMetricAggregator,
+};
+pub use monitoring_stream::{
+    FilteredTelemetryEventSubscriber, TelemetryEventCollector, TelemetryEventSubscriber,
+    TelemetryEventSubscriberRegistry, TelemetryLifecycleEvent, TelemetryLifecycleEventType,
+};
+pub use telemetry_export::{
+    EcsLogExporter, JaegerThriftExporter, OpenMetricsExporter, OtlpMetricsExporter,
+    PrometheusExpositionExporter, SplunkHecExporter, TelemetryExporter, ZipkinV2Exporter,
+};
+pub use trace_context::{
+    B3Propagator, Carrier, HashMapCarrier, MultiFormatPropagator, PropagationFormat,
+    TraceContext, TraceContextPropagator, W3cTraceContextPropagator,
 };
