@@ -36,6 +36,25 @@ pub enum AiEventType {
     DeprecationNoticeIssued { notice_id: String, model_id: String },
     ModelRetired { model_id: String, reason: String },
     LifecycleTransitionRecorded { model_id: String, from: String, to: String },
+    // Layer 2
+    ModelHashComputed { model_id: String, hash: String },
+    ModelHashChainAppended { chain_length: String },
+    ModelHashChainVerified { valid: bool },
+    DatasetHashComputed { dataset_id: String, hash: String },
+    CriterionEvaluated { criteria_id: String, passed: bool },
+    GateEvaluated { gate_id: String, recommendation: String },
+    DeploymentReadinessChecked { model_id: String, ready: bool },
+    DeploymentBlockerDetected { model_id: String, blocker_type: String },
+    FairnessEvaluated { policy_id: String, status: String },
+    FairnessMetricChecked { metric_id: String, passed: bool },
+    DriftEvaluated { policy_id: String, status: String },
+    DriftMetricChecked { metric_id: String, severity: String },
+    DriftRemediationRecommended { model_id: String, action: String },
+    LifecycleTransitionExecuted { model_id: String, from: String, to: String },
+    DeprecationStatusChecked { model_id: String, deprecated: bool },
+    DeprecationNoticeGenerated { notice_id: String, model_id: String },
+    DeploymentAgeChecked { deployment_id: String, within_limit: bool },
+    AiMetricsComputed { metric_name: String, value: String },
 }
 
 impl fmt::Display for AiEventType {
@@ -113,6 +132,61 @@ impl fmt::Display for AiEventType {
             Self::LifecycleTransitionRecorded { model_id, from, to } => {
                 write!(f, "LifecycleTransitionRecorded({model_id}, {from}→{to})")
             }
+            // Layer 2
+            Self::ModelHashComputed { model_id, hash } => {
+                write!(f, "ModelHashComputed({model_id}, hash={hash})")
+            }
+            Self::ModelHashChainAppended { chain_length } => {
+                write!(f, "ModelHashChainAppended(length={chain_length})")
+            }
+            Self::ModelHashChainVerified { valid } => {
+                write!(f, "ModelHashChainVerified(valid={valid})")
+            }
+            Self::DatasetHashComputed { dataset_id, hash } => {
+                write!(f, "DatasetHashComputed({dataset_id}, hash={hash})")
+            }
+            Self::CriterionEvaluated { criteria_id, passed } => {
+                write!(f, "CriterionEvaluated({criteria_id}, passed={passed})")
+            }
+            Self::GateEvaluated { gate_id, recommendation } => {
+                write!(f, "GateEvaluated({gate_id}, rec={recommendation})")
+            }
+            Self::DeploymentReadinessChecked { model_id, ready } => {
+                write!(f, "DeploymentReadinessChecked({model_id}, ready={ready})")
+            }
+            Self::DeploymentBlockerDetected { model_id, blocker_type } => {
+                write!(f, "DeploymentBlockerDetected({model_id}, type={blocker_type})")
+            }
+            Self::FairnessEvaluated { policy_id, status } => {
+                write!(f, "FairnessEvaluated({policy_id}, status={status})")
+            }
+            Self::FairnessMetricChecked { metric_id, passed } => {
+                write!(f, "FairnessMetricChecked({metric_id}, passed={passed})")
+            }
+            Self::DriftEvaluated { policy_id, status } => {
+                write!(f, "DriftEvaluated({policy_id}, status={status})")
+            }
+            Self::DriftMetricChecked { metric_id, severity } => {
+                write!(f, "DriftMetricChecked({metric_id}, severity={severity})")
+            }
+            Self::DriftRemediationRecommended { model_id, action } => {
+                write!(f, "DriftRemediationRecommended({model_id}, action={action})")
+            }
+            Self::LifecycleTransitionExecuted { model_id, from, to } => {
+                write!(f, "LifecycleTransitionExecuted({model_id}, {from}→{to})")
+            }
+            Self::DeprecationStatusChecked { model_id, deprecated } => {
+                write!(f, "DeprecationStatusChecked({model_id}, deprecated={deprecated})")
+            }
+            Self::DeprecationNoticeGenerated { notice_id, model_id } => {
+                write!(f, "DeprecationNoticeGenerated({notice_id}, model={model_id})")
+            }
+            Self::DeploymentAgeChecked { deployment_id, within_limit } => {
+                write!(f, "DeploymentAgeChecked({deployment_id}, within_limit={within_limit})")
+            }
+            Self::AiMetricsComputed { metric_name, value } => {
+                write!(f, "AiMetricsComputed({metric_name}={value})")
+            }
         }
     }
 }
@@ -144,6 +218,25 @@ impl AiEventType {
             Self::DeprecationNoticeIssued { .. } => "DeprecationNoticeIssued",
             Self::ModelRetired { .. } => "ModelRetired",
             Self::LifecycleTransitionRecorded { .. } => "LifecycleTransitionRecorded",
+            // Layer 2
+            Self::ModelHashComputed { .. } => "ModelHashComputed",
+            Self::ModelHashChainAppended { .. } => "ModelHashChainAppended",
+            Self::ModelHashChainVerified { .. } => "ModelHashChainVerified",
+            Self::DatasetHashComputed { .. } => "DatasetHashComputed",
+            Self::CriterionEvaluated { .. } => "CriterionEvaluated",
+            Self::GateEvaluated { .. } => "GateEvaluated",
+            Self::DeploymentReadinessChecked { .. } => "DeploymentReadinessChecked",
+            Self::DeploymentBlockerDetected { .. } => "DeploymentBlockerDetected",
+            Self::FairnessEvaluated { .. } => "FairnessEvaluated",
+            Self::FairnessMetricChecked { .. } => "FairnessMetricChecked",
+            Self::DriftEvaluated { .. } => "DriftEvaluated",
+            Self::DriftMetricChecked { .. } => "DriftMetricChecked",
+            Self::DriftRemediationRecommended { .. } => "DriftRemediationRecommended",
+            Self::LifecycleTransitionExecuted { .. } => "LifecycleTransitionExecuted",
+            Self::DeprecationStatusChecked { .. } => "DeprecationStatusChecked",
+            Self::DeprecationNoticeGenerated { .. } => "DeprecationNoticeGenerated",
+            Self::DeploymentAgeChecked { .. } => "DeploymentAgeChecked",
+            Self::AiMetricsComputed { .. } => "AiMetricsComputed",
         }
     }
 
@@ -173,6 +266,25 @@ impl AiEventType {
             Self::DeprecationNoticeIssued { .. }
             | Self::ModelRetired { .. }
             | Self::LifecycleTransitionRecorded { .. } => "lifecycle",
+            // Layer 2
+            Self::ModelHashComputed { .. }
+            | Self::ModelHashChainAppended { .. }
+            | Self::ModelHashChainVerified { .. }
+            | Self::DatasetHashComputed { .. } => "model_hash",
+            Self::CriterionEvaluated { .. }
+            | Self::GateEvaluated { .. } => "evaluation_engine",
+            Self::DeploymentReadinessChecked { .. }
+            | Self::DeploymentBlockerDetected { .. }
+            | Self::DeploymentAgeChecked { .. } => "deployment_readiness",
+            Self::FairnessEvaluated { .. }
+            | Self::FairnessMetricChecked { .. } => "fairness_evaluator",
+            Self::DriftEvaluated { .. }
+            | Self::DriftMetricChecked { .. }
+            | Self::DriftRemediationRecommended { .. } => "drift_evaluator",
+            Self::LifecycleTransitionExecuted { .. }
+            | Self::DeprecationStatusChecked { .. }
+            | Self::DeprecationNoticeGenerated { .. } => "lifecycle_engine",
+            Self::AiMetricsComputed { .. } => "ai_metrics",
         }
     }
 }
@@ -286,11 +398,30 @@ mod tests {
             AiEventType::DeprecationNoticeIssued { notice_id: "dn1".into(), model_id: "m1".into() },
             AiEventType::ModelRetired { model_id: "m1".into(), reason: "sunset".into() },
             AiEventType::LifecycleTransitionRecorded { model_id: "m1".into(), from: "Deployed".into(), to: "Deprecated".into() },
+            // Layer 2
+            AiEventType::ModelHashComputed { model_id: "m1".into(), hash: "abc".into() },
+            AiEventType::ModelHashChainAppended { chain_length: "5".into() },
+            AiEventType::ModelHashChainVerified { valid: true },
+            AiEventType::DatasetHashComputed { dataset_id: "ds1".into(), hash: "def".into() },
+            AiEventType::CriterionEvaluated { criteria_id: "ec1".into(), passed: true },
+            AiEventType::GateEvaluated { gate_id: "g1".into(), recommendation: "Pass".into() },
+            AiEventType::DeploymentReadinessChecked { model_id: "m1".into(), ready: true },
+            AiEventType::DeploymentBlockerDetected { model_id: "m1".into(), blocker_type: "ModelNotApproved".into() },
+            AiEventType::FairnessEvaluated { policy_id: "fp1".into(), status: "Fair".into() },
+            AiEventType::FairnessMetricChecked { metric_id: "fm1".into(), passed: true },
+            AiEventType::DriftEvaluated { policy_id: "dp1".into(), status: "NoDrift".into() },
+            AiEventType::DriftMetricChecked { metric_id: "dm1".into(), severity: "Low".into() },
+            AiEventType::DriftRemediationRecommended { model_id: "m1".into(), action: "Retrain".into() },
+            AiEventType::LifecycleTransitionExecuted { model_id: "m1".into(), from: "Draft".into(), to: "Registered".into() },
+            AiEventType::DeprecationStatusChecked { model_id: "m1".into(), deprecated: false },
+            AiEventType::DeprecationNoticeGenerated { notice_id: "dn1".into(), model_id: "m1".into() },
+            AiEventType::DeploymentAgeChecked { deployment_id: "d1".into(), within_limit: true },
+            AiEventType::AiMetricsComputed { metric_name: "pass_rate".into(), value: "0.95".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 24);
+        assert_eq!(types.len(), 42);
     }
 
     #[test]
@@ -320,11 +451,30 @@ mod tests {
             AiEventType::DeprecationNoticeIssued { notice_id: "n".into(), model_id: "m".into() },
             AiEventType::ModelRetired { model_id: "m".into(), reason: "r".into() },
             AiEventType::LifecycleTransitionRecorded { model_id: "m".into(), from: "a".into(), to: "b".into() },
+            // Layer 2
+            AiEventType::ModelHashComputed { model_id: "m".into(), hash: "h".into() },
+            AiEventType::ModelHashChainAppended { chain_length: "1".into() },
+            AiEventType::ModelHashChainVerified { valid: true },
+            AiEventType::DatasetHashComputed { dataset_id: "d".into(), hash: "h".into() },
+            AiEventType::CriterionEvaluated { criteria_id: "c".into(), passed: true },
+            AiEventType::GateEvaluated { gate_id: "g".into(), recommendation: "Pass".into() },
+            AiEventType::DeploymentReadinessChecked { model_id: "m".into(), ready: true },
+            AiEventType::DeploymentBlockerDetected { model_id: "m".into(), blocker_type: "t".into() },
+            AiEventType::FairnessEvaluated { policy_id: "p".into(), status: "s".into() },
+            AiEventType::FairnessMetricChecked { metric_id: "m".into(), passed: true },
+            AiEventType::DriftEvaluated { policy_id: "p".into(), status: "s".into() },
+            AiEventType::DriftMetricChecked { metric_id: "m".into(), severity: "s".into() },
+            AiEventType::DriftRemediationRecommended { model_id: "m".into(), action: "a".into() },
+            AiEventType::LifecycleTransitionExecuted { model_id: "m".into(), from: "a".into(), to: "b".into() },
+            AiEventType::DeprecationStatusChecked { model_id: "m".into(), deprecated: false },
+            AiEventType::DeprecationNoticeGenerated { notice_id: "n".into(), model_id: "m".into() },
+            AiEventType::DeploymentAgeChecked { deployment_id: "d".into(), within_limit: true },
+            AiEventType::AiMetricsComputed { metric_name: "m".into(), value: "v".into() },
         ];
         for e in &events {
             assert!(!e.type_name().is_empty());
         }
-        assert_eq!(events.len(), 24);
+        assert_eq!(events.len(), 42);
     }
 
     #[test]
@@ -416,6 +566,86 @@ mod tests {
         assert_eq!(
             AiEventType::LifecycleTransitionRecorded { model_id: "m".into(), from: "a".into(), to: "b".into() }.kind(),
             "lifecycle"
+        );
+    }
+
+    #[test]
+    fn test_kind_model_hash() {
+        assert_eq!(
+            AiEventType::ModelHashComputed { model_id: "m".into(), hash: "h".into() }.kind(),
+            "model_hash"
+        );
+        assert_eq!(
+            AiEventType::DatasetHashComputed { dataset_id: "d".into(), hash: "h".into() }.kind(),
+            "model_hash"
+        );
+    }
+
+    #[test]
+    fn test_kind_evaluation_engine() {
+        assert_eq!(
+            AiEventType::CriterionEvaluated { criteria_id: "c".into(), passed: true }.kind(),
+            "evaluation_engine"
+        );
+        assert_eq!(
+            AiEventType::GateEvaluated { gate_id: "g".into(), recommendation: "Pass".into() }.kind(),
+            "evaluation_engine"
+        );
+    }
+
+    #[test]
+    fn test_kind_deployment_readiness() {
+        assert_eq!(
+            AiEventType::DeploymentReadinessChecked { model_id: "m".into(), ready: true }.kind(),
+            "deployment_readiness"
+        );
+        assert_eq!(
+            AiEventType::DeploymentAgeChecked { deployment_id: "d".into(), within_limit: true }.kind(),
+            "deployment_readiness"
+        );
+    }
+
+    #[test]
+    fn test_kind_fairness_evaluator() {
+        assert_eq!(
+            AiEventType::FairnessEvaluated { policy_id: "p".into(), status: "s".into() }.kind(),
+            "fairness_evaluator"
+        );
+        assert_eq!(
+            AiEventType::FairnessMetricChecked { metric_id: "m".into(), passed: true }.kind(),
+            "fairness_evaluator"
+        );
+    }
+
+    #[test]
+    fn test_kind_drift_evaluator() {
+        assert_eq!(
+            AiEventType::DriftEvaluated { policy_id: "p".into(), status: "s".into() }.kind(),
+            "drift_evaluator"
+        );
+        assert_eq!(
+            AiEventType::DriftRemediationRecommended { model_id: "m".into(), action: "a".into() }.kind(),
+            "drift_evaluator"
+        );
+    }
+
+    #[test]
+    fn test_kind_lifecycle_engine() {
+        assert_eq!(
+            AiEventType::LifecycleTransitionExecuted { model_id: "m".into(), from: "a".into(), to: "b".into() }.kind(),
+            "lifecycle_engine"
+        );
+        assert_eq!(
+            AiEventType::DeprecationNoticeGenerated { notice_id: "n".into(), model_id: "m".into() }.kind(),
+            "lifecycle_engine"
+        );
+    }
+
+    #[test]
+    fn test_kind_ai_metrics() {
+        assert_eq!(
+            AiEventType::AiMetricsComputed { metric_name: "m".into(), value: "v".into() }.kind(),
+            "ai_metrics"
         );
     }
 

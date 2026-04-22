@@ -16,6 +16,15 @@ pub mod lifecycle;
 pub mod model_registry;
 pub mod training_data;
 
+// Layer 2 modules
+pub mod ai_metrics;
+pub mod deployment_checker;
+pub mod drift_evaluator;
+pub mod evaluation_engine;
+pub mod fairness_evaluator;
+pub mod lifecycle_engine;
+pub mod model_hash;
+
 // ── Re-exports: Model Registry ──────────────────────────────────────
 
 pub use model_registry::{
@@ -71,3 +80,44 @@ pub use audit::{AiAuditEvent, AiAuditLog, AiEventType};
 // ── Re-exports: Error ───────────────────────────────────────────────
 
 pub use error::AiError;
+
+// ── Re-exports: Layer 2 — Model Hash ────────────────────────────────
+
+pub use model_hash::{
+    ModelHashChain, ModelHashChainLink, hash_dataset_record, hash_model_record,
+    verify_dataset_hash, verify_model_hash,
+};
+
+// ── Re-exports: Layer 2 — Evaluation Engine ─────────────────────────
+
+pub use evaluation_engine::{
+    CriterionEvaluation, EvaluationEngine, GateEvaluation, GateRecommendation,
+    compare_threshold,
+};
+
+// ── Re-exports: Layer 2 — Deployment Checker ────────────────────────
+
+pub use deployment_checker::{
+    BlockerSeverity, DeploymentBlocker, DeploymentBlockerType, DeploymentReadinessChecker,
+    DeploymentReadinessResult,
+};
+
+// ── Re-exports: Layer 2 — Fairness Evaluator ────────────────────────
+
+pub use fairness_evaluator::{
+    FairnessEvaluationResult, FairnessEvaluator, FairnessMetricEvaluation,
+};
+
+// ── Re-exports: Layer 2 — Drift Evaluator ───────────────────────────
+
+pub use drift_evaluator::{DriftEvaluationResult, DriftEvaluator, DriftMetricEvaluation};
+
+// ── Re-exports: Layer 2 — Lifecycle Engine ──────────────────────────
+
+pub use lifecycle_engine::{
+    DeploymentAgeCheckResult, DeprecationCheckResult, LifecycleEngine,
+};
+
+// ── Re-exports: Layer 2 — AI Metrics ────────────────────────────────
+
+pub use ai_metrics::{AiMetricSnapshot, AiMetrics};

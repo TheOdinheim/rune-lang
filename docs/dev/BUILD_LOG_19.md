@@ -112,3 +112,58 @@ New workspace crate `rune-ai` — AI/ML model lifecycle governance. Covers model
 - rune-shield handles inference-layer protection; rune-ai handles pre/post-deployment governance
 - rune-detection handles anomaly signal detection; rune-ai holds drift detection policy definitions
 - rune-explainability generates explanations; rune-ai defines governance requirements for explainability
+
+---
+
+## rune-ai Layer 2
+
+**Date**: 2026-04-22
+**Test count**: 90 → 206 (+116 tests, zero failures)
+**Commit**: (pending)
+
+**Clippy**: Zero rune-ai-specific warnings
+
+### What Changed
+
+Layer 2 adds real algorithms and enforcement logic to the Layer 1 type skeleton: SHA3-256 model and dataset fingerprinting with constant-time verification and append-only hash chains, threshold-based evaluation engine supporting all ThresholdComparison variants with weighted gate scoring, deployment readiness assessment with blocker detection (critical/warning/advisory severity), fairness metric evaluation against FairnessPolicy with overall Fair/Unfair/NotAssessed determination, drift metric evaluation with severity determination and remediation action recommendation, lifecycle state machine enforcement with deprecation notice generation and deployment age checking, and AI governance metrics computing model/dataset/evaluation/deployment/fairness/drift aggregate statistics.
+
+### New Modules (7)
+
+| Module | Purpose | Tests |
+|--------|---------|-------|
+| `model_hash.rs` | `hash_model_record`/`hash_dataset_record` SHA3-256 fingerprinting, `verify_model_hash`/`verify_dataset_hash` constant-time XOR comparison, `ModelHashChain` append-only chain with `verify_chain`/`chain_length`/`latest_hash` | 19 |
+| `evaluation_engine.rs` | `compare_threshold` (all ThresholdComparison variants, f64 with string fallback), `EvaluationEngine` with `evaluate_criterion`/`evaluate_gate`, `CriterionEvaluation`, `GateEvaluation` with weighted scoring, `GateRecommendation` (Pass/Fail/ConditionalPass) | 22 |
+| `deployment_checker.rs` | `DeploymentReadinessChecker` with `check_readiness`/`check_model_status`/`check_evaluation_gate`/`check_environment_compatibility`, `DeploymentBlockerType` (6 variants), `BlockerSeverity` (Critical/Warning/Advisory), `DeploymentReadinessResult` | 10 |
+| `fairness_evaluator.rs` | `FairnessEvaluator` with `evaluate_fairness`/`evaluate_single_metric`, `FairnessMetricEvaluation`, `FairnessEvaluationResult` reusing L1 `FairnessStatus` | 10 |
+| `drift_evaluator.rs` | `DriftEvaluator` with `evaluate_drift`/`evaluate_single_metric`/`determine_severity`/`recommend_remediation`, `DriftMetricEvaluation`, `DriftEvaluationResult` reusing L1 `DriftStatus`/`DriftSeverity` | 17 |
+| `lifecycle_engine.rs` | `LifecycleEngine` with `execute_transition` (validates via `is_valid_transition`, returns `Result<ModelLifecycleTransition, AiError>`), `check_deprecation_status`, `generate_deprecation_notice` (severity escalation Advisory→Warning→Mandatory→Immediate), `check_deployment_age` | 16 |
+| `ai_metrics.rs` | `AiMetrics` with `compute_model_count_by_status`/`compute_dataset_count_by_quality`/`compute_evaluation_pass_rate`/`compute_deployment_count_by_environment`/`compute_fairness_compliance_rate`/`compute_drift_detection_rate`/`compute_model_age_distribution` (buckets: 0-30d/30-90d/90-180d/180d+), `AiMetricSnapshot` | 18 |
+
+### Audit Variants Added (18)
+
+Layer 2 adds 18 new `AiEventType` variants (total: 42 = 24 L1 + 18 L2):
+
+**Model hash** (4): `ModelHashComputed`, `ModelHashChainAppended`, `ModelHashChainVerified`, `DatasetHashComputed`
+
+**Evaluation engine** (2): `CriterionEvaluated`, `GateEvaluated`
+
+**Deployment readiness** (3): `DeploymentReadinessChecked`, `DeploymentBlockerDetected`, `DeploymentAgeChecked`
+
+**Fairness evaluator** (2): `FairnessEvaluated`, `FairnessMetricChecked`
+
+**Drift evaluator** (3): `DriftEvaluated`, `DriftMetricChecked`, `DriftRemediationRecommended`
+
+**Lifecycle engine** (3): `LifecycleTransitionExecuted`, `DeprecationStatusChecked`, `DeprecationNoticeGenerated`
+
+**AI metrics** (1): `AiMetricsComputed`
+
+New kind() categories: `model_hash`, `evaluation_engine`, `deployment_readiness`, `fairness_evaluator`, `drift_evaluator`, `lifecycle_engine`, `ai_metrics`
+
+### Design Decisions
+
+- **`compare_threshold` shared** between evaluation_engine, fairness_evaluator, and drift_evaluator — single implementation avoids duplication
+- **Drift severity determination** uses deviation ratio: |measured - threshold| / |threshold| → Low (≤20%), Medium (≤50%), High (≤100%), Critical (>100%)
+- **Deployment readiness** treats Critical blockers as deployment-blocking, Warning/Advisory as informational — missing attestation is Warning, not Critical
+- **Deprecation severity escalation**: >30 days → Advisory, 8-30 days → Warning, ≤7 days → Mandatory, past sunset → Immediate
+- **All metric values as String** for Eq compatibility per Rust 2024 edition constraints
+- **`check_environment_compatibility` is a placeholder** — real checks require deployment infrastructure knowledge that belongs in adapter crates
