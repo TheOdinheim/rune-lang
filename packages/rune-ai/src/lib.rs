@@ -25,6 +25,15 @@ pub mod fairness_evaluator;
 pub mod lifecycle_engine;
 pub mod model_hash;
 
+// Layer 3 modules
+pub mod ai_export;
+pub mod ai_governance_metrics;
+pub mod ai_stream;
+pub mod backend;
+pub mod drift_governor;
+pub mod fairness_governor;
+pub mod model_lifecycle_governor;
+
 // ── Re-exports: Model Registry ──────────────────────────────────────
 
 pub use model_registry::{
@@ -121,3 +130,57 @@ pub use lifecycle_engine::{
 // ── Re-exports: Layer 2 — AI Metrics ────────────────────────────────
 
 pub use ai_metrics::{AiMetricSnapshot, AiMetrics};
+
+// ── Layer 3 re-exports ─────────────────────────────────────────────
+
+// ── Re-exports: Layer 3 — Backend ──────────────────────────────────
+
+pub use backend::{
+    AiBackendInfo, AiGovernanceBackend, InMemoryAiGovernanceBackend, StoredDatasetRecord,
+    StoredDeploymentRecord, StoredDeprecationNotice, StoredDriftResult,
+    StoredEvaluationResult, StoredFairnessAssessment, StoredModelRecord,
+};
+
+// ── Re-exports: Layer 3 — Model Lifecycle Governor ─────────────────
+
+pub use model_lifecycle_governor::{
+    DeploymentGovernanceDecision, InMemoryModelLifecycleGovernor, ModelHealthAssessment,
+    ModelHealthStatus, ModelLifecycleGovernor, NullModelLifecycleGovernor,
+    StrictModelLifecycleGovernor, TransitionGovernanceDecision,
+};
+
+// ── Re-exports: Layer 3 — Fairness Governor ────────────────────────
+
+pub use fairness_governor::{
+    FairnessGovernanceDecision, FairnessGovernanceResult, FairnessGovernor,
+    InMemoryFairnessGovernor, NullFairnessGovernor,
+};
+
+// ── Re-exports: Layer 3 — Drift Governor ───────────────────────────
+
+pub use drift_governor::{
+    DriftGovernanceDecision, DriftGovernanceResult, DriftGovernor, InMemoryDriftGovernor,
+    NullDriftGovernor,
+};
+
+// ── Re-exports: Layer 3 — AI Export ────────────────────────────────
+
+pub use ai_export::{
+    AiGovernanceExporter, DeploymentAuditExporter, EuAiActComplianceExporter, JsonAiExporter,
+    ModelCardExporter, NistAiRmfExporter,
+};
+
+// ── Re-exports: Layer 3 — AI Event Stream ──────────────────────────
+
+pub use ai_stream::{
+    AiGovernanceEventCollector, AiGovernanceEventSubscriber,
+    AiGovernanceEventSubscriberRegistry, AiGovernanceLifecycleEvent,
+    AiGovernanceLifecycleEventType, FilteredAiGovernanceEventSubscriber,
+};
+
+// ── Re-exports: Layer 3 — AI Governance Metrics ────────────────────
+
+pub use ai_governance_metrics::{
+    AiGovernanceMetricSnapshot, AiGovernanceMetricsCollector,
+    InMemoryAiGovernanceMetricsCollector, NullAiGovernanceMetricsCollector,
+};

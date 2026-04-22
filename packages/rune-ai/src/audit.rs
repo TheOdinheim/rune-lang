@@ -55,6 +55,28 @@ pub enum AiEventType {
     DeprecationNoticeGenerated { notice_id: String, model_id: String },
     DeploymentAgeChecked { deployment_id: String, within_limit: bool },
     AiMetricsComputed { metric_name: String, value: String },
+    // Layer 3
+    AiGovernanceBackendChanged { backend_id: String, backend_type: String },
+    StoredModelRecordCreated { model_id: String, model_hash: String },
+    StoredModelRecordRetrieved { model_id: String },
+    StoredModelRecordDeleted { model_id: String },
+    StoredDatasetRecordCreated { dataset_id: String, dataset_hash: String },
+    StoredEvaluationResultRecorded { result_id: String, model_id: String },
+    StoredDeploymentRecordCreated { deployment_id: String, model_id: String },
+    TransitionGovernanceEvaluated { model_id: String, decision: String },
+    DeploymentGovernanceEvaluated { model_id: String, decision: String },
+    ModelHealthAssessed { model_id: String, status: String },
+    FairnessGovernanceEvaluated { model_id: String, decision: String },
+    FairnessPolicyRegisteredGov { policy_id: String, model_id: String },
+    DriftGovernanceEvaluated { model_id: String, decision: String },
+    DriftPolicyRegisteredGov { policy_id: String, model_id: String },
+    DriftRemediationRecommendedGov { model_id: String, action: String },
+    AiGovernanceExported { format: String, record_count: String },
+    AiGovernanceExportFailed { format: String, reason: String },
+    AiGovernanceMetricsComputed { collector_id: String, snapshot_id: String },
+    AiGovernanceSubscriberRegistered { subscriber_id: String },
+    AiGovernanceSubscriberRemoved { subscriber_id: String },
+    AiGovernanceEventPublished { event_type: String, subscriber_count: String },
 }
 
 impl fmt::Display for AiEventType {
@@ -187,6 +209,70 @@ impl fmt::Display for AiEventType {
             Self::AiMetricsComputed { metric_name, value } => {
                 write!(f, "AiMetricsComputed({metric_name}={value})")
             }
+            // Layer 3
+            Self::AiGovernanceBackendChanged { backend_id, backend_type } => {
+                write!(f, "AiGovernanceBackendChanged({backend_id}, type={backend_type})")
+            }
+            Self::StoredModelRecordCreated { model_id, model_hash } => {
+                write!(f, "StoredModelRecordCreated({model_id}, hash={model_hash})")
+            }
+            Self::StoredModelRecordRetrieved { model_id } => {
+                write!(f, "StoredModelRecordRetrieved({model_id})")
+            }
+            Self::StoredModelRecordDeleted { model_id } => {
+                write!(f, "StoredModelRecordDeleted({model_id})")
+            }
+            Self::StoredDatasetRecordCreated { dataset_id, dataset_hash } => {
+                write!(f, "StoredDatasetRecordCreated({dataset_id}, hash={dataset_hash})")
+            }
+            Self::StoredEvaluationResultRecorded { result_id, model_id } => {
+                write!(f, "StoredEvaluationResultRecorded({result_id}, model={model_id})")
+            }
+            Self::StoredDeploymentRecordCreated { deployment_id, model_id } => {
+                write!(f, "StoredDeploymentRecordCreated({deployment_id}, model={model_id})")
+            }
+            Self::TransitionGovernanceEvaluated { model_id, decision } => {
+                write!(f, "TransitionGovernanceEvaluated({model_id}, decision={decision})")
+            }
+            Self::DeploymentGovernanceEvaluated { model_id, decision } => {
+                write!(f, "DeploymentGovernanceEvaluated({model_id}, decision={decision})")
+            }
+            Self::ModelHealthAssessed { model_id, status } => {
+                write!(f, "ModelHealthAssessed({model_id}, status={status})")
+            }
+            Self::FairnessGovernanceEvaluated { model_id, decision } => {
+                write!(f, "FairnessGovernanceEvaluated({model_id}, decision={decision})")
+            }
+            Self::FairnessPolicyRegisteredGov { policy_id, model_id } => {
+                write!(f, "FairnessPolicyRegisteredGov({policy_id}, model={model_id})")
+            }
+            Self::DriftGovernanceEvaluated { model_id, decision } => {
+                write!(f, "DriftGovernanceEvaluated({model_id}, decision={decision})")
+            }
+            Self::DriftPolicyRegisteredGov { policy_id, model_id } => {
+                write!(f, "DriftPolicyRegisteredGov({policy_id}, model={model_id})")
+            }
+            Self::DriftRemediationRecommendedGov { model_id, action } => {
+                write!(f, "DriftRemediationRecommendedGov({model_id}, action={action})")
+            }
+            Self::AiGovernanceExported { format, record_count } => {
+                write!(f, "AiGovernanceExported(format={format}, records={record_count})")
+            }
+            Self::AiGovernanceExportFailed { format, reason } => {
+                write!(f, "AiGovernanceExportFailed(format={format}): {reason}")
+            }
+            Self::AiGovernanceMetricsComputed { collector_id, snapshot_id } => {
+                write!(f, "AiGovernanceMetricsComputed({collector_id}, snapshot={snapshot_id})")
+            }
+            Self::AiGovernanceSubscriberRegistered { subscriber_id } => {
+                write!(f, "AiGovernanceSubscriberRegistered({subscriber_id})")
+            }
+            Self::AiGovernanceSubscriberRemoved { subscriber_id } => {
+                write!(f, "AiGovernanceSubscriberRemoved({subscriber_id})")
+            }
+            Self::AiGovernanceEventPublished { event_type, subscriber_count } => {
+                write!(f, "AiGovernanceEventPublished({event_type}, subscribers={subscriber_count})")
+            }
         }
     }
 }
@@ -237,6 +323,28 @@ impl AiEventType {
             Self::DeprecationNoticeGenerated { .. } => "DeprecationNoticeGenerated",
             Self::DeploymentAgeChecked { .. } => "DeploymentAgeChecked",
             Self::AiMetricsComputed { .. } => "AiMetricsComputed",
+            // Layer 3
+            Self::AiGovernanceBackendChanged { .. } => "AiGovernanceBackendChanged",
+            Self::StoredModelRecordCreated { .. } => "StoredModelRecordCreated",
+            Self::StoredModelRecordRetrieved { .. } => "StoredModelRecordRetrieved",
+            Self::StoredModelRecordDeleted { .. } => "StoredModelRecordDeleted",
+            Self::StoredDatasetRecordCreated { .. } => "StoredDatasetRecordCreated",
+            Self::StoredEvaluationResultRecorded { .. } => "StoredEvaluationResultRecorded",
+            Self::StoredDeploymentRecordCreated { .. } => "StoredDeploymentRecordCreated",
+            Self::TransitionGovernanceEvaluated { .. } => "TransitionGovernanceEvaluated",
+            Self::DeploymentGovernanceEvaluated { .. } => "DeploymentGovernanceEvaluated",
+            Self::ModelHealthAssessed { .. } => "ModelHealthAssessed",
+            Self::FairnessGovernanceEvaluated { .. } => "FairnessGovernanceEvaluated",
+            Self::FairnessPolicyRegisteredGov { .. } => "FairnessPolicyRegisteredGov",
+            Self::DriftGovernanceEvaluated { .. } => "DriftGovernanceEvaluated",
+            Self::DriftPolicyRegisteredGov { .. } => "DriftPolicyRegisteredGov",
+            Self::DriftRemediationRecommendedGov { .. } => "DriftRemediationRecommendedGov",
+            Self::AiGovernanceExported { .. } => "AiGovernanceExported",
+            Self::AiGovernanceExportFailed { .. } => "AiGovernanceExportFailed",
+            Self::AiGovernanceMetricsComputed { .. } => "AiGovernanceMetricsComputed",
+            Self::AiGovernanceSubscriberRegistered { .. } => "AiGovernanceSubscriberRegistered",
+            Self::AiGovernanceSubscriberRemoved { .. } => "AiGovernanceSubscriberRemoved",
+            Self::AiGovernanceEventPublished { .. } => "AiGovernanceEventPublished",
         }
     }
 
@@ -285,7 +393,53 @@ impl AiEventType {
             | Self::DeprecationStatusChecked { .. }
             | Self::DeprecationNoticeGenerated { .. } => "lifecycle_engine",
             Self::AiMetricsComputed { .. } => "ai_metrics",
+            // Layer 3
+            Self::AiGovernanceBackendChanged { .. }
+            | Self::StoredModelRecordCreated { .. }
+            | Self::StoredModelRecordRetrieved { .. }
+            | Self::StoredModelRecordDeleted { .. }
+            | Self::StoredDatasetRecordCreated { .. }
+            | Self::StoredEvaluationResultRecorded { .. }
+            | Self::StoredDeploymentRecordCreated { .. } => "ai_backend",
+            Self::TransitionGovernanceEvaluated { .. }
+            | Self::DeploymentGovernanceEvaluated { .. }
+            | Self::ModelHealthAssessed { .. } => "lifecycle_governance",
+            Self::FairnessGovernanceEvaluated { .. }
+            | Self::FairnessPolicyRegisteredGov { .. } => "fairness_governance",
+            Self::DriftGovernanceEvaluated { .. }
+            | Self::DriftPolicyRegisteredGov { .. }
+            | Self::DriftRemediationRecommendedGov { .. } => "drift_governance",
+            Self::AiGovernanceExported { .. }
+            | Self::AiGovernanceExportFailed { .. } => "ai_export",
+            Self::AiGovernanceMetricsComputed { .. } => "ai_governance_metrics",
+            Self::AiGovernanceSubscriberRegistered { .. }
+            | Self::AiGovernanceSubscriberRemoved { .. }
+            | Self::AiGovernanceEventPublished { .. } => "ai_event_stream",
         }
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        self.kind() == "ai_backend"
+    }
+
+    pub fn is_lifecycle_governance_event(&self) -> bool {
+        self.kind() == "lifecycle_governance"
+    }
+
+    pub fn is_fairness_governance_event(&self) -> bool {
+        self.kind() == "fairness_governance"
+    }
+
+    pub fn is_drift_governance_event(&self) -> bool {
+        self.kind() == "drift_governance"
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        self.kind() == "ai_export"
+    }
+
+    pub fn is_metrics_event(&self) -> bool {
+        self.kind() == "ai_governance_metrics"
     }
 }
 
@@ -417,11 +571,33 @@ mod tests {
             AiEventType::DeprecationNoticeGenerated { notice_id: "dn1".into(), model_id: "m1".into() },
             AiEventType::DeploymentAgeChecked { deployment_id: "d1".into(), within_limit: true },
             AiEventType::AiMetricsComputed { metric_name: "pass_rate".into(), value: "0.95".into() },
+            // Layer 3
+            AiEventType::AiGovernanceBackendChanged { backend_id: "b1".into(), backend_type: "InMemory".into() },
+            AiEventType::StoredModelRecordCreated { model_id: "m1".into(), model_hash: "abc".into() },
+            AiEventType::StoredModelRecordRetrieved { model_id: "m1".into() },
+            AiEventType::StoredModelRecordDeleted { model_id: "m1".into() },
+            AiEventType::StoredDatasetRecordCreated { dataset_id: "ds1".into(), dataset_hash: "def".into() },
+            AiEventType::StoredEvaluationResultRecorded { result_id: "er1".into(), model_id: "m1".into() },
+            AiEventType::StoredDeploymentRecordCreated { deployment_id: "d1".into(), model_id: "m1".into() },
+            AiEventType::TransitionGovernanceEvaluated { model_id: "m1".into(), decision: "Approve".into() },
+            AiEventType::DeploymentGovernanceEvaluated { model_id: "m1".into(), decision: "Approve".into() },
+            AiEventType::ModelHealthAssessed { model_id: "m1".into(), status: "Healthy".into() },
+            AiEventType::FairnessGovernanceEvaluated { model_id: "m1".into(), decision: "Compliant".into() },
+            AiEventType::FairnessPolicyRegisteredGov { policy_id: "fp1".into(), model_id: "m1".into() },
+            AiEventType::DriftGovernanceEvaluated { model_id: "m1".into(), decision: "NoDrift".into() },
+            AiEventType::DriftPolicyRegisteredGov { policy_id: "dp1".into(), model_id: "m1".into() },
+            AiEventType::DriftRemediationRecommendedGov { model_id: "m1".into(), action: "Retrain".into() },
+            AiEventType::AiGovernanceExported { format: "json".into(), record_count: "10".into() },
+            AiEventType::AiGovernanceExportFailed { format: "json".into(), reason: "error".into() },
+            AiEventType::AiGovernanceMetricsComputed { collector_id: "mc1".into(), snapshot_id: "s1".into() },
+            AiEventType::AiGovernanceSubscriberRegistered { subscriber_id: "sub1".into() },
+            AiEventType::AiGovernanceSubscriberRemoved { subscriber_id: "sub1".into() },
+            AiEventType::AiGovernanceEventPublished { event_type: "ModelStored".into(), subscriber_count: "3".into() },
         ];
         for t in &types {
             assert!(!t.to_string().is_empty());
         }
-        assert_eq!(types.len(), 42);
+        assert_eq!(types.len(), 63);
     }
 
     #[test]
@@ -470,11 +646,33 @@ mod tests {
             AiEventType::DeprecationNoticeGenerated { notice_id: "n".into(), model_id: "m".into() },
             AiEventType::DeploymentAgeChecked { deployment_id: "d".into(), within_limit: true },
             AiEventType::AiMetricsComputed { metric_name: "m".into(), value: "v".into() },
+            // Layer 3
+            AiEventType::AiGovernanceBackendChanged { backend_id: "b".into(), backend_type: "t".into() },
+            AiEventType::StoredModelRecordCreated { model_id: "m".into(), model_hash: "h".into() },
+            AiEventType::StoredModelRecordRetrieved { model_id: "m".into() },
+            AiEventType::StoredModelRecordDeleted { model_id: "m".into() },
+            AiEventType::StoredDatasetRecordCreated { dataset_id: "d".into(), dataset_hash: "h".into() },
+            AiEventType::StoredEvaluationResultRecorded { result_id: "r".into(), model_id: "m".into() },
+            AiEventType::StoredDeploymentRecordCreated { deployment_id: "d".into(), model_id: "m".into() },
+            AiEventType::TransitionGovernanceEvaluated { model_id: "m".into(), decision: "d".into() },
+            AiEventType::DeploymentGovernanceEvaluated { model_id: "m".into(), decision: "d".into() },
+            AiEventType::ModelHealthAssessed { model_id: "m".into(), status: "s".into() },
+            AiEventType::FairnessGovernanceEvaluated { model_id: "m".into(), decision: "d".into() },
+            AiEventType::FairnessPolicyRegisteredGov { policy_id: "p".into(), model_id: "m".into() },
+            AiEventType::DriftGovernanceEvaluated { model_id: "m".into(), decision: "d".into() },
+            AiEventType::DriftPolicyRegisteredGov { policy_id: "p".into(), model_id: "m".into() },
+            AiEventType::DriftRemediationRecommendedGov { model_id: "m".into(), action: "a".into() },
+            AiEventType::AiGovernanceExported { format: "f".into(), record_count: "c".into() },
+            AiEventType::AiGovernanceExportFailed { format: "f".into(), reason: "r".into() },
+            AiEventType::AiGovernanceMetricsComputed { collector_id: "c".into(), snapshot_id: "s".into() },
+            AiEventType::AiGovernanceSubscriberRegistered { subscriber_id: "s".into() },
+            AiEventType::AiGovernanceSubscriberRemoved { subscriber_id: "s".into() },
+            AiEventType::AiGovernanceEventPublished { event_type: "e".into(), subscriber_count: "c".into() },
         ];
         for e in &events {
             assert!(!e.type_name().is_empty());
         }
-        assert_eq!(events.len(), 42);
+        assert_eq!(events.len(), 63);
     }
 
     #[test]
@@ -699,5 +897,121 @@ mod tests {
     fn test_audit_log_default() {
         let log = AiAuditLog::default();
         assert_eq!(log.event_count(), 0);
+    }
+
+    #[test]
+    fn test_kind_ai_backend() {
+        assert_eq!(
+            AiEventType::AiGovernanceBackendChanged { backend_id: "b".into(), backend_type: "t".into() }.kind(),
+            "ai_backend"
+        );
+        assert_eq!(
+            AiEventType::StoredModelRecordCreated { model_id: "m".into(), model_hash: "h".into() }.kind(),
+            "ai_backend"
+        );
+        assert_eq!(
+            AiEventType::StoredDeploymentRecordCreated { deployment_id: "d".into(), model_id: "m".into() }.kind(),
+            "ai_backend"
+        );
+    }
+
+    #[test]
+    fn test_kind_lifecycle_governance() {
+        assert_eq!(
+            AiEventType::TransitionGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.kind(),
+            "lifecycle_governance"
+        );
+        assert_eq!(
+            AiEventType::ModelHealthAssessed { model_id: "m".into(), status: "s".into() }.kind(),
+            "lifecycle_governance"
+        );
+    }
+
+    #[test]
+    fn test_kind_fairness_governance() {
+        assert_eq!(
+            AiEventType::FairnessGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.kind(),
+            "fairness_governance"
+        );
+        assert_eq!(
+            AiEventType::FairnessPolicyRegisteredGov { policy_id: "p".into(), model_id: "m".into() }.kind(),
+            "fairness_governance"
+        );
+    }
+
+    #[test]
+    fn test_kind_drift_governance() {
+        assert_eq!(
+            AiEventType::DriftGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.kind(),
+            "drift_governance"
+        );
+        assert_eq!(
+            AiEventType::DriftRemediationRecommendedGov { model_id: "m".into(), action: "a".into() }.kind(),
+            "drift_governance"
+        );
+    }
+
+    #[test]
+    fn test_kind_ai_export() {
+        assert_eq!(
+            AiEventType::AiGovernanceExported { format: "f".into(), record_count: "c".into() }.kind(),
+            "ai_export"
+        );
+        assert_eq!(
+            AiEventType::AiGovernanceExportFailed { format: "f".into(), reason: "r".into() }.kind(),
+            "ai_export"
+        );
+    }
+
+    #[test]
+    fn test_kind_ai_governance_metrics() {
+        assert_eq!(
+            AiEventType::AiGovernanceMetricsComputed { collector_id: "c".into(), snapshot_id: "s".into() }.kind(),
+            "ai_governance_metrics"
+        );
+    }
+
+    #[test]
+    fn test_kind_ai_event_stream() {
+        assert_eq!(
+            AiEventType::AiGovernanceSubscriberRegistered { subscriber_id: "s".into() }.kind(),
+            "ai_event_stream"
+        );
+        assert_eq!(
+            AiEventType::AiGovernanceEventPublished { event_type: "e".into(), subscriber_count: "c".into() }.kind(),
+            "ai_event_stream"
+        );
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        assert!(AiEventType::StoredModelRecordCreated { model_id: "m".into(), model_hash: "h".into() }.is_backend_event());
+        assert!(!AiEventType::ModelRegistered { model_id: "m".into(), model_name: "n".into() }.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_lifecycle_governance_event() {
+        assert!(AiEventType::TransitionGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.is_lifecycle_governance_event());
+        assert!(!AiEventType::ModelRegistered { model_id: "m".into(), model_name: "n".into() }.is_lifecycle_governance_event());
+    }
+
+    #[test]
+    fn test_is_fairness_governance_event() {
+        assert!(AiEventType::FairnessGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.is_fairness_governance_event());
+    }
+
+    #[test]
+    fn test_is_drift_governance_event() {
+        assert!(AiEventType::DriftGovernanceEvaluated { model_id: "m".into(), decision: "d".into() }.is_drift_governance_event());
+    }
+
+    #[test]
+    fn test_is_export_event() {
+        assert!(AiEventType::AiGovernanceExported { format: "f".into(), record_count: "c".into() }.is_export_event());
+    }
+
+    #[test]
+    fn test_is_metrics_event() {
+        assert!(AiEventType::AiGovernanceMetricsComputed { collector_id: "c".into(), snapshot_id: "s".into() }.is_metrics_event());
     }
 }

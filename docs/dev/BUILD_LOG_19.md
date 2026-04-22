@@ -167,3 +167,86 @@ New kind() categories: `model_hash`, `evaluation_engine`, `deployment_readiness`
 - **Deprecation severity escalation**: >30 days → Advisory, 8-30 days → Warning, ≤7 days → Mandatory, past sunset → Immediate
 - **All metric values as String** for Eq compatibility per Rust 2024 edition constraints
 - **`check_environment_compatibility` is a placeholder** — real checks require deployment infrastructure knowledge that belongs in adapter crates
+
+---
+
+## rune-ai Layer 3
+
+**Date**: 2026-04-22
+**Test count**: 206 → 317 (+111 tests, zero failures)
+**Commit**: (pending)
+
+**Clippy**: Zero rune-ai-specific warnings
+
+### What Changed
+
+Layer 3 adds the external integration trait boundaries for AI/ML model lifecycle governance: pluggable backend storage for model records, dataset records, evaluations, deployments, fairness assessments, drift results, lifecycle policies, and deprecation notices (34 trait methods with SHA3-256 hashing at storage time); model lifecycle governor with transition governance decisions, deployment governance decisions, and model health assessment; fairness governor with L2 FairnessEvaluator integration and compliance checking; drift governor with L2 DriftEvaluator integration and severity-based remediation recommendation; five AI governance export formats (JSON, Model Card, EU AI Act compliance, NIST AI RMF, deployment audit trail); lifecycle event streaming with model_id/event_type/severity filtering; and AI governance metrics computing model approval rate, evaluation gate pass rate, deployment success rate, fairness compliance rate, drift detection rate, and model retirement rate.
+
+### New Modules (7)
+
+| Module | Purpose | Tests |
+|--------|---------|-------|
+| `backend.rs` | `AiGovernanceBackend` trait (34 methods), `InMemoryAiGovernanceBackend`, `Stored*` wrapper types for models/datasets/evaluations/deployments/assessments/drift results/deprecation notices, `AiBackendInfo` | 23 |
+| `model_lifecycle_governor.rs` | `ModelLifecycleGovernor` trait, `TransitionGovernanceDecision` (Approve/Deny/RequireAdditionalEvaluation/DeferToHuman), `DeploymentGovernanceDecision` (Approve/Deny/RequireApproval/ConditionalApprove), `ModelHealthAssessment` with `ModelHealthStatus`, `InMemoryModelLifecycleGovernor`, `StrictModelLifecycleGovernor`, `NullModelLifecycleGovernor` | 15 |
+| `fairness_governor.rs` | `FairnessGovernor` trait, `FairnessGovernanceDecision` (Compliant/NonCompliant/RequiresRemediation/InsufficientData), `FairnessGovernanceResult`, `InMemoryFairnessGovernor` wrapping L2 `FairnessEvaluator`, `NullFairnessGovernor` | 12 |
+| `drift_governor.rs` | `DriftGovernor` trait, `DriftGovernanceDecision` (NoDriftDetected/DriftDetected/RequiresInvestigation/ModelSuspensionRecommended), `DriftGovernanceResult`, `InMemoryDriftGovernor` wrapping L2 `DriftEvaluator`, `NullDriftGovernor` | 12 |
+| `ai_export.rs` | `AiGovernanceExporter` trait, `JsonAiExporter`, `ModelCardExporter` (Model Cards for Model Reporting), `EuAiActComplianceExporter` (EU AI Act Articles 6/9/10/13/14/15), `NistAiRmfExporter` (NIST AI RMF Govern/Map/Measure/Manage), `DeploymentAuditExporter` | 14 |
+| `ai_stream.rs` | `AiGovernanceEventSubscriber` trait, `AiGovernanceEventSubscriberRegistry`, `AiGovernanceEventCollector`, `FilteredAiGovernanceEventSubscriber`, `AiGovernanceLifecycleEventType` (25 variants) | 11 |
+| `ai_governance_metrics.rs` | `AiGovernanceMetricsCollector` trait, `AiGovernanceMetricSnapshot`, `InMemoryAiGovernanceMetricsCollector`, `NullAiGovernanceMetricsCollector` | 12 |
+
+### Audit Variants Added (21)
+
+Layer 3 adds 21 new `AiEventType` variants (total: 63 = 24 L1 + 18 L2 + 21 L3):
+
+**Backend events** (7): `AiGovernanceBackendChanged`, `StoredModelRecordCreated`, `StoredModelRecordRetrieved`, `StoredModelRecordDeleted`, `StoredDatasetRecordCreated`, `StoredEvaluationResultRecorded`, `StoredDeploymentRecordCreated`
+
+**Lifecycle governance** (3): `TransitionGovernanceEvaluated`, `DeploymentGovernanceEvaluated`, `ModelHealthAssessed`
+
+**Fairness governance** (2): `FairnessGovernanceEvaluated`, `FairnessPolicyRegisteredGov`
+
+**Drift governance** (3): `DriftGovernanceEvaluated`, `DriftPolicyRegisteredGov`, `DriftRemediationRecommendedGov`
+
+**Export** (2): `AiGovernanceExported`, `AiGovernanceExportFailed`
+
+**Metrics** (1): `AiGovernanceMetricsComputed`
+
+**Event stream** (3): `AiGovernanceSubscriberRegistered`, `AiGovernanceSubscriberRemoved`, `AiGovernanceEventPublished`
+
+New kind() categories: `ai_backend`, `lifecycle_governance`, `fairness_governance`, `drift_governance`, `ai_export`, `ai_governance_metrics`, `ai_event_stream`
+
+New `is_*` classifiers: `is_backend_event`, `is_lifecycle_governance_event`, `is_fairness_governance_event`, `is_drift_governance_event`, `is_export_event`, `is_metrics_event`
+
+### Design Decisions
+
+- **`StrictModelLifecycleGovernor` is first-class** — prevents evaluation-gate bypass by denying transitions to Approved/Deployed that don't come through the UnderEvaluation→Approved path; defensive second layer above the state machine
+- **`ModelCardExporter` follows the Model Cards pattern** — industry standard for model documentation (Mitchell et al., 2019); emits model details, intended use, performance metrics, fairness considerations, training data summary, deployment history
+- **`EuAiActComplianceExporter` and `NistAiRmfExporter` are separate exporters** — different regulatory audiences require different evidence structures; EU AI Act maps to Articles 6/9/10/13/14/15 while NIST AI RMF maps to Govern/Map/Measure/Manage functions
+- **`ModelHealthAssessment` includes `drift_status` and `fairness_status`** — holistic model health requires cross-concern visibility; drift detection and fairness monitoring are independent signals that together determine model operational health
+- **`ai_governance_metrics.rs` avoids naming collision** with L2 `ai_metrics.rs` — same pattern as rune-memory's `memory_governance_metrics.rs` vs L2 `metrics.rs`
+- **L3 audit variant names append `Gov` suffix** where they would collide with L1 names (e.g., `FairnessPolicyRegisteredGov` vs L1 `FairnessPolicyCreated`) — avoids renaming L1 types while maintaining descriptive naming
+- **`StoredModelRecord.model_hash`** computed at storage time via L2 `hash_model_record` — backend records integrity proof without re-hashing on retrieval
+- **All metric values as String** for Eq compatibility per Rust 2024 edition constraints
+
+### Four-Pillar Alignment
+
+| Pillar | How Layer 3 Advances It |
+|--------|------------------------|
+| Security/Privacy Baked In | SHA3-256 integrity hashing at storage time; backend trait enforces hash computation |
+| Assumed Breach | Model health assessment combines drift + fairness signals for early degradation detection |
+| No Single Points of Failure | Pluggable backend trait — swap storage without changing governance logic |
+| Zero Trust Throughout | Strict lifecycle governor denies evaluation-gate bypass; deployment requires explicit approval |
+
+### Integration Points
+
+- **rune-provenance**: `StoredModelRecord.attestation_ref` (opaque string) — provenance crate provides attestation chains, rune-ai stores the reference
+- **rune-detection**: `DriftGovernor` evaluates drift policy; rune-detection provides the anomaly signal pipeline
+- **rune-explainability**: `ModelCardExporter` documents model characteristics; rune-explainability generates the actual explanations
+- **rune-framework**: `EuAiActComplianceExporter` and `NistAiRmfExporter` reference framework requirements by opaque string; rune-framework maps to implementation depth
+
+### Scope Boundaries
+
+- Backend trait defines the contract — adapter crates provide real persistence (model registries, ML metadata stores)
+- Export trait produces formatted output — adapter crates handle actual I/O and wire protocols
+- Event subscriber trait receives notifications — adapter crates implement delivery to message brokers, log aggregators
+- Metrics collector computes from stored records — adapter crates bridge to real telemetry systems
+- Governor traits define governance decisions — adapter crates implement actual enforcement actions
