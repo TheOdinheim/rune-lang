@@ -666,6 +666,10 @@ impl Formatter {
                 }
                 self.push(" }");
             }
+            TypeExprKind::Qualified { linearity, inner } => {
+                self.push(&format!("{} ", linearity));
+                self.format_type_expr(inner);
+            }
         }
     }
 

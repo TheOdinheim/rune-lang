@@ -11,6 +11,36 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════════════════
+// Linearity helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Extract the linearity qualifier from a type expression, recursing
+/// through `Refined` wrappers to find a `Qualified` node.
+fn extract_linearity(te: &TypeExpr) -> Linearity {
+    match &te.kind {
+        TypeExprKind::Qualified { linearity, .. } => *linearity,
+        TypeExprKind::Refined { base, .. } => extract_linearity(base),
+        _ => Linearity::Unrestricted,
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Linearity tracking — consumption state for linear/affine bindings
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Consumption state for a single linear or affine binding.
+#[derive(Debug, Clone)]
+struct LinearityBinding {
+    linearity: Linearity,
+    /// Has this binding been consumed (used/moved)?
+    consumed: bool,
+    /// Span where the binding was defined (for diagnostics).
+    def_span: Span,
+    /// Span where the binding was consumed (for diagnostics).
+    consume_span: Option<Span>,
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Effect context — tracks which effects are allowed in the current scope
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -71,6 +101,13 @@ pub struct TypeChecker<'ctx> {
     current_file: Option<PathBuf>,
     /// The language edition for this compilation unit.
     edition: Edition,
+    /// Parallel scope stack for linearity tracking. Each scope maps binding
+    /// names to their consumption state.
+    linearity_scopes: Vec<HashMap<String, LinearityBinding>>,
+    /// Loop barrier depths. When inside a loop body, consuming a linear
+    /// binding from an outer scope is forbidden (the loop may execute
+    /// zero or many times).
+    loop_barriers: Vec<usize>,
 }
 
 impl<'ctx> TypeChecker<'ctx> {
@@ -82,6 +119,8 @@ impl<'ctx> TypeChecker<'ctx> {
             module_loader: None,
             current_file: None,
             edition: Edition::default(),
+            linearity_scopes: vec![HashMap::new()],
+            loop_barriers: Vec::new(),
         }
     }
 
@@ -169,6 +208,140 @@ impl<'ctx> TypeChecker<'ctx> {
 
     fn policy_decision_type(&mut self) -> TypeId {
         self.intern(Type::PolicyDecision)
+    }
+
+    // ── Linearity scope management ────────────────────────────────────
+
+    /// Push a new linearity tracking scope.
+    fn enter_linearity_scope(&mut self) {
+        self.linearity_scopes.push(HashMap::new());
+    }
+
+    /// Pop a linearity scope, checking that all linear bindings were consumed.
+    fn exit_linearity_scope(&mut self) {
+        if let Some(scope) = self.linearity_scopes.pop() {
+            for (name, binding) in &scope {
+                if binding.linearity == Linearity::Linear && !binding.consumed {
+                    self.ctx.errors.push(TypeError {
+                        message: format!(
+                            "linear variable `{}` must be consumed exactly once, but was never used",
+                            name,
+                        ),
+                        span: binding.def_span,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Register a linear or affine binding in the current linearity scope.
+    fn register_linear_binding(&mut self, name: &str, linearity: Linearity, span: Span) {
+        if linearity == Linearity::Unrestricted {
+            return;
+        }
+        if let Some(scope) = self.linearity_scopes.last_mut() {
+            scope.insert(name.to_string(), LinearityBinding {
+                linearity,
+                consumed: false,
+                def_span: span,
+                consume_span: None,
+            });
+        }
+    }
+
+    /// Record consumption of a linear/affine binding when it is used.
+    fn consume_linear_binding(&mut self, name: &str, span: Span) {
+        // Walk scopes from innermost to outermost to find the binding.
+        let scope_count = self.linearity_scopes.len();
+        for i in (0..scope_count).rev() {
+            if self.linearity_scopes[i].contains_key(name) {
+                // Check loop barrier: if a loop barrier exists and the
+                // binding is in an outer scope, reject.
+                if let Some(&barrier_depth) = self.loop_barriers.last()
+                    && i < barrier_depth
+                {
+                    self.ctx.errors.push(TypeError {
+                        message: format!(
+                            "{} variable `{}` cannot be consumed inside a loop — \
+                             the loop may execute more than once",
+                            self.linearity_scopes[i][name].linearity,
+                            name,
+                        ),
+                        span,
+                    });
+                    return;
+                }
+
+                let binding = self.linearity_scopes[i].get_mut(name).unwrap();
+                if binding.consumed {
+                    self.ctx.errors.push(TypeError {
+                        message: format!(
+                            "{} variable `{}` used after being consumed (first consumed at line {}, column {})",
+                            binding.linearity,
+                            name,
+                            binding.consume_span.map_or(0, |s| s.line),
+                            binding.consume_span.map_or(0, |s| s.column),
+                        ),
+                        span,
+                    });
+                } else {
+                    binding.consumed = true;
+                    binding.consume_span = Some(span);
+                }
+                return;
+            }
+        }
+        // Not a tracked binding — unrestricted, nothing to do.
+    }
+
+    /// Snapshot the current linearity state for branch analysis.
+    fn snapshot_linearity(&self) -> Vec<HashMap<String, LinearityBinding>> {
+        self.linearity_scopes.clone()
+    }
+
+    /// Restore linearity state from a snapshot.
+    fn restore_linearity(&mut self, snapshot: Vec<HashMap<String, LinearityBinding>>) {
+        self.linearity_scopes = snapshot;
+    }
+
+    /// Merge linearity states from two branches. For linear variables,
+    /// both branches must consume or both must leave unconsumed.
+    fn merge_branch_linearity(
+        &mut self,
+        then_state: &[HashMap<String, LinearityBinding>],
+        else_state: &[HashMap<String, LinearityBinding>],
+        span: Span,
+    ) {
+        // Walk corresponding scopes and check consistency.
+        let len = then_state.len().min(else_state.len());
+        for i in 0..len {
+            for (name, then_binding) in &then_state[i] {
+                if let Some(else_binding) = else_state[i].get(name) {
+                    if then_binding.linearity == Linearity::Linear
+                        && then_binding.consumed != else_binding.consumed
+                    {
+                        self.ctx.errors.push(TypeError {
+                            message: format!(
+                                "linear variable `{}` must be consumed in all branches or none — \
+                                 consumed in {} branch but not the other",
+                                name,
+                                if then_binding.consumed { "then" } else { "else" },
+                            ),
+                            span,
+                        });
+                    }
+                    // For the merged state, mark as consumed if either branch consumed it.
+                    if let Some(binding) = self.linearity_scopes.get_mut(i).and_then(|s| s.get_mut(name)) {
+                        binding.consumed = then_binding.consumed || else_binding.consumed;
+                        if then_binding.consumed {
+                            binding.consume_span = then_binding.consume_span;
+                        } else if else_binding.consumed {
+                            binding.consume_span = else_binding.consume_span;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── Effect context management ─────────────────────────────────────
@@ -620,7 +793,11 @@ impl<'ctx> TypeChecker<'ctx> {
 
     fn check_identifier(&mut self, name: &str, span: Span) -> TypeId {
         match self.ctx.lookup(name) {
-            Some(Symbol::Variable { ty, .. }) => *ty,
+            Some(Symbol::Variable { ty, .. }) => {
+                let ty = *ty;
+                self.consume_linear_binding(name, span);
+                ty
+            }
             Some(Symbol::Function { return_type, params, effects, .. }) => {
                 let params = params.clone();
                 let return_type = *return_type;
@@ -1176,10 +1353,21 @@ impl<'ctx> TypeChecker<'ctx> {
             );
         }
 
-        let then_ty = self.check_expr(then_branch);
-
         if let Some(else_expr) = else_branch {
+            // Snapshot linearity before the then-branch.
+            let pre_snapshot = self.snapshot_linearity();
+
+            let then_ty = self.check_expr(then_branch);
+            let then_state = self.snapshot_linearity();
+
+            // Restore to pre-branch state for the else-branch.
+            self.restore_linearity(pre_snapshot);
             let else_ty = self.check_expr(else_expr);
+            let else_state = self.snapshot_linearity();
+
+            // Merge linearity from both branches.
+            self.merge_branch_linearity(&then_state, &else_state, span);
+
             if !self.types_compatible(then_ty, else_ty) {
                 self.error(
                     format!(
@@ -1194,7 +1382,9 @@ impl<'ctx> TypeChecker<'ctx> {
                 then_ty
             }
         } else {
+            let then_ty = self.check_expr(then_branch);
             // `if` without `else` has type Unit.
+            let _ = then_ty;
             self.unit_type()
         }
     }
@@ -1255,6 +1445,7 @@ impl<'ctx> TypeChecker<'ctx> {
 
     pub fn check_block(&mut self, block: &Block) -> TypeId {
         self.ctx.enter_scope();
+        self.enter_linearity_scope();
 
         let mut result_ty = self.unit_type();
 
@@ -1262,6 +1453,7 @@ impl<'ctx> TypeChecker<'ctx> {
             result_ty = self.check_stmt(stmt);
         }
 
+        self.exit_linearity_scope();
         self.ctx.exit_scope();
         result_ty
     }
@@ -1311,12 +1503,18 @@ impl<'ctx> TypeChecker<'ctx> {
             value_ty
         };
 
+        // Extract linearity from type annotation.
+        let linearity = ty_annotation
+            .map(extract_linearity)
+            .unwrap_or(Linearity::Unrestricted);
+
         // Register the binding in the current scope.
         let define_result = self.ctx.define(
             &name.name,
             Symbol::Variable {
                 ty: declared_ty,
                 is_mut,
+                linearity,
                 refinements: vec![],
                 span: name.span,
             },
@@ -1326,6 +1524,9 @@ impl<'ctx> TypeChecker<'ctx> {
         if let Err(e) = define_result {
             self.error(e.message, e.span);
         }
+
+        // Register in linearity tracking.
+        self.register_linear_binding(&name.name, linearity, name.span);
 
         self.unit_type()
     }
@@ -1344,12 +1545,15 @@ impl<'ctx> TypeChecker<'ctx> {
         // Enter scope for the loop body and register the binding.
         // Without iterator trait resolution, the binding type is unknown.
         self.ctx.enter_scope();
+        self.enter_linearity_scope();
+        self.loop_barriers.push(self.linearity_scopes.len());
         let binding_ty = self.error_type();
         let _ = self.ctx.define(
             &binding.name,
             Symbol::Variable {
                 ty: binding_ty,
                 is_mut: false,
+                linearity: Linearity::Unrestricted,
                 refinements: vec![],
                 span: binding.span,
             },
@@ -1357,6 +1561,8 @@ impl<'ctx> TypeChecker<'ctx> {
         );
 
         self.check_expr(body);
+        self.loop_barriers.pop();
+        self.exit_linearity_scope();
         self.ctx.exit_scope();
 
         self.unit_type()
@@ -1381,7 +1587,9 @@ impl<'ctx> TypeChecker<'ctx> {
                 condition.span,
             );
         }
+        self.loop_barriers.push(self.linearity_scopes.len());
         self.check_expr(body);
+        self.loop_barriers.pop();
         self.unit_type()
     }
 
@@ -1665,7 +1873,7 @@ impl<'ctx> TypeChecker<'ctx> {
         let ty = self.ctx.resolve_type_expr(&decl.ty);
         let result = self.ctx.define(
             &decl.name.name,
-            Symbol::Variable { ty, is_mut: false, refinements: vec![], span: decl.name.span },
+            Symbol::Variable { ty, is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span: decl.name.span },
             decl.name.span,
         );
         if let Err(e) = result {
@@ -2099,10 +2307,12 @@ impl<'ctx> TypeChecker<'ctx> {
         let Some(body) = &decl.body else { return };
 
         self.ctx.enter_scope();
+        self.enter_linearity_scope();
 
-        // Register parameters in scope, carrying refinement predicates.
+        // Register parameters in scope, carrying refinement predicates and linearity.
         for param in &sig.params {
             let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let linearity = extract_linearity(&param.ty);
             let refinements = if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
                 where_clause.predicates.clone()
             } else {
@@ -2113,11 +2323,14 @@ impl<'ctx> TypeChecker<'ctx> {
                 Symbol::Variable {
                     ty: param_ty,
                     is_mut: param.is_mut,
+                    linearity,
                     refinements,
                     span: param.name.span,
                 },
                 param.name.span,
             );
+            // Track linearity for parameters.
+            self.register_linear_binding(&param.name.name, linearity, param.name.span);
         }
 
         // Enter effect context.
@@ -2159,6 +2372,7 @@ impl<'ctx> TypeChecker<'ctx> {
 
         self.exit_function_capabilities();
         self.exit_function_effects();
+        self.exit_linearity_scope();
         self.ctx.exit_scope();
     }
 
@@ -2170,10 +2384,12 @@ impl<'ctx> TypeChecker<'ctx> {
 
     fn check_rule(&mut self, rule: &RuleDef, policy_name: &str) {
         self.ctx.enter_scope();
+        self.enter_linearity_scope();
 
         // Register rule parameters.
         for param in &rule.params {
             let param_ty = self.ctx.resolve_type_expr(&param.ty);
+            let linearity = extract_linearity(&param.ty);
             let refinements = if let TypeExprKind::Refined { where_clause, .. } = &param.ty.kind {
                 where_clause.predicates.clone()
             } else {
@@ -2184,6 +2400,7 @@ impl<'ctx> TypeChecker<'ctx> {
                 Symbol::Variable {
                     ty: param_ty,
                     is_mut: param.is_mut,
+                    linearity,
                     refinements,
                     span: param.name.span,
                 },
@@ -2222,6 +2439,7 @@ impl<'ctx> TypeChecker<'ctx> {
             );
         }
 
+        self.exit_linearity_scope();
         self.ctx.exit_scope();
     }
 

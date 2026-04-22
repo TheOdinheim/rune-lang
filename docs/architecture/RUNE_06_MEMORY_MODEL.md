@@ -162,16 +162,31 @@ Lifetime annotations are **optional** — the compiler infers arena scope by def
 
 ### Gold: Full Ownership and Borrowing
 
-Gold adds Rust-style ownership and borrowing for fine-grained memory control:
+Gold adds ownership tracking and linear/affine types for fine-grained resource control:
 
 ```rune
 // Gold: linear types ensure exactly-once consumption
-fn transfer_key(key: Linear<EncryptionKey>) -> EncryptedPayload {
+fn transfer_key(key: linear EncryptionKey) -> EncryptedPayload {
     let result = encrypt(payload, &key);
     consume(key);  // key is gone — cannot be used again
     result
 }
+
+// Affine types allow drop but prevent duplication
+fn maybe_use(token: affine AuthToken) -> () {
+    if should_authenticate() {
+        authenticate(token)   // consumed
+    }
+    // token silently dropped if not consumed — OK for affine
+}
 ```
+
+The compiler enforces linearity constraints at type-check time:
+
+- **`linear T`** — must be consumed exactly once. Compile error if unused or used after move.
+- **`affine T`** — must be consumed at most once. Can be silently dropped, but cannot be duplicated.
+- **Branch analysis** — linear variables consumed in an `if/else` must be consumed in all branches or none.
+- **Loop barriers** — linear/affine variables from outer scopes cannot be consumed inside loops (the loop may execute more than once).
 
 Ownership tracking prevents resource leaks: encryption keys, database connections, and capability tokens are consumed exactly once.
 

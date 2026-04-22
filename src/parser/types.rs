@@ -25,6 +25,24 @@ impl Parser {
 
     /// Parse a base type expression (without where clause).
     fn parse_type_expr_base(&mut self) -> Result<TypeExpr, ParseError> {
+        // Check for linearity qualifier: `linear T` or `affine T`.
+        if matches!(self.current_kind(), TokenKind::Linear | TokenKind::Affine) {
+            let linearity = match self.current_kind() {
+                TokenKind::Linear => Linearity::Linear,
+                _ => Linearity::Affine,
+            };
+            let start = self.advance().span;
+            let inner = self.parse_type_expr()?;
+            let end = inner.span;
+            return Ok(TypeExpr {
+                kind: TypeExprKind::Qualified {
+                    linearity,
+                    inner: Box::new(inner),
+                },
+                span: self.merge_spans(start, end),
+            });
+        }
+
         match self.current_kind().clone() {
             // Reference type: `&T` or `&mut T`
             TokenKind::Amp => {

@@ -31,6 +31,37 @@ impl Default for Visibility {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Linearity — linear and affine type qualifiers
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Linearity qualifier for types.
+///
+/// - `Unrestricted`: normal value semantics (copy/drop freely).
+/// - `Linear`: must be consumed exactly once (no dup, no silent drop).
+/// - `Affine`: must be consumed at most once (can drop, cannot dup).
+///
+/// Pillar: Security Baked In — linear/affine types enforce resource
+/// discipline at compile time, preventing use-after-move and resource
+/// leaks without runtime overhead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Linearity {
+    #[default]
+    Unrestricted,
+    Linear,
+    Affine,
+}
+
+impl std::fmt::Display for Linearity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Linearity::Unrestricted => write!(f, "unrestricted"),
+            Linearity::Linear => write!(f, "linear"),
+            Linearity::Affine => write!(f, "affine"),
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Items — top-level declarations
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -459,6 +490,15 @@ pub enum TypeExprKind {
     Refined {
         base: Box<TypeExpr>,
         where_clause: WhereClause,
+    },
+    /// A linearity-qualified type: `linear T` or `affine T`.
+    ///
+    /// Pillar: Security Baked In — linear/affine qualifiers enforce
+    /// resource discipline (exactly-once or at-most-once consumption)
+    /// at compile time.
+    Qualified {
+        linearity: Linearity,
+        inner: Box<TypeExpr>,
     },
 }
 

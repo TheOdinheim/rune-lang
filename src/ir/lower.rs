@@ -224,6 +224,7 @@ impl Lowerer {
             TypeExprKind::Function { .. } => IrType::FuncRef,
             TypeExprKind::Reference { .. } => IrType::Ptr,
             TypeExprKind::Refined { base, .. } => self.map_type_expr(base),
+            TypeExprKind::Qualified { inner, .. } => self.map_type_expr(inner),
         }
     }
 

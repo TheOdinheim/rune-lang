@@ -188,6 +188,11 @@ impl TypeContext {
                 // Resolve to the base type. Predicate checking deferred to M4 Layer 2.
                 self.resolve_type_expr(base)
             }
+            TypeExprKind::Qualified { inner, .. } => {
+                // Linearity is a compile-time qualifier, not part of the
+                // interned type. Resolve to the inner type.
+                self.resolve_type_expr(inner)
+            }
         }
     }
 

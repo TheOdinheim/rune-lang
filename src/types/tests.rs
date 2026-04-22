@@ -135,7 +135,7 @@ mod tests {
         let mut scopes = ScopeStack::new();
         let span = dummy_span();
         scopes
-            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span }, span)
+            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
         assert!(scopes.lookup("x").is_some());
         assert!(scopes.lookup("y").is_none());
@@ -148,13 +148,13 @@ mod tests {
 
         // Define in global scope.
         scopes
-            .define("global_var", Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span }, span)
+            .define("global_var", Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
 
         // Enter a child scope.
         scopes.enter_scope();
         scopes
-            .define("local_var", Symbol::Variable { ty: TypeId(1), is_mut: true, refinements: vec![], span }, span)
+            .define("local_var", Symbol::Variable { ty: TypeId(1), is_mut: true, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
 
         // Child scope can see both.
@@ -175,13 +175,13 @@ mod tests {
         let span = dummy_span();
 
         scopes
-            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span }, span)
+            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
 
         scopes.enter_scope();
         // Shadowing across scopes is allowed.
         scopes
-            .define("x", Symbol::Variable { ty: TypeId(1), is_mut: true, refinements: vec![], span }, span)
+            .define("x", Symbol::Variable { ty: TypeId(1), is_mut: true, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
 
         // Inner scope sees the shadow.
@@ -211,12 +211,12 @@ mod tests {
         let span2 = span_at(2, 5);
 
         scopes
-            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span: span1 }, span1)
+            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span: span1 }, span1)
             .unwrap();
 
         // Same scope, same name → error.
         let err = scopes
-            .define("x", Symbol::Variable { ty: TypeId(1), is_mut: false, refinements: vec![], span: span2 }, span2)
+            .define("x", Symbol::Variable { ty: TypeId(1), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span: span2 }, span2)
             .unwrap_err();
 
         assert!(err.message.contains("already defined"));
@@ -241,7 +241,7 @@ mod tests {
         let span = dummy_span();
 
         scopes
-            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span }, span)
+            .define("x", Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span }, span)
             .unwrap();
 
         scopes.enter_scope();
@@ -350,7 +350,7 @@ mod tests {
         ctx.enter_scope();
         ctx.define(
             "x",
-            Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span },
+            Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span },
             span,
         )
         .unwrap();
@@ -507,7 +507,7 @@ mod tests {
         // Define "x" as a variable, not a type.
         ctx.define(
             "x",
-            Symbol::Variable { ty: TypeId(0), is_mut: false, refinements: vec![], span },
+            Symbol::Variable { ty: TypeId(0), is_mut: false, linearity: Linearity::Unrestricted, refinements: vec![], span },
             span,
         )
         .unwrap();

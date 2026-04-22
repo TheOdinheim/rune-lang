@@ -1,4 +1,4 @@
-use crate::ast::nodes::{RefinementPredicate, Visibility};
+use crate::ast::nodes::{Linearity, RefinementPredicate, Visibility};
 use crate::lexer::token::Span;
 use crate::types::ty::TypeId;
 use std::collections::HashMap;
@@ -14,6 +14,8 @@ pub enum Symbol {
     Variable {
         ty: TypeId,
         is_mut: bool,
+        /// Linearity qualifier for this binding.
+        linearity: Linearity,
         /// Refinement predicates carried by this variable (empty if none).
         refinements: Vec<RefinementPredicate>,
         span: Span,

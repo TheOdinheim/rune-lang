@@ -75,3 +75,68 @@ The M10 commit (e308a5b) message claimed 967 compiler tests, but current count i
 ### ITEM 3: Stray `rust_out` binary
 
 Deleted `rust_out` binary from workspace root (artifact from `rustc --edition 2024` one-off compilation). Added `rust_out` to `.gitignore` to prevent recurrence.
+
+---
+
+## Linear and Affine Types — Compiler Type System
+
+**Commit:** `feat(compiler): implement linear and affine types — linearity tracking in type system, move semantics enforcement, consumption checking, control flow analysis, error reporting`
+
+**Test count:** 989 (974 unit + 15 integration; +38 new linearity tests)
+
+### New/Modified Modules
+
+| Module | Change | Key Types |
+|--------|--------|-----------|
+| `ast/nodes.rs` | Added `Linearity` enum, `TypeExprKind::Qualified` variant | `Linearity` (Unrestricted/Linear/Affine), `Qualified { linearity, inner }` |
+| `lexer/token.rs` | Added `Linear`/`Affine` keywords | `TokenKind::Linear`, `TokenKind::Affine` |
+| `parser/types.rs` | Linearity qualifier parsing before base type | `linear T`, `affine T` syntax |
+| `types/scope.rs` | Added `linearity: Linearity` field to `Symbol::Variable` | — |
+| `types/context.rs` | `Qualified` passthrough in `resolve_type_expr` | — |
+| `types/checker.rs` | Linearity tracking infrastructure | `LinearityBinding`, `linearity_scopes`, `loop_barriers`, `extract_linearity()` |
+| `ir/lower.rs` | `Qualified` passthrough in `map_type_expr` | — |
+| `formatter/mod.rs` | `Qualified` formatting: `"linear "` / `"affine "` prefix | — |
+| `types/linearity_tests.rs` | 38 tests covering all linearity scenarios | — |
+
+### Type Checker Linearity Infrastructure
+
+- **`LinearityBinding`** — tracks consumption state (consumed flag, def_span, consume_span) per binding
+- **`linearity_scopes: Vec<HashMap<String, LinearityBinding>>`** — parallel scope stack for linearity tracking
+- **`loop_barriers: Vec<usize>`** — scope depth markers preventing outer-scope consumption inside loops
+- **`enter_linearity_scope()` / `exit_linearity_scope()`** — scope lifecycle; exit checks unconsumed linear bindings
+- **`register_linear_binding()`** — registers linear/affine bindings for tracking
+- **`consume_linear_binding()`** — marks consumption, enforces at-most-once, checks loop barriers
+- **`snapshot_linearity()` / `restore_linearity()`** — state snapshot/restore for branch analysis
+- **`merge_branch_linearity()`** — validates branch consistency (linear: consumed in all or none)
+- **`extract_linearity()`** — extracts linearity from `TypeExpr`, recursing through `Refined` wrappers
+
+### Enforcement Rules
+
+| Rule | Linear | Affine | Unrestricted |
+|------|--------|--------|--------------|
+| Must consume at least once | Yes | No | No |
+| May consume at most once | Yes | Yes | No |
+| Use after consume | Error | Error | OK |
+| Unused at scope exit | Error | OK | OK |
+| Consume inside loop (outer scope) | Error | Error | OK |
+| Branch consistency (if/else) | All-or-none | No constraint | No constraint |
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Linearity in AST, not Type** | Linearity is a compile-time qualifier, not part of the interned type. `TypeId` stays linearity-free. |
+| **`TypeExprKind::Qualified` wrapper** | Avoids modifying all `TypeExpr` construction sites; opt-in wrapping. |
+| **Parallel scope stack** | Separate from `ScopeStack` to avoid borrow conflicts during type checking. |
+| **Loop barrier by scope depth** | Simple depth comparison prevents consumption of outer-scope linear bindings inside loops. |
+| **`extract_linearity` recurses through `Refined`** | `linear Int where { value >= 0 }` correctly extracts `Linear`. |
+
+### Deferred Items
+
+| Item | Reason | Target |
+|------|--------|--------|
+| **Linearity in struct fields** | Struct definitions don't yet carry per-field linearity; needs field tracking during construction/destructuring | Future milestone |
+| **Return-position linearity** | `fn f() -> linear T` syntax parses but linearity of return values isn't tracked across call sites | Future milestone |
+| **Borrowing (shared/exclusive references)** | `&T` / `&mut T` exist syntactically but don't interact with linearity (borrow doesn't consume) | Gold adoption level |
+| **Match arm linearity** | `match` arms are not yet analyzed for branch consistency like `if/else` | Future milestone |
+| **Assignment to linear variables** | `x = new_value` on a linear `x` doesn't yet check/reset consumption state | Future milestone |

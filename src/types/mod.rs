@@ -20,3 +20,6 @@ mod program_tests;
 
 #[cfg(test)]
 mod module_tests;
+
+#[cfg(test)]
+mod linearity_tests;

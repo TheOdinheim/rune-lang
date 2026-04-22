@@ -111,6 +111,10 @@ pub enum TokenKind {
     SecureZone,  // `secure_zone`
     UnsafeFfi,   // `unsafe_ffi`
 
+    // ── Linearity keywords ────────────────────────────────────────────
+    Linear,
+    Affine,
+
     // ── Refinement type keywords ────────────────────────────────────
     Where,
     Satisfies,
@@ -256,6 +260,10 @@ impl TokenKind {
             "audit"       => Some(TokenKind::Audit),
             "secure_zone" => Some(TokenKind::SecureZone),
             "unsafe_ffi"  => Some(TokenKind::UnsafeFfi),
+
+            // Linearity qualifiers
+            "linear" => Some(TokenKind::Linear),
+            "affine" => Some(TokenKind::Affine),
 
             // Refinement types
             "where"     => Some(TokenKind::Where),
