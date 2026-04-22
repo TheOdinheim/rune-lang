@@ -26,6 +26,15 @@ pub mod lineage_verifier;
 pub mod quality_engine;
 pub mod schema_checker;
 
+// Layer 3 modules
+pub mod backend;
+pub mod data_export;
+pub mod data_governance_metrics;
+pub mod data_stream;
+pub mod lineage_governor;
+pub mod quality_governor;
+pub mod schema_governor;
+
 // ── Re-exports: Quality ──────────────────────────────────────────────
 
 pub use quality::{
@@ -97,3 +106,42 @@ pub use lineage_verifier::{
 pub use quality_engine::{PolicyEvaluation, QualityEngine, QualityRuleEvaluation};
 
 pub use schema_checker::{SchemaCompatibilityChecker, SchemaEvolutionDecision};
+
+// ── Layer 3 re-exports ─────────────────────────────────────────────
+
+pub use backend::{
+    DataBackendInfo, DataGovernanceBackend, InMemoryDataGovernanceBackend,
+    StoredCatalogEntry, StoredClassification, StoredFreshnessAssessment,
+    StoredLineageRecord, StoredQualityRule, StoredSchemaRecord,
+};
+
+pub use quality_governor::{
+    InMemoryQualityGovernor, NullQualityGovernor, QualityGovernanceDecision,
+    QualityGovernanceResult, QualityGovernor,
+};
+
+pub use lineage_governor::{
+    InMemoryLineageGovernor, LineageGovernanceDecision, LineageGovernanceResult,
+    LineageGovernor, NullLineageGovernor,
+};
+
+pub use schema_governor::{
+    InMemorySchemaGovernor, NullSchemaGovernor, SchemaGovernanceDecision,
+    SchemaGovernor, SchemaHealthAssessment, SchemaHealthStatus,
+};
+
+pub use data_export::{
+    DataCatalogExporter, DataGovernanceExporter, DataLineageExporter,
+    DataQualityReportExporter, GdprDataMappingExporter, JsonDataExporter,
+};
+
+pub use data_stream::{
+    DataGovernanceEventCollector, DataGovernanceEventSubscriber,
+    DataGovernanceEventSubscriberRegistry, DataGovernanceLifecycleEvent,
+    DataGovernanceLifecycleEventType, FilteredDataGovernanceEventSubscriber,
+};
+
+pub use data_governance_metrics::{
+    DataGovernanceMetricSnapshot, DataGovernanceMetricsCollector,
+    InMemoryDataGovernanceMetricsCollector, NullDataGovernanceMetricsCollector,
+};

@@ -36,6 +36,47 @@ pub enum DataEventType {
     FreshnessAssessed { assessment_id: String, status: String },
     FreshnessAlertRaised { alert_id: String, dataset_ref: String, severity: String },
     FreshnessAlertAcknowledged { alert_id: String, acknowledged_by: String },
+
+    // ── Layer 2 engine variants ─────────────────────────────────────
+    DatasetHashComputed { dataset_ref: String, hash: String },
+    SchemaHashComputed { schema_id: String, hash: String },
+    LineageHashComputed { record_id: String, hash: String },
+    DataHashChainAppended { chain_id: String, link_hash: String },
+    DataHashChainVerified { chain_id: String, valid: bool },
+    QualityRuleEvaluatedEngine { rule_id: String, dataset_ref: String, pass_rate: String },
+    QualityPolicyEvaluatedEngine { policy_id: String, dataset_ref: String, minimum_met: bool },
+    DataClassificationInferred { classification_id: String, method: String },
+    ClassificationReviewChecked { classification_id: String, review_due: bool },
+    ClassificationComplianceChecked { classification_id: String, compliant: bool },
+    LineageChainVerifiedEngine { chain_id: String, status: String },
+    LineageGapDetectedEngine { chain_id: String, gap_type: String },
+    LineageRecordComplianceChecked { record_id: String, compliant: bool },
+    DataAccessEvaluatedEngine { request_id: String, decision: String },
+    SchemaCompatibilityCheckedEngine { schema_id: String, result: String },
+    SchemaEvolutionDecided { schema_id: String, decision: String },
+    FreshnessEvaluatedEngine { assessment_id: String, status: String },
+    FreshnessAlertGenerated { alert_id: String, severity: String },
+    DataMetricsComputed { snapshot_id: String, computed_at: i64 },
+
+    // ── Layer 3 governance variants ─────────────────────────────────
+    DataGovernanceBackendChanged { backend_id: String, backend_type: String },
+    StoredQualityRuleCreated { rule_id: String, stored_at: i64 },
+    StoredClassificationCreated { classification_id: String, stored_at: i64 },
+    StoredLineageRecordCreated { record_id: String, lineage_hash: String },
+    StoredSchemaRecordCreated { schema_id: String, schema_hash: String },
+    StoredCatalogEntryCreated { entry_id: String, completeness_score: String },
+    QualityGovernanceEvaluated { dataset_ref: String, decision: String },
+    QualityPipelineBlocked { dataset_ref: String, reason: String },
+    LineageGovernanceEvaluated { dataset_ref: String, decision: String },
+    LineageChainVerifiedGov { chain_id: String, decision: String },
+    SchemaGovernanceEvaluated { schema_id: String, decision: String },
+    SchemaHealthAssessedGov { schema_id: String, status: String },
+    DataGovernanceExported { format: String, record_count: String },
+    DataGovernanceExportFailed { format: String, reason: String },
+    DataGovernanceMetricsComputed { snapshot_id: String, computed_at: i64 },
+    DataGovernanceSubscriberRegistered { subscriber_id: String },
+    DataGovernanceSubscriberRemoved { subscriber_id: String },
+    DataGovernanceEventPublished { event_type: String, dataset_ref: String },
 }
 
 impl fmt::Display for DataEventType {
@@ -113,6 +154,119 @@ impl fmt::Display for DataEventType {
             Self::FreshnessAlertAcknowledged { alert_id, acknowledged_by } => {
                 write!(f, "FreshnessAlertAcknowledged({alert_id}, by={acknowledged_by})")
             }
+            // Layer 2 engine variants
+            Self::DatasetHashComputed { dataset_ref, hash } => {
+                write!(f, "DatasetHashComputed(dataset={dataset_ref}, hash={hash})")
+            }
+            Self::SchemaHashComputed { schema_id, hash } => {
+                write!(f, "SchemaHashComputed({schema_id}, hash={hash})")
+            }
+            Self::LineageHashComputed { record_id, hash } => {
+                write!(f, "LineageHashComputed({record_id}, hash={hash})")
+            }
+            Self::DataHashChainAppended { chain_id, link_hash } => {
+                write!(f, "DataHashChainAppended({chain_id}, link={link_hash})")
+            }
+            Self::DataHashChainVerified { chain_id, valid } => {
+                write!(f, "DataHashChainVerified({chain_id}, valid={valid})")
+            }
+            Self::QualityRuleEvaluatedEngine { rule_id, dataset_ref, pass_rate } => {
+                write!(f, "QualityRuleEvaluatedEngine({rule_id}, dataset={dataset_ref}, rate={pass_rate})")
+            }
+            Self::QualityPolicyEvaluatedEngine { policy_id, dataset_ref, minimum_met } => {
+                write!(f, "QualityPolicyEvaluatedEngine({policy_id}, dataset={dataset_ref}, met={minimum_met})")
+            }
+            Self::DataClassificationInferred { classification_id, method } => {
+                write!(f, "DataClassificationInferred({classification_id}, method={method})")
+            }
+            Self::ClassificationReviewChecked { classification_id, review_due } => {
+                write!(f, "ClassificationReviewChecked({classification_id}, due={review_due})")
+            }
+            Self::ClassificationComplianceChecked { classification_id, compliant } => {
+                write!(f, "ClassificationComplianceChecked({classification_id}, compliant={compliant})")
+            }
+            Self::LineageChainVerifiedEngine { chain_id, status } => {
+                write!(f, "LineageChainVerifiedEngine({chain_id}, status={status})")
+            }
+            Self::LineageGapDetectedEngine { chain_id, gap_type } => {
+                write!(f, "LineageGapDetectedEngine({chain_id}, gap={gap_type})")
+            }
+            Self::LineageRecordComplianceChecked { record_id, compliant } => {
+                write!(f, "LineageRecordComplianceChecked({record_id}, compliant={compliant})")
+            }
+            Self::DataAccessEvaluatedEngine { request_id, decision } => {
+                write!(f, "DataAccessEvaluatedEngine({request_id}, decision={decision})")
+            }
+            Self::SchemaCompatibilityCheckedEngine { schema_id, result } => {
+                write!(f, "SchemaCompatibilityCheckedEngine({schema_id}, result={result})")
+            }
+            Self::SchemaEvolutionDecided { schema_id, decision } => {
+                write!(f, "SchemaEvolutionDecided({schema_id}, decision={decision})")
+            }
+            Self::FreshnessEvaluatedEngine { assessment_id, status } => {
+                write!(f, "FreshnessEvaluatedEngine({assessment_id}, status={status})")
+            }
+            Self::FreshnessAlertGenerated { alert_id, severity } => {
+                write!(f, "FreshnessAlertGenerated({alert_id}, severity={severity})")
+            }
+            Self::DataMetricsComputed { snapshot_id, computed_at } => {
+                write!(f, "DataMetricsComputed({snapshot_id}, at={computed_at})")
+            }
+            // Layer 3 governance variants
+            Self::DataGovernanceBackendChanged { backend_id, backend_type } => {
+                write!(f, "DataGovernanceBackendChanged({backend_id}, type={backend_type})")
+            }
+            Self::StoredQualityRuleCreated { rule_id, stored_at } => {
+                write!(f, "StoredQualityRuleCreated({rule_id}, at={stored_at})")
+            }
+            Self::StoredClassificationCreated { classification_id, stored_at } => {
+                write!(f, "StoredClassificationCreated({classification_id}, at={stored_at})")
+            }
+            Self::StoredLineageRecordCreated { record_id, lineage_hash } => {
+                write!(f, "StoredLineageRecordCreated({record_id}, hash={lineage_hash})")
+            }
+            Self::StoredSchemaRecordCreated { schema_id, schema_hash } => {
+                write!(f, "StoredSchemaRecordCreated({schema_id}, hash={schema_hash})")
+            }
+            Self::StoredCatalogEntryCreated { entry_id, completeness_score } => {
+                write!(f, "StoredCatalogEntryCreated({entry_id}, score={completeness_score})")
+            }
+            Self::QualityGovernanceEvaluated { dataset_ref, decision } => {
+                write!(f, "QualityGovernanceEvaluated(dataset={dataset_ref}, decision={decision})")
+            }
+            Self::QualityPipelineBlocked { dataset_ref, reason } => {
+                write!(f, "QualityPipelineBlocked(dataset={dataset_ref}): {reason}")
+            }
+            Self::LineageGovernanceEvaluated { dataset_ref, decision } => {
+                write!(f, "LineageGovernanceEvaluated(dataset={dataset_ref}, decision={decision})")
+            }
+            Self::LineageChainVerifiedGov { chain_id, decision } => {
+                write!(f, "LineageChainVerifiedGov({chain_id}, decision={decision})")
+            }
+            Self::SchemaGovernanceEvaluated { schema_id, decision } => {
+                write!(f, "SchemaGovernanceEvaluated({schema_id}, decision={decision})")
+            }
+            Self::SchemaHealthAssessedGov { schema_id, status } => {
+                write!(f, "SchemaHealthAssessedGov({schema_id}, status={status})")
+            }
+            Self::DataGovernanceExported { format, record_count } => {
+                write!(f, "DataGovernanceExported(format={format}, records={record_count})")
+            }
+            Self::DataGovernanceExportFailed { format, reason } => {
+                write!(f, "DataGovernanceExportFailed(format={format}): {reason}")
+            }
+            Self::DataGovernanceMetricsComputed { snapshot_id, computed_at } => {
+                write!(f, "DataGovernanceMetricsComputed({snapshot_id}, at={computed_at})")
+            }
+            Self::DataGovernanceSubscriberRegistered { subscriber_id } => {
+                write!(f, "DataGovernanceSubscriberRegistered({subscriber_id})")
+            }
+            Self::DataGovernanceSubscriberRemoved { subscriber_id } => {
+                write!(f, "DataGovernanceSubscriberRemoved({subscriber_id})")
+            }
+            Self::DataGovernanceEventPublished { event_type, dataset_ref } => {
+                write!(f, "DataGovernanceEventPublished(type={event_type}, dataset={dataset_ref})")
+            }
         }
     }
 }
@@ -144,6 +298,45 @@ impl DataEventType {
             Self::FreshnessAssessed { .. } => "FreshnessAssessed",
             Self::FreshnessAlertRaised { .. } => "FreshnessAlertRaised",
             Self::FreshnessAlertAcknowledged { .. } => "FreshnessAlertAcknowledged",
+            // Layer 2 engine variants
+            Self::DatasetHashComputed { .. } => "DatasetHashComputed",
+            Self::SchemaHashComputed { .. } => "SchemaHashComputed",
+            Self::LineageHashComputed { .. } => "LineageHashComputed",
+            Self::DataHashChainAppended { .. } => "DataHashChainAppended",
+            Self::DataHashChainVerified { .. } => "DataHashChainVerified",
+            Self::QualityRuleEvaluatedEngine { .. } => "QualityRuleEvaluatedEngine",
+            Self::QualityPolicyEvaluatedEngine { .. } => "QualityPolicyEvaluatedEngine",
+            Self::DataClassificationInferred { .. } => "DataClassificationInferred",
+            Self::ClassificationReviewChecked { .. } => "ClassificationReviewChecked",
+            Self::ClassificationComplianceChecked { .. } => "ClassificationComplianceChecked",
+            Self::LineageChainVerifiedEngine { .. } => "LineageChainVerifiedEngine",
+            Self::LineageGapDetectedEngine { .. } => "LineageGapDetectedEngine",
+            Self::LineageRecordComplianceChecked { .. } => "LineageRecordComplianceChecked",
+            Self::DataAccessEvaluatedEngine { .. } => "DataAccessEvaluatedEngine",
+            Self::SchemaCompatibilityCheckedEngine { .. } => "SchemaCompatibilityCheckedEngine",
+            Self::SchemaEvolutionDecided { .. } => "SchemaEvolutionDecided",
+            Self::FreshnessEvaluatedEngine { .. } => "FreshnessEvaluatedEngine",
+            Self::FreshnessAlertGenerated { .. } => "FreshnessAlertGenerated",
+            Self::DataMetricsComputed { .. } => "DataMetricsComputed",
+            // Layer 3 governance variants
+            Self::DataGovernanceBackendChanged { .. } => "DataGovernanceBackendChanged",
+            Self::StoredQualityRuleCreated { .. } => "StoredQualityRuleCreated",
+            Self::StoredClassificationCreated { .. } => "StoredClassificationCreated",
+            Self::StoredLineageRecordCreated { .. } => "StoredLineageRecordCreated",
+            Self::StoredSchemaRecordCreated { .. } => "StoredSchemaRecordCreated",
+            Self::StoredCatalogEntryCreated { .. } => "StoredCatalogEntryCreated",
+            Self::QualityGovernanceEvaluated { .. } => "QualityGovernanceEvaluated",
+            Self::QualityPipelineBlocked { .. } => "QualityPipelineBlocked",
+            Self::LineageGovernanceEvaluated { .. } => "LineageGovernanceEvaluated",
+            Self::LineageChainVerifiedGov { .. } => "LineageChainVerifiedGov",
+            Self::SchemaGovernanceEvaluated { .. } => "SchemaGovernanceEvaluated",
+            Self::SchemaHealthAssessedGov { .. } => "SchemaHealthAssessedGov",
+            Self::DataGovernanceExported { .. } => "DataGovernanceExported",
+            Self::DataGovernanceExportFailed { .. } => "DataGovernanceExportFailed",
+            Self::DataGovernanceMetricsComputed { .. } => "DataGovernanceMetricsComputed",
+            Self::DataGovernanceSubscriberRegistered { .. } => "DataGovernanceSubscriberRegistered",
+            Self::DataGovernanceSubscriberRemoved { .. } => "DataGovernanceSubscriberRemoved",
+            Self::DataGovernanceEventPublished { .. } => "DataGovernanceEventPublished",
         }
     }
 
@@ -173,7 +366,107 @@ impl DataEventType {
             | Self::FreshnessAssessed { .. }
             | Self::FreshnessAlertRaised { .. }
             | Self::FreshnessAlertAcknowledged { .. } => "freshness",
+            // Layer 2 engine kinds
+            Self::DatasetHashComputed { .. }
+            | Self::SchemaHashComputed { .. }
+            | Self::LineageHashComputed { .. }
+            | Self::DataHashChainAppended { .. }
+            | Self::DataHashChainVerified { .. } => "hashing",
+            Self::QualityRuleEvaluatedEngine { .. }
+            | Self::QualityPolicyEvaluatedEngine { .. } => "quality",
+            Self::DataClassificationInferred { .. }
+            | Self::ClassificationReviewChecked { .. }
+            | Self::ClassificationComplianceChecked { .. } => "classification",
+            Self::LineageChainVerifiedEngine { .. }
+            | Self::LineageGapDetectedEngine { .. }
+            | Self::LineageRecordComplianceChecked { .. } => "lineage",
+            Self::DataAccessEvaluatedEngine { .. } => "access",
+            Self::SchemaCompatibilityCheckedEngine { .. }
+            | Self::SchemaEvolutionDecided { .. } => "schema",
+            Self::FreshnessEvaluatedEngine { .. }
+            | Self::FreshnessAlertGenerated { .. } => "freshness",
+            Self::DataMetricsComputed { .. } => "metrics",
+            // Layer 3 governance kinds
+            Self::DataGovernanceBackendChanged { .. }
+            | Self::StoredQualityRuleCreated { .. }
+            | Self::StoredClassificationCreated { .. }
+            | Self::StoredLineageRecordCreated { .. }
+            | Self::StoredSchemaRecordCreated { .. }
+            | Self::StoredCatalogEntryCreated { .. } => "backend",
+            Self::QualityGovernanceEvaluated { .. }
+            | Self::QualityPipelineBlocked { .. } => "quality",
+            Self::LineageGovernanceEvaluated { .. }
+            | Self::LineageChainVerifiedGov { .. } => "lineage",
+            Self::SchemaGovernanceEvaluated { .. }
+            | Self::SchemaHealthAssessedGov { .. } => "schema",
+            Self::DataGovernanceExported { .. }
+            | Self::DataGovernanceExportFailed { .. } => "export",
+            Self::DataGovernanceMetricsComputed { .. } => "metrics",
+            Self::DataGovernanceSubscriberRegistered { .. }
+            | Self::DataGovernanceSubscriberRemoved { .. }
+            | Self::DataGovernanceEventPublished { .. } => "streaming",
         }
+    }
+
+    pub fn is_engine_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DatasetHashComputed { .. }
+            | Self::SchemaHashComputed { .. }
+            | Self::LineageHashComputed { .. }
+            | Self::DataHashChainAppended { .. }
+            | Self::DataHashChainVerified { .. }
+            | Self::QualityRuleEvaluatedEngine { .. }
+            | Self::QualityPolicyEvaluatedEngine { .. }
+            | Self::DataClassificationInferred { .. }
+            | Self::ClassificationReviewChecked { .. }
+            | Self::ClassificationComplianceChecked { .. }
+            | Self::LineageChainVerifiedEngine { .. }
+            | Self::LineageGapDetectedEngine { .. }
+            | Self::LineageRecordComplianceChecked { .. }
+            | Self::DataAccessEvaluatedEngine { .. }
+            | Self::SchemaCompatibilityCheckedEngine { .. }
+            | Self::SchemaEvolutionDecided { .. }
+            | Self::FreshnessEvaluatedEngine { .. }
+            | Self::FreshnessAlertGenerated { .. }
+            | Self::DataMetricsComputed { .. }
+        )
+    }
+
+    pub fn is_governance_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DataGovernanceBackendChanged { .. }
+            | Self::StoredQualityRuleCreated { .. }
+            | Self::StoredClassificationCreated { .. }
+            | Self::StoredLineageRecordCreated { .. }
+            | Self::StoredSchemaRecordCreated { .. }
+            | Self::StoredCatalogEntryCreated { .. }
+            | Self::QualityGovernanceEvaluated { .. }
+            | Self::QualityPipelineBlocked { .. }
+            | Self::LineageGovernanceEvaluated { .. }
+            | Self::LineageChainVerifiedGov { .. }
+            | Self::SchemaGovernanceEvaluated { .. }
+            | Self::SchemaHealthAssessedGov { .. }
+            | Self::DataGovernanceExported { .. }
+            | Self::DataGovernanceExportFailed { .. }
+            | Self::DataGovernanceMetricsComputed { .. }
+            | Self::DataGovernanceSubscriberRegistered { .. }
+            | Self::DataGovernanceSubscriberRemoved { .. }
+            | Self::DataGovernanceEventPublished { .. }
+        )
+    }
+
+    pub fn is_backend_event(&self) -> bool {
+        self.kind() == "backend"
+    }
+
+    pub fn is_export_event(&self) -> bool {
+        self.kind() == "export"
+    }
+
+    pub fn is_streaming_event(&self) -> bool {
+        self.kind() == "streaming"
     }
 }
 
@@ -261,7 +554,8 @@ mod tests {
 
     #[test]
     fn test_event_type_display_all_variants() {
-        let variants = vec![
+        let variants: Vec<DataEventType> = vec![
+            // L1 (24)
             DataEventType::QualityRuleCreated { rule_id: "qr-1".into(), dimension: "Completeness".into() },
             DataEventType::QualityRuleEvaluated { rule_id: "qr-1".into(), dataset_ref: "ds-1".into(), passed: true },
             DataEventType::QualityPolicyCreated { policy_id: "qp-1".into(), dataset_ref: "ds-1".into() },
@@ -286,16 +580,56 @@ mod tests {
             DataEventType::FreshnessAssessed { assessment_id: "fa-1".into(), status: "Fresh".into() },
             DataEventType::FreshnessAlertRaised { alert_id: "fal-1".into(), dataset_ref: "ds-1".into(), severity: "Critical".into() },
             DataEventType::FreshnessAlertAcknowledged { alert_id: "fal-1".into(), acknowledged_by: "alice".into() },
+            // L2 engine (19)
+            DataEventType::DatasetHashComputed { dataset_ref: "ds-1".into(), hash: "abc".into() },
+            DataEventType::SchemaHashComputed { schema_id: "sch-1".into(), hash: "def".into() },
+            DataEventType::LineageHashComputed { record_id: "lr-1".into(), hash: "ghi".into() },
+            DataEventType::DataHashChainAppended { chain_id: "hc-1".into(), link_hash: "jkl".into() },
+            DataEventType::DataHashChainVerified { chain_id: "hc-1".into(), valid: true },
+            DataEventType::QualityRuleEvaluatedEngine { rule_id: "qr-1".into(), dataset_ref: "ds-1".into(), pass_rate: "0.95".into() },
+            DataEventType::QualityPolicyEvaluatedEngine { policy_id: "qp-1".into(), dataset_ref: "ds-1".into(), minimum_met: true },
+            DataEventType::DataClassificationInferred { classification_id: "cls-1".into(), method: "Automated".into() },
+            DataEventType::ClassificationReviewChecked { classification_id: "cls-1".into(), review_due: false },
+            DataEventType::ClassificationComplianceChecked { classification_id: "cls-1".into(), compliant: true },
+            DataEventType::LineageChainVerifiedEngine { chain_id: "lc-1".into(), status: "Complete".into() },
+            DataEventType::LineageGapDetectedEngine { chain_id: "lc-1".into(), gap_type: "MissingRecord".into() },
+            DataEventType::LineageRecordComplianceChecked { record_id: "lr-1".into(), compliant: true },
+            DataEventType::DataAccessEvaluatedEngine { request_id: "dar-1".into(), decision: "Granted".into() },
+            DataEventType::SchemaCompatibilityCheckedEngine { schema_id: "sch-1".into(), result: "FullyCompatible".into() },
+            DataEventType::SchemaEvolutionDecided { schema_id: "sch-1".into(), decision: "Approved".into() },
+            DataEventType::FreshnessEvaluatedEngine { assessment_id: "fa-1".into(), status: "Fresh".into() },
+            DataEventType::FreshnessAlertGenerated { alert_id: "fal-1".into(), severity: "Warning".into() },
+            DataEventType::DataMetricsComputed { snapshot_id: "snap-1".into(), computed_at: 5000 },
+            // L3 governance (18)
+            DataEventType::DataGovernanceBackendChanged { backend_id: "be-1".into(), backend_type: "InMemory".into() },
+            DataEventType::StoredQualityRuleCreated { rule_id: "qr-1".into(), stored_at: 2000 },
+            DataEventType::StoredClassificationCreated { classification_id: "cls-1".into(), stored_at: 2000 },
+            DataEventType::StoredLineageRecordCreated { record_id: "lr-1".into(), lineage_hash: "abc".into() },
+            DataEventType::StoredSchemaRecordCreated { schema_id: "sch-1".into(), schema_hash: "def".into() },
+            DataEventType::StoredCatalogEntryCreated { entry_id: "ce-1".into(), completeness_score: "0.80".into() },
+            DataEventType::QualityGovernanceEvaluated { dataset_ref: "ds-1".into(), decision: "QualityMet".into() },
+            DataEventType::QualityPipelineBlocked { dataset_ref: "ds-1".into(), reason: "below threshold".into() },
+            DataEventType::LineageGovernanceEvaluated { dataset_ref: "ds-1".into(), decision: "Compliant".into() },
+            DataEventType::LineageChainVerifiedGov { chain_id: "lc-1".into(), decision: "Compliant".into() },
+            DataEventType::SchemaGovernanceEvaluated { schema_id: "sch-1".into(), decision: "Approved".into() },
+            DataEventType::SchemaHealthAssessedGov { schema_id: "sch-1".into(), status: "Healthy".into() },
+            DataEventType::DataGovernanceExported { format: "json".into(), record_count: "10".into() },
+            DataEventType::DataGovernanceExportFailed { format: "json".into(), reason: "IO error".into() },
+            DataEventType::DataGovernanceMetricsComputed { snapshot_id: "snap-1".into(), computed_at: 5000 },
+            DataEventType::DataGovernanceSubscriberRegistered { subscriber_id: "sub-1".into() },
+            DataEventType::DataGovernanceSubscriberRemoved { subscriber_id: "sub-1".into() },
+            DataEventType::DataGovernanceEventPublished { event_type: "QualityRuleStored".into(), dataset_ref: "ds-1".into() },
         ];
         for v in &variants {
             assert!(!v.to_string().is_empty());
         }
-        assert_eq!(variants.len(), 24);
+        assert_eq!(variants.len(), 61);
     }
 
     #[test]
     fn test_type_name_all_variants() {
-        let names = vec![
+        let names: Vec<DataEventType> = vec![
+            // L1 (24)
             DataEventType::QualityRuleCreated { rule_id: "x".into(), dimension: "x".into() },
             DataEventType::QualityRuleEvaluated { rule_id: "x".into(), dataset_ref: "x".into(), passed: true },
             DataEventType::QualityPolicyCreated { policy_id: "x".into(), dataset_ref: "x".into() },
@@ -320,11 +654,50 @@ mod tests {
             DataEventType::FreshnessAssessed { assessment_id: "x".into(), status: "x".into() },
             DataEventType::FreshnessAlertRaised { alert_id: "x".into(), dataset_ref: "x".into(), severity: "x".into() },
             DataEventType::FreshnessAlertAcknowledged { alert_id: "x".into(), acknowledged_by: "x".into() },
+            // L2 engine (19)
+            DataEventType::DatasetHashComputed { dataset_ref: "x".into(), hash: "x".into() },
+            DataEventType::SchemaHashComputed { schema_id: "x".into(), hash: "x".into() },
+            DataEventType::LineageHashComputed { record_id: "x".into(), hash: "x".into() },
+            DataEventType::DataHashChainAppended { chain_id: "x".into(), link_hash: "x".into() },
+            DataEventType::DataHashChainVerified { chain_id: "x".into(), valid: true },
+            DataEventType::QualityRuleEvaluatedEngine { rule_id: "x".into(), dataset_ref: "x".into(), pass_rate: "x".into() },
+            DataEventType::QualityPolicyEvaluatedEngine { policy_id: "x".into(), dataset_ref: "x".into(), minimum_met: true },
+            DataEventType::DataClassificationInferred { classification_id: "x".into(), method: "x".into() },
+            DataEventType::ClassificationReviewChecked { classification_id: "x".into(), review_due: false },
+            DataEventType::ClassificationComplianceChecked { classification_id: "x".into(), compliant: true },
+            DataEventType::LineageChainVerifiedEngine { chain_id: "x".into(), status: "x".into() },
+            DataEventType::LineageGapDetectedEngine { chain_id: "x".into(), gap_type: "x".into() },
+            DataEventType::LineageRecordComplianceChecked { record_id: "x".into(), compliant: true },
+            DataEventType::DataAccessEvaluatedEngine { request_id: "x".into(), decision: "x".into() },
+            DataEventType::SchemaCompatibilityCheckedEngine { schema_id: "x".into(), result: "x".into() },
+            DataEventType::SchemaEvolutionDecided { schema_id: "x".into(), decision: "x".into() },
+            DataEventType::FreshnessEvaluatedEngine { assessment_id: "x".into(), status: "x".into() },
+            DataEventType::FreshnessAlertGenerated { alert_id: "x".into(), severity: "x".into() },
+            DataEventType::DataMetricsComputed { snapshot_id: "x".into(), computed_at: 0 },
+            // L3 governance (18)
+            DataEventType::DataGovernanceBackendChanged { backend_id: "x".into(), backend_type: "x".into() },
+            DataEventType::StoredQualityRuleCreated { rule_id: "x".into(), stored_at: 0 },
+            DataEventType::StoredClassificationCreated { classification_id: "x".into(), stored_at: 0 },
+            DataEventType::StoredLineageRecordCreated { record_id: "x".into(), lineage_hash: "x".into() },
+            DataEventType::StoredSchemaRecordCreated { schema_id: "x".into(), schema_hash: "x".into() },
+            DataEventType::StoredCatalogEntryCreated { entry_id: "x".into(), completeness_score: "x".into() },
+            DataEventType::QualityGovernanceEvaluated { dataset_ref: "x".into(), decision: "x".into() },
+            DataEventType::QualityPipelineBlocked { dataset_ref: "x".into(), reason: "x".into() },
+            DataEventType::LineageGovernanceEvaluated { dataset_ref: "x".into(), decision: "x".into() },
+            DataEventType::LineageChainVerifiedGov { chain_id: "x".into(), decision: "x".into() },
+            DataEventType::SchemaGovernanceEvaluated { schema_id: "x".into(), decision: "x".into() },
+            DataEventType::SchemaHealthAssessedGov { schema_id: "x".into(), status: "x".into() },
+            DataEventType::DataGovernanceExported { format: "x".into(), record_count: "x".into() },
+            DataEventType::DataGovernanceExportFailed { format: "x".into(), reason: "x".into() },
+            DataEventType::DataGovernanceMetricsComputed { snapshot_id: "x".into(), computed_at: 0 },
+            DataEventType::DataGovernanceSubscriberRegistered { subscriber_id: "x".into() },
+            DataEventType::DataGovernanceSubscriberRemoved { subscriber_id: "x".into() },
+            DataEventType::DataGovernanceEventPublished { event_type: "x".into(), dataset_ref: "x".into() },
         ];
         for n in &names {
             assert!(!n.type_name().is_empty());
         }
-        assert_eq!(names.len(), 24);
+        assert_eq!(names.len(), 61);
     }
 
     #[test]
@@ -470,5 +843,85 @@ mod tests {
     fn test_audit_log_default() {
         let log = DataAuditLog::default();
         assert_eq!(log.event_count(), 0);
+    }
+
+    #[test]
+    fn test_kind_hashing() {
+        let e = DataEventType::DatasetHashComputed { dataset_ref: "x".into(), hash: "x".into() };
+        assert_eq!(e.kind(), "hashing");
+        let e = DataEventType::DataHashChainVerified { chain_id: "x".into(), valid: true };
+        assert_eq!(e.kind(), "hashing");
+    }
+
+    #[test]
+    fn test_kind_backend() {
+        let e = DataEventType::DataGovernanceBackendChanged { backend_id: "x".into(), backend_type: "x".into() };
+        assert_eq!(e.kind(), "backend");
+        let e = DataEventType::StoredQualityRuleCreated { rule_id: "x".into(), stored_at: 0 };
+        assert_eq!(e.kind(), "backend");
+    }
+
+    #[test]
+    fn test_kind_export() {
+        let e = DataEventType::DataGovernanceExported { format: "x".into(), record_count: "x".into() };
+        assert_eq!(e.kind(), "export");
+        let e = DataEventType::DataGovernanceExportFailed { format: "x".into(), reason: "x".into() };
+        assert_eq!(e.kind(), "export");
+    }
+
+    #[test]
+    fn test_kind_streaming() {
+        let e = DataEventType::DataGovernanceSubscriberRegistered { subscriber_id: "x".into() };
+        assert_eq!(e.kind(), "streaming");
+        let e = DataEventType::DataGovernanceEventPublished { event_type: "x".into(), dataset_ref: "x".into() };
+        assert_eq!(e.kind(), "streaming");
+    }
+
+    #[test]
+    fn test_kind_metrics() {
+        let e = DataEventType::DataMetricsComputed { snapshot_id: "x".into(), computed_at: 0 };
+        assert_eq!(e.kind(), "metrics");
+        let e = DataEventType::DataGovernanceMetricsComputed { snapshot_id: "x".into(), computed_at: 0 };
+        assert_eq!(e.kind(), "metrics");
+    }
+
+    #[test]
+    fn test_is_engine_event() {
+        let engine = DataEventType::QualityRuleEvaluatedEngine { rule_id: "x".into(), dataset_ref: "x".into(), pass_rate: "x".into() };
+        assert!(engine.is_engine_event());
+        let l1 = DataEventType::QualityRuleCreated { rule_id: "x".into(), dimension: "x".into() };
+        assert!(!l1.is_engine_event());
+        let l3 = DataEventType::QualityGovernanceEvaluated { dataset_ref: "x".into(), decision: "x".into() };
+        assert!(!l3.is_engine_event());
+    }
+
+    #[test]
+    fn test_is_governance_event() {
+        let gov = DataEventType::QualityGovernanceEvaluated { dataset_ref: "x".into(), decision: "x".into() };
+        assert!(gov.is_governance_event());
+        let l1 = DataEventType::QualityRuleCreated { rule_id: "x".into(), dimension: "x".into() };
+        assert!(!l1.is_governance_event());
+        let engine = DataEventType::QualityRuleEvaluatedEngine { rule_id: "x".into(), dataset_ref: "x".into(), pass_rate: "x".into() };
+        assert!(!engine.is_governance_event());
+    }
+
+    #[test]
+    fn test_is_backend_event() {
+        let be = DataEventType::StoredQualityRuleCreated { rule_id: "x".into(), stored_at: 0 };
+        assert!(be.is_backend_event());
+        let non_be = DataEventType::QualityRuleCreated { rule_id: "x".into(), dimension: "x".into() };
+        assert!(!non_be.is_backend_event());
+    }
+
+    #[test]
+    fn test_is_export_event() {
+        let exp = DataEventType::DataGovernanceExported { format: "x".into(), record_count: "x".into() };
+        assert!(exp.is_export_event());
+    }
+
+    #[test]
+    fn test_is_streaming_event() {
+        let stream = DataEventType::DataGovernanceSubscriberRegistered { subscriber_id: "x".into() };
+        assert!(stream.is_streaming_event());
     }
 }
