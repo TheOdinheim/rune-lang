@@ -16,6 +16,16 @@ pub mod lineage;
 pub mod quality;
 pub mod schema;
 
+// Layer 2 modules
+pub mod access_evaluator;
+pub mod classification_engine;
+pub mod data_hash;
+pub mod data_metrics;
+pub mod freshness_evaluator;
+pub mod lineage_verifier;
+pub mod quality_engine;
+pub mod schema_checker;
+
 // ── Re-exports: Quality ──────────────────────────────────────────────
 
 pub use quality::{
@@ -64,3 +74,26 @@ pub use audit::{DataAuditEvent, DataAuditLog, DataEventType};
 // ── Re-exports: Error ────────────────────────────────────────────────
 
 pub use error::DataError;
+
+// ── Layer 2 re-exports ──────────────────────────────────────────────
+
+pub use access_evaluator::{AccessCheck, AccessEvaluationReport, DataAccessEvaluator};
+
+pub use classification_engine::{
+    ClassificationComplianceResult, ClassificationEngine, ClassificationReviewResult,
+};
+
+pub use data_hash::{hash_dataset_ref, hash_lineage_record, hash_schema_record, verify_hash, DataHashChain, DataHashChainLink};
+
+pub use data_metrics::{DataMetricSnapshot, DataMetrics};
+
+pub use freshness_evaluator::FreshnessEvaluator;
+
+pub use lineage_verifier::{
+    LineageGap, LineageGapType, LineageVerificationResult, LineageVerifier,
+    RecordComplianceResult,
+};
+
+pub use quality_engine::{PolicyEvaluation, QualityEngine, QualityRuleEvaluation};
+
+pub use schema_checker::{SchemaCompatibilityChecker, SchemaEvolutionDecision};

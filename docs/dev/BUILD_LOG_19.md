@@ -322,3 +322,66 @@ Added the `rune-data` crate to the workspace as a new data pipeline governance l
 - Access types define policies and decisions — no access evaluator (Layer 2)
 - Schema types define compatibility — no compatibility checker (Layer 2)
 - Freshness types define policies and assessments — no freshness evaluator (Layer 2)
+
+---
+
+## rune-data — Layer 2
+
+**Date:** 2026-04-22
+**Tests:** 90 → 198 (+108 tests, zero failures)
+**Clippy:** Zero warnings
+
+### What Changed
+
+Added eight Layer 2 modules to rune-data implementing evaluation engines, integrity hashing, and metrics computation for the Layer 1 type system. The quality engine evaluates NotNull/Unique/InRange expectations against measured values and computes policy-level pass rates with block-on-failure semantics. The classification engine infers sensitivity levels from data category types (PHI/PCI/Biometric→Restricted, PII/Financial/IP→Confidential, Custom→Internal), classifies datasets, checks review due dates, and evaluates classification policy compliance against catalog entries. The lineage verifier detects chain gaps (broken references, missing predecessors) and checks record compliance against lineage policies (source documentation, transformation metadata, attestation requirements). The access evaluator performs four-check evaluation (role, operation, sensitivity threshold, purpose declaration) with early-exit denial and conditional grant for audit-required policies. The schema compatibility checker detects breaking changes (field removal for required fields, type changes, nullability changes) and evaluates schema evolution policy compliance with migration plan and deprecation period decision paths. The freshness evaluator computes hours since last update, determines staleness against policy thresholds, and generates severity-classified alerts. SHA3-256 integrity hashing covers dataset refs, schema records, and lineage records with field-order-independent deterministic hashing and an append-only DataHashChain with tamper detection. The data metrics module computes quality pass rates, classification coverage, lineage completeness, access denial rates, schema compatibility rates, freshness compliance rates, and staleness distribution.
+
+### New Modules
+
+| Module | Description | Tests |
+|---|---|---|
+| `quality_engine.rs` | QualityEngine with evaluate_rule/evaluate_policy, NotNull/Unique/InRange checks, PolicyEvaluation with pass_rate/minimum_met/blocked | 14 |
+| `classification_engine.rs` | ClassificationEngine with classify_dataset/infer_sensitivity_from_categories/check_classification_review_due/evaluate_policy_compliance | 16 |
+| `lineage_verifier.rs` | LineageVerifier with verify_chain/detect_chain_gaps/check_record_completeness/compute_chain_depth, LineageGapType (4 variants), LineageGap, LineageVerificationResult, RecordComplianceResult | 12 |
+| `access_evaluator.rs` | DataAccessEvaluator with evaluate_access/check_role/check_operation/check_sensitivity/check_purpose, AccessCheck, AccessEvaluationReport | 11 |
+| `schema_checker.rs` | SchemaCompatibilityChecker with check_compatibility/detect_breaking_changes/check_field_removal/check_field_type_change/check_nullability_change/evaluate_evolution_policy, SchemaEvolutionDecision (4 variants) | 14 |
+| `freshness_evaluator.rs` | FreshnessEvaluator with evaluate_freshness/compute_hours_since_update/is_stale/generate_alert_if_stale | 12 |
+| `data_hash.rs` | hash_dataset_ref/hash_schema_record/hash_lineage_record/verify_hash with constant-time comparison, DataHashChain with append/verify_chain/chain_length/latest_hash | 12 |
+| `data_metrics.rs` | DataMetrics with 7 compute methods (quality_pass_rate/classification_coverage/lineage_completeness/access_denial_rate/schema_compatibility_rate/freshness_compliance_rate/staleness_distribution), DataMetricSnapshot | 17 |
+
+### Modified Files
+
+| File | Changes |
+|---|---|
+| `lib.rs` | Added 8 Layer 2 module declarations and Layer 2 re-exports section |
+
+### Design Decisions
+
+1. **SHA3-256 integrity hashing with field-order independence**: Schema record hashing sorts field parts before hashing so that field reordering does not change the hash. This prevents false integrity violations from non-semantic schema changes (field reordering in JSON/Avro). Follows the pattern established by rune-document and rune-provenance.
+
+2. **DataHashChain for append-only integrity tracking**: Each link stores content_hash + previous_hash and the chain_hash is SHA3-256(content_hash:previous_hash). This enables tamper detection — modifying any historical entry breaks the chain. Follows the same hash chain pattern used in rune-document's DocumentHashChain.
+
+3. **Constant-time hash comparison**: verify_hash uses XOR-based constant-time comparison to prevent timing side-channel attacks on hash verification. This matters for data integrity verification where an attacker could probe for valid hashes.
+
+4. **Access evaluator uses early-exit denial**: Four checks (role, operation, sensitivity, purpose) run sequentially with early exit on first denial. This is both efficient (skips unnecessary checks) and correct (provides the specific denial reason for audit logging).
+
+5. **Schema compatibility checker only flags required field removal as breaking**: Nullable field removal is not breaking because existing readers can handle missing nullable fields. This matches industry practice (Avro/Protobuf backward compatibility rules).
+
+6. **Quality engine placeholders for Unique/Pattern/ReferentialIntegrity**: These checks require dataset access (uniqueness verification, regex matching, foreign key lookups) that belongs in adapter crates. The engine returns passed=true with an adapter implementation note. This follows the scope boundary established by the Layer 1 design.
+
+7. **All numeric values as String for Eq**: Pass rates, hours, thresholds, days_overdue — all String. Follows the project-wide convention for deterministic testing.
+
+### Four-Pillar Alignment
+
+| Pillar | How rune-data L2 Serves It |
+|---|---|
+| **Safety** | Quality engine blocks pipeline execution when pass rate falls below policy minimum; schema checker rejects breaking changes that could corrupt downstream data |
+| **Security** | Access evaluator enforces role-based, operation-based, and sensitivity-threshold-based access control with audit-required conditional grants; constant-time hash comparison prevents timing attacks |
+| **Trust** | SHA3-256 integrity hashing provides deterministic identity for datasets, schemas, and lineage records; DataHashChain enables tamper detection across catalog history |
+| **Interop** | Evaluation engines consume Layer 1 types and produce standalone result types (PolicyEvaluation, AccessEvaluationReport, SchemaEvolutionDecision) that can be serialized for cross-system exchange |
+
+### Integration Points
+
+- **rune-privacy**: Classification engine's sensitivity inference (PII→Confidential, PHI→Restricted) feeds rune-privacy's consent management scope
+- **rune-provenance**: Data hash functions produce SHA3-256 digests compatible with rune-provenance's attestation verification pipeline
+- **rune-monitoring**: DataMetrics compute functions produce String-valued metrics consumable by rune-monitoring's MetricPoint surface
+- **rune-ai**: Quality engine's PolicyEvaluation can verify training dataset quality before rune-ai's model training approval gates

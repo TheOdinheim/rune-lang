@@ -1587,6 +1587,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rune-data"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha3",
+]
+
+[[package]]
 name = "rune-detection"
 version = "0.1.0"
 dependencies = [
