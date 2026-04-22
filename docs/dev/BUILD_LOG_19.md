@@ -250,3 +250,75 @@ New `is_*` classifiers: `is_backend_event`, `is_lifecycle_governance_event`, `is
 - Event subscriber trait receives notifications — adapter crates implement delivery to message brokers, log aggregators
 - Metrics collector computes from stored records — adapter crates bridge to real telemetry systems
 - Governor traits define governance decisions — adapter crates implement actual enforcement actions
+
+---
+
+## rune-data — Layer 1
+
+**Date:** 2026-04-22
+**Tests:** 0 → 90
+**Clippy:** Zero warnings
+
+### What Changed
+
+Added the `rune-data` crate to the workspace as a new data pipeline governance library. Layer 1 establishes the core type system for data quality rules (DAMA-DMBOK dimensions), data classification and sensitivity labeling (PII/PHI/PCI with Ord-derived sensitivity levels), data lineage through transformation stages (source→transform→sink), data access governance (role-based operation control with purpose declaration), schema governance and evolution policy (backward/forward compatibility, breaking change detection), data catalog entry governance (ownership, stewardship, documentation requirements), data freshness and staleness monitoring (SLA-based with alerting), 24 audit event variants across 7 kind categories, and 11 error variants. All numeric values use String for Eq derivation.
+
+### New Modules
+
+| Module | Description | Tests |
+|---|---|---|
+| `quality.rs` | DataQualityDimension (7 variants), QualityExpectation (6 variants), QualitySeverity (3 variants), DataQualityRule, DataQualityResult, DataQualityPolicy | 12 |
+| `classification.rs` | DataSensitivity (5 variants, Ord), DataCategoryType (9 variants), DataCategory, ClassificationMethod (4 variants), DataClassification, ClassificationPolicy | 10 |
+| `lineage.rs` | LineageStage (4 variants), LineageChainStatus (4 variants), LineageRecord, LineageChain, LineagePolicy | 11 |
+| `access.rs` | DataOperation (7 variants), DataAccessDecision (4 variants), DataAccessPolicy, DataAccessRequest | 9 |
+| `schema.rs` | SchemaFormat (6 variants), SchemaChangeType (5 variants), SchemaBreakingChange, SchemaCompatibility (5 variants), SchemaField, SchemaRecord, SchemaEvolutionPolicy | 10 |
+| `catalog.rs` | CatalogEntryStatus (5 variants), CatalogEntry, CatalogGovernancePolicy | 7 |
+| `freshness.rs` | UpdateFrequency (6 variants), FreshnessStatus (4 variants), FreshnessPolicy, FreshnessAssessment, FreshnessAlert | 9 |
+| `audit.rs` | DataEventType (24 variants), DataAuditEvent, DataAuditLog with record/events/events_by_kind/since | 15 |
+| `error.rs` | DataError (11 variants) with Display/Debug/std::error::Error | 7 |
+| `lib.rs` | Module declarations and re-exports | — |
+
+### Design Decisions
+
+1. **rune-data is distinct from rune-privacy**: rune-privacy handles personal data consent and retention policy (GDPR/CCPA legal basis). rune-data handles operational data pipeline governance regardless of whether data contains personal information. rune-data's sensitivity classification (PII, PHI, PCI) informs rune-privacy about what data needs consent management.
+
+2. **rune-data is distinct from rune-provenance**: rune-provenance tracks cryptographic attestation chains for any artifact. rune-data tracks operational data lineage through transformation stages (source, transforms, sinks). LineageRecord carries an optional `attestation_ref` (opaque string) for entries with cryptographic proof, but verification happens in rune-provenance.
+
+3. **rune-data is distinct from rune-document**: rune-document handles structured document management with versioning and retention. rune-data handles dataset-level governance (schemas, quality rules, lineage) for data flowing through pipelines. Documents are static artifacts; pipeline data is flowing and transforming.
+
+4. **rune-data is distinct from rune-ai**: rune-ai governs AI/ML model lifecycle and references training datasets by opaque string (`training_data_refs`). rune-data governs the datasets themselves at the pipeline level — quality, lineage, schema, classification. Different governance concerns at different layers.
+
+5. **DataSensitivity derives Ord**: Sensitivity comparison enables threshold-based access control (e.g. "this policy allows access up to Confidential"). Ordering is Public < Internal < Confidential < Restricted < Custom. Matches the pattern established by rune-memory's MemorySensitivity.
+
+6. **Schema governance is first-class**: Schema evolution is the most common source of data pipeline breakage. Governing backward/forward compatibility with breaking change detection prevents silent data corruption. SchemaBreakingChange provides field-level granularity with severity classification.
+
+7. **Data freshness is first-class**: Stale data is the most common data quality failure in production pipelines. SLA-based freshness monitoring with staleness thresholds and alerting severity enables proactive alerting before downstream consumers are affected.
+
+8. **Data quality dimensions follow DAMA-DMBOK**: Completeness, Accuracy, Consistency, Timeliness, Uniqueness, Validity are the industry-standard quality dimensions. The Custom variant allows extension for domain-specific quality measures.
+
+9. **All numeric values use String**: Eq derivation for deterministic testing. Follows the established pattern across all RUNE governance libraries.
+
+### Four-Pillar Alignment
+
+| Pillar | How rune-data L1 Serves It |
+|---|---|
+| **Safety** | Quality rules and policies prevent corrupted or incomplete data from propagating through pipelines |
+| **Security** | Sensitivity classification (PII/PHI/PCI) and access governance control who can read/write/transform datasets |
+| **Trust** | Data lineage provides full source→transform→sink tracking; schema governance prevents silent data corruption |
+| **Interop** | Opaque string references (`attestation_ref`, `schema_ref`, `classification_ref`) enable loose coupling with rune-provenance, rune-privacy, rune-monitoring |
+
+### Integration Points
+
+- **rune-privacy**: DataSensitivity classification (PII, PHI) informs rune-privacy about which datasets require consent management
+- **rune-provenance**: LineageRecord.attestation_ref (opaque string) — provenance crate provides attestation verification
+- **rune-ai**: rune-ai's training_data_refs reference datasets governed by rune-data's quality/lineage/schema policies
+- **rune-monitoring**: Freshness metrics and quality scores can flow into rune-monitoring's MetricPoint surface via compatible data shapes
+
+### Scope Boundaries
+
+- Quality types define rules and results — no evaluation engine (Layer 2)
+- Classification types define labels — no automated classifier (Layer 2)
+- Lineage types define records — no chain verification engine (Layer 2)
+- Access types define policies and decisions — no access evaluator (Layer 2)
+- Schema types define compatibility — no compatibility checker (Layer 2)
+- Freshness types define policies and assessments — no freshness evaluator (Layer 2)
