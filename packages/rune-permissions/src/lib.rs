@@ -29,6 +29,7 @@ pub mod context;
 pub mod decision;
 pub mod error;
 pub mod store;
+pub mod audit;
 pub mod backend;
 pub mod decision_engine;
 pub mod policy_export;
@@ -47,6 +48,7 @@ pub use grant::{Grant, GrantId, GrantStore};
 pub use context::EvalContext;
 pub use decision::{AccessDecision, DetailedAccessDecision, EvaluationStep, FailedCheck, NearestMiss};
 pub use error::PermissionError;
+pub use audit::{PermissionsAuditEvent, PermissionsAuditLog};
 pub use store::{
     BulkGrantResult, CascadeResult, DelegationNode, EffectivePermission,
     EvaluationCache, EvaluationStats, GrantIndex, GrantRequest, LeastPrivilegeReport,

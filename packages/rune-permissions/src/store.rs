@@ -273,6 +273,81 @@ impl PermissionEventType {
                 | Self::CapabilityTokenRejected { .. }
         )
     }
+
+    pub fn is_streaming_event(&self) -> bool {
+        matches!(
+            self,
+            Self::DecisionSubscriberRegistered { .. }
+                | Self::DecisionSubscriberRemoved { .. }
+                | Self::DecisionEventPublished { .. }
+        )
+    }
+
+    pub fn kind(&self) -> &str {
+        match self {
+            // L1 role/assignment
+            Self::RoleAssigned
+            | Self::RoleRevoked => "role",
+            // L1 grants
+            Self::GrantCreated
+            | Self::GrantRevoked => "grant",
+            // L1 access
+            Self::AccessChecked => "access",
+            // L1 registration
+            Self::PermissionRegistered
+            | Self::SubjectRegistered
+            | Self::SubjectDeactivated => "registration",
+            // L2 snapshot
+            Self::PermissionSnapshotCreated
+            | Self::PermissionSnapshotRestored => "snapshot",
+            // L2 bulk/maintenance
+            Self::BulkGrantExecuted
+            | Self::ExpiredGrantsCleaned
+            | Self::GrantIndexRebuilt
+            | Self::CacheInvalidated => "maintenance",
+            // L2 simulation/analysis
+            Self::PermissionSimulated
+            | Self::EffectivePermissionsQueried
+            | Self::LeastPrivilegeAnalyzed => "analysis",
+            // L2 delegation
+            Self::DelegationCascadeRevoked
+            | Self::DelegationDepthChecked
+            | Self::TemporalDelegationCreated => "delegation",
+            // L2 SoD
+            Self::RoleConflictDetected
+            | Self::SodViolationDetected
+            | Self::SodPolicyAdded => "sod",
+            // L3 backend
+            Self::PermissionBackendChanged { .. }
+            | Self::PolicyDefinitionStored { .. }
+            | Self::PolicyDefinitionRemoved { .. }
+            | Self::RoleDefinitionStored { .. }
+            | Self::RoleDefinitionRemoved { .. }
+            | Self::PermissionGrantRecordCreated { .. }
+            | Self::PermissionGrantRecordRevoked { .. } => "backend",
+            // L3 decision
+            Self::AuthorizationDecisionMade { .. }
+            | Self::AuthorizationPermit { .. }
+            | Self::AuthorizationDeny { .. }
+            | Self::AuthorizationIndeterminate { .. }
+            | Self::AuthorizationNotApplicable
+            | Self::DecisionEngineInvoked { .. } => "decision",
+            // L3 export
+            Self::PolicyExported { .. }
+            | Self::PolicyExportFailed { .. } => "export",
+            // L3 streaming
+            Self::DecisionSubscriberRegistered { .. }
+            | Self::DecisionSubscriberRemoved { .. }
+            | Self::DecisionEventPublished { .. } => "streaming",
+            // L3 external
+            Self::ExternalEvaluatorInvoked { .. }
+            | Self::ExternalEvaluatorFailed { .. }
+            | Self::RoleProviderQueried { .. } => "external",
+            // L3 capability
+            Self::CapabilityTokenVerified { .. }
+            | Self::CapabilityTokenRejected { .. } => "capability",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

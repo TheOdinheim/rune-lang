@@ -47,3 +47,31 @@ New `kind()` categories: `hashing`, `backend`, `export`, `streaming`, `metrics`.
 - **rune-provenance**: `StoredLineageRecord.lineage_hash` and `StoredSchemaRecord.schema_hash` produce SHA3-256 digests compatible with rune-provenance attestation verification
 - **rune-monitoring**: `DataGovernanceMetricSnapshot` fields are String-valued for compatibility with rune-monitoring's MetricPoint surface
 - **rune-ai**: Quality governor's pipeline-blocking can gate training data quality before rune-ai's model training approval
+
+---
+
+## Pre-Layer-4 Cleanup
+
+**Commit:** `fix: pre-Layer-4 cleanup — add rune-permissions audit module, investigate compiler test delta, remove stray rust_out binary`
+
+### ITEM 1: rune-permissions audit module
+
+rune-permissions was the only governance library without a standalone `audit.rs`. The `PermissionEventType` enum (46 variants across L1/L2/L3) already existed in `store.rs` with `type_name()` and `is_*` classifiers, but was missing the `kind()` method that every other library provides.
+
+**Changes:**
+
+| File | Change |
+|------|--------|
+| `store.rs` | Added `kind()` method (12 categories: role, grant, access, registration, snapshot, maintenance, analysis, delegation, sod, backend, decision, export, streaming, external, capability) and `is_streaming_event()` classifier |
+| `audit.rs` | New module: `PermissionsAuditEvent` (event, actor, timestamp, description), `PermissionsAuditLog` (new, record, events, events_by_kind, since, event_count, Default) |
+| `lib.rs` | Added `pub mod audit;` declaration, `PermissionsAuditEvent` and `PermissionsAuditLog` re-exports |
+
+**Test count:** 251 (224→251, +27 new)
+
+### ITEM 2: Compiler test delta investigation
+
+The M10 commit (e308a5b) message claimed 967 compiler tests, but current count is 936 unit + 15 integration = 951. Only one commit since M10 touched compiler source (`src/embedding/tests.rs`, 3 lines changed). Checking out the M10 revision shows the same 936+15 count — the "967" was a miscount in the commit message, not an actual regression. No tests were lost.
+
+### ITEM 3: Stray `rust_out` binary
+
+Deleted `rust_out` binary from workspace root (artifact from `rustc --edition 2024` one-off compilation). Added `rust_out` to `.gitignore` to prevent recurrence.
